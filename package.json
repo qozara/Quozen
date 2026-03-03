@@ -21,6 +21,7 @@
     "test:all": "npm test --workspaces",
     "test:api": "npm run test --workspace=@quozen/api",
     "test:ai": "npm run test --workspace=@quozen/ai-proxy",
+    "test:ai:interactive": "npm run test:interactive --workspace=@quozen/ai-proxy",
     "deploy:api:vercel": "npm run build --workspaces --if-present && vercel deploy",
     "deploy:api:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/api",
     "deploy:ai:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/ai-proxy",

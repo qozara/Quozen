@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { env } from 'hono/adapter';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { generateText, jsonSchema } from 'ai';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { authMiddleware, AppEnv } from './middleware/auth';
 import { encrypt, decrypt } from './lib/kms';
+import { ProviderFactory } from './providers/factory';
 
 const app = new Hono<AppEnv>();
 
@@ -29,7 +29,7 @@ app.post('/api/v1/agent/encrypt', async (c) => {
         return c.json({ error: 'Bad Request', message: 'Missing apiKey' }, 400);
     }
 
-    const { KMS_SECRET } = env(c);
+    const { KMS_SECRET } = env(c) as AppEnv['Bindings'];
 
     if (!KMS_SECRET) {
         return c.json({ error: 'Internal Server Error', message: 'KMS_SECRET not configured' }, 500);
@@ -46,11 +46,19 @@ app.post('/api/v1/agent/encrypt', async (c) => {
 app.post('/api/v1/agent/chat', async (c) => {
     const { messages, systemPrompt, tools, ciphertext } = await c.req.json();
     const user = c.get('user');
-    const { GOOGLE_GENERATIVE_AI_API_KEY, KMS_SECRET, KV_REST_API_URL, KV_REST_API_TOKEN } = env(c);
+    const bindings = env(c) as AppEnv['Bindings'];
+    const providerId = bindings.AI_PROVIDER || 'google';
 
-    let activeApiKey = GOOGLE_GENERATIVE_AI_API_KEY;
+    const provider = ProviderFactory.getProvider(providerId);
+
+    if (!provider) {
+        return c.json({ error: 'Not Found', message: `AI Provider '${providerId}' not supported` }, 404);
+    }
+
+    let activeApiKey: string | undefined;
 
     if (ciphertext) {
+        const { KMS_SECRET } = bindings;
         if (!KMS_SECRET) {
             return c.json({ error: 'Internal Server Error', message: 'KMS_SECRET not configured' }, 500);
         }
@@ -59,10 +67,10 @@ app.post('/api/v1/agent/chat', async (c) => {
         } catch (error) {
             return c.json({ error: 'Bad Request', message: 'Invalid ciphertext' }, 400);
         }
-    } else {
+    } else if (provider.isCloud) {
         // Rate limiting for Team Key (only if KV is configured)
+        const { KV_REST_API_URL, KV_REST_API_TOKEN, AI_RATE_LIMIT_REQUESTS = '20', AI_RATE_LIMIT_WINDOW = '1 d' } = bindings;
         if (KV_REST_API_URL && KV_REST_API_TOKEN) {
-            const { AI_RATE_LIMIT_REQUESTS = '20', AI_RATE_LIMIT_WINDOW = '1 d' } = env(c);
             const redis = new Redis({
                 url: KV_REST_API_URL,
                 token: KV_REST_API_TOKEN,
@@ -78,8 +86,15 @@ app.post('/api/v1/agent/chat', async (c) => {
         }
     }
 
-    if (!activeApiKey) {
-        return c.json({ error: 'Internal Server Error', message: 'LLM API Key not configured' }, 500);
+    // Get config from provider (falls back to team config if no ciphertext)
+    const providerConfig = provider.getTeamConfig(bindings);
+    if (activeApiKey) {
+        providerConfig.apiKey = activeApiKey;
+    }
+
+    const validation = provider.validateConfig(providerConfig);
+    if (!validation.isValid) {
+        return c.json({ error: 'Internal Server Error', message: validation.error || 'Invalid LLM configuration' }, 500);
     }
 
     // Format tools from frontend (array) to SDK format (object with jsonSchema)
@@ -94,14 +109,11 @@ app.post('/api/v1/agent/chat', async (c) => {
     }
 
     try {
-        const { GOOGLE_GENERATIVE_AI_MODEL = 'gemini-2.0-flash' } = env(c);
-        console.log(`Using AI Model: ${GOOGLE_GENERATIVE_AI_MODEL}`);
-        const googleInstance = createGoogleGenerativeAI({
-            apiKey: activeApiKey,
-        });
+        console.log(`Using ${provider.id} Provider (${providerConfig.model})`);
+        const modelInstance = provider.getLanguageModel(providerConfig);
 
         const result = await generateText({
-            model: googleInstance(GOOGLE_GENERATIVE_AI_MODEL),
+            model: modelInstance,
             system: systemPrompt,
             messages,
             tools: formattedTools,
