@@ -228,7 +228,9 @@
         "signOut": "Cerrar Sesión",
         "activeGroups": "Grupos Activos",
         "scanFailed": "Error de Escaneo",
-        "scanFailedDesc": "No se pudo escanear Drive"
+        "scanFailedDesc": "No se pudo escanear Drive",
+        "aiNotAvailable": "Las funciones de IA no están disponibles actualmente.",
+        "aiNotConfiguredBuild": "Funciones de IA desactivadas por configuración de compilación."
     },
     "share": {
         "title": "Compartir \"{{name}}\"",

@@ -228,7 +228,9 @@
         "signOut": "Sign Out",
         "activeGroups": "Active Groups",
         "scanFailed": "Scan Failed",
-        "scanFailedDesc": "Could not scan Drive"
+        "scanFailedDesc": "Could not scan Drive",
+        "aiNotAvailable": "AI features are currently not available.",
+        "aiNotConfiguredBuild": "AI features disabled via build configuration."
     },
     "share": {
         "title": "Share \"{{name}}\"",

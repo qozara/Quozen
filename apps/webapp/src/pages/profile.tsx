@@ -13,6 +13,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useTranslation } from "react-i18next";
 import React from "react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAiFeature } from "@/features/agent/AiFeatureContext";
 import { agentClient } from "@/lib/agent";
 
 const POPULAR_CURRENCIES = [
@@ -59,6 +61,7 @@ export default function Profile() {
   const { settings, updateSettings } = useSettings();
   const { groups } = useGroups();
   const { t } = useTranslation();
+  const { status: aiStatus } = useAiFeature();
   const [apiKey, setApiKey] = React.useState("");
 
   const reconcileMutation = useMutation({
@@ -326,53 +329,66 @@ export default function Profile() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <Bot className="w-4 h-4 text-muted-foreground" />
-              {t("profile.aiProvider")}
-            </Label>
-            <Select
-              value={settings?.preferences?.aiProvider || "auto"}
-              onValueChange={handleAiProviderChange}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">{t("profile.aiAuto")}</SelectItem>
-                <SelectItem value="byok">{t("profile.aiByok")}</SelectItem>
-                <SelectItem value="local">{t("profile.aiLocal")}</SelectItem>
-                <SelectItem value="disabled">{t("profile.aiDisabled")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {t("profile.aiProviderDesc")}
-            </p>
-          </div>
-
-          {settings?.preferences?.aiProvider === 'byok' && (
-            <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
-              <Label className="flex items-center gap-2">
-                <Key className="w-4 h-4 text-muted-foreground" />
-                {t("profile.apiKey")}
-              </Label>
-              <div className="flex gap-2">
-                <Input
-                  type="password"
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  size="sm"
-                  onClick={handleSaveApiKey}
-                  disabled={isEncrypting || !apiKey.trim()}
-                >
-                  {isEncrypting ? <RefreshCw className="w-4 h-4 animate-spin" /> : t("profile.saveKey")}
-                </Button>
-              </div>
+          {aiStatus === 'checking' ? (
+            <div className="space-y-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-4 w-3/4" />
             </div>
+          ) : aiStatus === 'unavailable' ? (
+            <p className="text-sm text-muted-foreground italic">
+              {t("profile.aiNotAvailable")}
+            </p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-muted-foreground" />
+                  {t("profile.aiProvider")}
+                </Label>
+                <Select
+                  value={settings?.preferences?.aiProvider || "auto"}
+                  onValueChange={handleAiProviderChange}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t("profile.aiAuto")}</SelectItem>
+                    <SelectItem value="byok">{t("profile.aiByok")}</SelectItem>
+                    <SelectItem value="local">{t("profile.aiLocal")}</SelectItem>
+                    <SelectItem value="disabled">{t("profile.aiDisabled")}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t("profile.aiProviderDesc")}
+                </p>
+              </div>
+
+              {settings?.preferences?.aiProvider === 'byok' && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+                  <Label className="flex items-center gap-2">
+                    <Key className="w-4 h-4 text-muted-foreground" />
+                    {t("profile.apiKey")}
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      placeholder="sk-..."
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleSaveApiKey}
+                      disabled={isEncrypting || !apiKey.trim()}
+                    >
+                      {isEncrypting ? <RefreshCw className="w-4 h-4 animate-spin" /> : t("profile.saveKey")}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

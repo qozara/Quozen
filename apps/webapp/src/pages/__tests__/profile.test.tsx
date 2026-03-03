@@ -5,6 +5,7 @@ import { useAuth } from "@/context/auth-provider";
 import { useSettings } from "@/hooks/use-settings";
 import { useGroups } from "@/hooks/use-groups";
 import en from "@/locales/en/translation.json";
+import { useAiFeature } from "@/features/agent/AiFeatureContext";
 
 // Mock hooks
 vi.mock("@/context/app-context", () => ({
@@ -21,6 +22,10 @@ vi.mock("@/hooks/use-settings", () => ({
 
 vi.mock("@/hooks/use-groups", () => ({
   useGroups: vi.fn(),
+}));
+
+vi.mock("@/features/agent/AiFeatureContext", () => ({
+  useAiFeature: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -91,6 +96,10 @@ describe("Profile Page", () => {
     (useGroups as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       groups: mockGroups,
       isLoading: false
+    });
+
+    (useAiFeature as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      status: 'available'
     });
   });
 

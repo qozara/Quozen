@@ -87,12 +87,12 @@ We will utilize the existing root endpoint of `apps/ai-proxy` as our health chec
 
 ### **Frontend (WebApp) Tasks**
 
-**Task \[FE-01\]: Implement `AiFeatureContext` and Hook**
+**Task \[FE-01\]: Implement `AiFeatureContext` and Hook [DONE]**
 
 * **Description:** Create `apps/webapp/src/features/agent/AiFeatureContext.tsx`. Define the `AiFeatureState` interface and a `useAiFeature` hook. Provide a default context value of `{ status: 'checking' }`.  
 * **Technical Definition of Done:** Hook is exported and throws an error if used outside of the provider.
 
-**Task \[FE-02\]: Implement Startup Pre-flight Checks in Provider**
+**Task \[FE-02\]: Implement Startup Pre-flight Checks in Provider [DONE]**
 
 * **Description:** Refactor `apps/webapp/src/features/agent/AiFeatureProvider.tsx`.  
   * Add a `useEffect` with an empty dependency array `[]`.  
@@ -103,12 +103,12 @@ We will utilize the existing root endpoint of `apps/ai-proxy` as our health chec
   * **Step 5:** `console.info("[Agentic UI] Disabled:", reason)` if unavailable.  
 * **Technical Definition of Done:** The context correctly holds `available` or `unavailable` after the initial render cycle. No polling is introduced.
 
-**Task \[FE-03\]: Implement Lazy Load Error Boundary**
+**Task \[FE-03\]: Implement Lazy Load Error Boundary [DONE]**
 
 * **Description:** Create a local `AiErrorBoundary` component within `AiFeatureProvider.tsx` that catches rendering errors from the `React.lazy()` load of `AgentModule`.  
 * **Technical Definition of Done:** If `AgentModule` fails to download (e.g., chunk load error), the Error Boundary catches it, gracefully sets the context status to `unavailable` (reason: `"Module load failure"`), and returns `null` (rendering nothing).
 
-**Task \[FE-04\]: Refactor Profile Page UI**
+**Task \[FE-04\]: Refactor Profile Page UI [DONE]**
 
 * **Description:** Update `apps/webapp/src/pages/profile.tsx` to consume `useAiFeature()`.  
   * If `status === 'checking'`, render a skeleton loader in the AI Assistant card.  
@@ -116,7 +116,7 @@ We will utilize the existing root endpoint of `apps/ai-proxy` as our health chec
   * Ensure the card header (Sparkles icon and "AI Assistant" title) remains visible to provide context.  
 * **Technical Definition of Done:** Users cannot interact with or view AI settings when the subsystem is disabled.
 
-**Task \[FE-05\]: Cleanup Trigger Logic**
+**Task \[FE-05\]: Cleanup Trigger Logic [DONE]**
 
 * **Description:** Ensure that `AiFeatureProvider.tsx` conditionally renders `<Suspense><AgentModule /></Suspense>` *only* if `status === 'available'`.  
 * **Technical Definition of Done:** Since `AgentModule` is responsible for portaling the Sparkle icon into the header (`#header-actions-slot`), preventing its render automatically satisfies the requirement to hide the icon in the upper right corner. No changes to `header.tsx` are required.
