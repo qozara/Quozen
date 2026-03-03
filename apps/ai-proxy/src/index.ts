@@ -11,11 +11,16 @@ import { encrypt, decrypt } from './lib/kms';
 const app = new Hono<AppEnv>();
 
 app.use('*', cors());
-app.use('*', authMiddleware);
 
 app.get('/', (c) => {
     return c.text('Quozen AI Proxy is Running');
 });
+
+app.get('/health', (c) => {
+    return c.text('OK');
+});
+
+app.use('/api/*', authMiddleware);
 
 app.post('/api/v1/agent/encrypt', async (c) => {
     const { apiKey } = await c.req.json();

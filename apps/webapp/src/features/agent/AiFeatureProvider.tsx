@@ -67,7 +67,9 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 if (response.ok) {
                     setState({ status: 'available' });
                 } else {
-                    throw new Error('Proxy returned non-200 status');
+                    const errorText = await response.text();
+                    console.warn(`[Agentic UI] Proxy check failed: ${response.status} ${errorText}`);
+                    throw new Error(`Proxy returned ${response.status} status`);
                 }
             } catch (error) {
                 clearTimeout(timeoutId);
