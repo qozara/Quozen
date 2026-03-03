@@ -85,9 +85,9 @@ Output: {"tool": "addSettlement", "arguments": {"fromUserId": "me", "toUserId": 
 
         const response = await session.prompt(prompt);
 
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            const result = JSON.parse(jsonMatch[0]);
+        const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
+        if (jsonMatch && jsonMatch[1]) {
+            const result = JSON.parse(jsonMatch[1]);
             return await handleToolCall(result.tool, result.arguments);
         }
 
