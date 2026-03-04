@@ -4,6 +4,7 @@ import SettlementModal from "../settlement-modal";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
 import en from "@/locales/en/translation.json";
+import { Member } from "@quozen/core";
 
 vi.mock("@/context/app-context", () => ({
   useAppContext: vi.fn(() => ({ activeGroupId: "group1" })),
@@ -60,10 +61,10 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 describe("SettlementModal", () => {
-  const mockUsers = [
-    { userId: "u1", name: "Alice", email: "", role: "member", joinedAt: "" },
-    { userId: "u2", name: "Bob", email: "", role: "member", joinedAt: "" },
-    { userId: "u3", name: "Charlie", email: "", role: "member", joinedAt: "" },
+  const mockUsers: Member[] = [
+    { userId: "u1", name: "Alice", email: "", role: "member", joinedAt: new Date() },
+    { userId: "u2", name: "Bob", email: "", role: "member", joinedAt: new Date() },
+    { userId: "u3", name: "Charlie", email: "", role: "member", joinedAt: new Date() },
   ];
 
   const mockMutate = vi.fn();

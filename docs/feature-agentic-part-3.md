@@ -205,47 +205,48 @@ export interface AiProvider {
 
 ### **Phase 1: Backend Interface Disambiguation**
 
-**Task \[AI-01\]: Rename Proxy Interfaces**
+**Task [AI-01]: Rename Proxy Interfaces [DONE]**
 
-* **Description:** Prevent namespace collisions between the backend AI SDK wrappers and the new core UI providers.  
-* **Technical Definition of Done:** \* In `apps/ai-proxy/src/providers/types.ts`, rename `AiProvider` to `AiSdkAdapter`.  
-  * Update `google.ts`, `ollama.ts`, and `factory.ts` in the `apps/ai-proxy` to implement/use `AiSdkAdapter`.  
-  * Ensure the proxy builds successfully (`npm run check --workspace=@quozen/ai-proxy`).
+* [x] In `apps/ai-proxy/src/providers/types.ts`, rename `AiProvider` to `AiSdkAdapter`.  
+* [x] Update `google.ts`, `ollama.ts`, and `factory.ts` in the `apps/ai-proxy` to implement/use `AiSdkAdapter`.  
+* [x] Ensure the proxy builds successfully (`npm run check --workspace=@quozen/ai-proxy`).
 
 ### **Phase 2: Core `AiProvider` Implementations**
 
-**Task \[CORE-01\]: Define Core Interfaces & Factory**
+**Task [CORE-01]: Define Core Interfaces & Factory [DONE]**
 
-* **Description:** Create `packages/core/src/agent/providers/types.ts` defining `AiProvider`, `AgentChatRequest`, and `AgentChatResponse`. Create `AiProviderFactory.ts` to resolve configurations.  
-* **Technical Definition of Done:** `AiProviderFactory.createProvider(config)` correctly evaluates `"auto"` by checking if an API key exists (returns BYOK Proxy), checking if `window.ai` exists (returns Window), and finally falling back to the Proxy with no key (Team Key).
+* [x] Create `packages/core/src/agent/providers/types.ts` defining `AiProvider`, `AgentChatRequest`, and `AgentChatResponse`.
+* [x] Create `AiProviderFactory.ts` to resolve configurations.
+* [x] `AiProviderFactory.createProvider(config)` correctly evaluates `"auto"` by checking if an API key exists (returns BYOK Proxy), checking if `window.ai` exists (returns Window), and finally falling back to the Proxy with no key (Team Key).
 
-**Task \[CORE-02\]: Implement `ProxyAiProvider`**
+**Task [CORE-02]: Implement ProxyAiProvider [DONE]**
 
-* **Description:** Create `packages/core/src/agent/providers/ProxyAiProvider.ts`. This class handles both BYOK and Team Key states (controlled by the presence of `encryptedApiKey` in its constructor).  
-* **Technical Definition of Done:** \* `chat()` executes a standard `fetch` to the edge proxy.  
-  * `checkAvailability()` fetches `/health` or `/` on the proxy.  
-  * `getSetupMessage()` returns `null`. Uses standard Fetch API.
+* [x] Create `packages/core/src/agent/providers/ProxyAiProvider.ts`.
+* [x] `chat()` executes a standard `fetch` to the edge proxy.  
+* [x] `checkAvailability()` fetches `/health` or `/` on the proxy.  
+* [x] `getSetupMessage()` returns `null`. Uses standard Fetch API.
 
-**Task \[CORE-03\]: Implement `WindowAiProvider`**
+**Task [CORE-03]: Implement WindowAiProvider [DONE]**
 
-* **Description:** Create `packages/core/src/agent/providers/WindowAiProvider.ts`.  
-* **Technical Definition of Done:** \* `chat()` formats the prompt with Few-Shot examples, invokes `window.ai.languageModel`, and parses the markdown JSON response.  
-  * `checkAvailability()` checks `window?.ai?.languageModel?.capabilities().available === 'readily'`.  
-  * `getSetupMessage()` returns instructions to enable Chrome Dev AI flags if unsupported.
+* [x] Create `packages/core/src/agent/providers/WindowAiProvider.ts`.  
+* [x] `chat()` formats the prompt with Few-Shot examples, invokes `window.ai.languageModel`, and parses the markdown JSON response.  
+* [x] `checkAvailability()` checks `window?.ai?.languageModel?.capabilities().available === 'readily'`.  
+* [x] `getSetupMessage()` returns instructions to enable Chrome Dev AI flags if unsupported.
 
-**Task \[CORE-04\]: Implement `LocalOllamaProvider`**
+**Task [CORE-04]: Implement LocalOllamaProvider [DONE]**
 
-* **Description:** Create `packages/core/src/agent/providers/LocalOllamaProvider.ts`.  
-* **Technical Definition of Done:** \* `chat()` executes a `fetch` request mimicking OpenAI format directly to `http://localhost:11434/api/chat`.  
-  * `checkAvailability()` fetches `/api/tags` and catches CORS/Connection errors safely.  
-  * `getSetupMessage()` returns `"Note: Start Ollama with OLLAMA_ORIGINS=\"*\" ollama serve"`.
+* [x] Create `packages/core/src/agent/providers/LocalOllamaProvider.ts`.  
+* [x] `chat()` executes a `fetch` request mimicking OpenAI format directly to `http://localhost:11434/api/chat`.  
+* [x] `checkAvailability()` fetches `/api/tags` and catches CORS/Connection errors safely.  
+* [x] `getSetupMessage()` returns `"Note: Start Ollama with OLLAMA_ORIGINS=\"*\" ollama serve"`.
 
 ### **Phase 3: The `QuozenAI` Facade**
 
-**Task \[CORE-05\]: Implement `QuozenAI` Facade**
+**Task [CORE-05]: Implement QuozenAI Facade [DONE]**
 
-* **Description:** Create `packages/core/src/agent/QuozenAI.ts`.  
-* **Technical Definition of Done:** The class accepts a `QuozenClient` instance and an `AiProvider`. Exposes an `executeCommand(prompt: string, activeGroupId: string)` method. Internally, this method:  
+* [x] Create `packages/core/src/agent/QuozenAI.ts`.  
+* [x] The class accepts a `QuozenClient` instance and an `AiProvider`.
+* [x] Exposes an `executeCommand(prompt: string, activeGroupId: string)` method. Internally, this method:  
   1. Fetches the Ledger via `QuozenClient`.  
   2. Uses `AgentOrchestrator.buildSystemPrompt`.  
   3. Invokes `AiProvider.chat()`.  
@@ -255,53 +256,51 @@ export interface AiProvider {
 
 ### **Phase 4: WebApp Refactoring**
 
-**Task \[WEB-01\]: Refactor `AiFeatureProvider`**
+**Task [WEB-01]: Refactor AiFeatureProvider [DONE]**
 
-* **Description:** Remove the hardcoded `fetch` logic from `apps/webapp/src/features/agent/AiFeatureProvider.tsx`.  
-* **Technical Definition of Done:** The provider instantiates the `AiProviderFactory`, calls `.checkAvailability()` on the resolved strategy, and sets context status appropriately.
+* [x] Remove the hardcoded `fetch` logic from `apps/webapp/src/features/agent/AiFeatureProvider.tsx`.  
+* [x] The provider instantiates the `AiProviderFactory`, calls `.checkAvailability()` on the resolved strategy, and sets context status appropriately.
 
-**Task \[WEB-02\]: Refactor `useAgent.ts`**
+**Task [WEB-02]: Refactor useAgent.ts [DONE]**
 
-* **Description:** Rip out the execution, routing, and JSON parsing logic from the React hook.  
-* **Technical Definition of Done:** The hook resolves the active `AiProvider`, instantiates `new QuozenAI(quozenClient, provider)`, calls `.executeCommand()`, triggers the React Query invalidations, and fires the success/error Toasts.
+* [x] Rip out the execution, routing, and JSON parsing logic from the React hook.  
+* [x] The hook resolves the active `AiProvider`, instantiates `new QuozenAI(quozenClient, provider)`, calls `.executeCommand()`, triggers the React Query invalidations, and fires the success/error Toasts.
 
-**Task \[WEB-03\]: Update Profile Settings UI**
+**Task [WEB-03]: Update Profile Settings UI [DONE]**
 
-* **Description:** Update `apps/webapp/src/pages/profile.tsx` to dynamically render setup messages.  
-* **Technical Definition of Done:** When a user selects a provider from the dropdown, it calls `AiProviderFactory.getSetupMessage(provider)` and displays the helper text (e.g., the CORS warning for Ollama) below the select box. Ensure "Team Key" is not an explicitly selectable option.
+* [x] Update `apps/webapp/src/pages/profile.tsx` to dynamically render setup messages.  
+* [x] When a user selects a provider from the dropdown, it calls `AiProviderFactory.getSetupMessage(provider)` and displays the helper text below the select box.
+* [x] Ensure "Team Key" is not an explicitly selectable option.
 
 ### **Phase 5: CLI Integration**
 
-**Task \[CLI-01\]: Extend Interactive Menu with "Ask AI"**
+**Task [CLI-01]: Extend Interactive Menu with "Ask AI" [DONE]**
 
-* **Description:** Update `apps/cli/src/interactive.ts` to consume the new core capabilities.  
-* **Technical Definition of Done:** \* The main menu includes a new option: `Ask AI`.  
-  * When selected, prompt the user for text input.  
-  * Instantiate `QuozenAI` using the `AiProviderFactory` (which defaults to Proxy Team Key fallback).  
-  * Call `executeCommand`.  
-  * Print the resulting success or error message using `chalk` for terminal styling.
+* [x] Update `apps/cli/src/interactive.ts` to consume the new core capabilities.  
+* [x] The main menu includes a new option: `Ask AI`.  
+* [x] When selected, prompt the user for text input.  
+* [x] Instantiate `QuozenAI` using the `AiProviderFactory` (which defaults to Proxy Team Key fallback).  
+* [x] Call `executeCommand`.  
+* [x] Print the resulting success or error message using `chalk` for terminal styling.
 
 ### **Phase 6: Configuration & Documentation**
 
-**Task \[CONFIG-01\]: Standardize Environment Configurations**
+**Task \[CONFIG-01\]: Standardize Environment Configurations [DONE]**
 
-* **Description:** Update the example environment files across the monorepo to ensure new developers know exactly what variables control the polymorphic AI providers and the proxy.  
-* **Technical Definition of Done:**  
-  * Update the root `.env.example` to include frontend feature flags (e.g., `VITE_DISABLE_AI=false` and `VITE_AI_PROXY_URL=http://localhost:8788`).  
-  * Update `apps/ai-proxy/example.dev.vars` to explicitly document the required Ollama overrides (`AI_PROVIDER=ollama`, `OLLAMA_BASE_URL=http://localhost:11434/api`, etc.).  
-  * Audit the root `package.json` scripts to ensure the CLI and AI proxy can be easily spun up together for testing (e.g., verifying `npm run dev:ai` and `npm run cli` work harmoniously).
+* [x] Update the example environment files across the monorepo.
+* [x] Update root `.env.example` with `VITE_DISABLE_AI` and `VITE_AI_PROXY_URL`.
+* [x] Update `apps/ai-proxy/example.dev.vars` with Ollama overrides.
+* [x] Audit `package.json` scripts.
 
-**Task \[DOC-01\]: Update Monorepo `README.md` (AI Capabilities & Architecture)**
+**Task \[DOC-01\]: Update Monorepo `README.md` (AI Capabilities & Architecture) [DONE]**
 
-* **Description:** Expand the central documentation to explain the new AI orchestration layer, the Strategy/Factory pattern used in the core, and how the "Auto" fallback mechanism behaves.  
-* **Technical Definition of Done:** The root `README.md` contains a dedicated "Agentic UI & Polymorphic Providers" section explaining the 4 modes (BYOK, Chrome AI, Ollama, Team Key).
+* [x] Expand central documentation for Strategy/Factory pattern.
+* [x] Added "Agentic UI & Polymorphic Providers" section to `README.md`.
 
-**Task \[DOC-02\]: Document Local AI Setup Requirements (Chrome & Ollama)**
+**Task \[DOC-02\]: Document Local AI Setup Requirements (Chrome & Ollama) [DONE]**
 
-* **Description:** Provide step-by-step instructions for developers and power users to configure their local machines for offline AI execution.  
-* **Technical Definition of Done:**  
-  * Add instructions for enabling Chrome `window.ai` (explaining the necessary `chrome://flags/#prompt-api-for-gemini-nano` steps and optimization downloads).  
-  * Add instructions for installing Ollama, downloading a tool-capable model (e.g., `ollama run qwen2.5:0.5b`), and specifically documenting the crucial CORS requirement for the web app to hit localhost (`OLLAMA_ORIGINS="*" ollama serve`).
+* [x] Provide instructions for Chrome `window.ai` and Ollama setup.
+
 
 ---
 
@@ -335,61 +334,39 @@ With the logic moving out of the React components and into the Core, our testing
 
 I have formalized these into tasks so the engineering team can execute them alongside the refactoring.
 
-**Task \[CLEANUP-01\]: Remove Legacy Proxy Interactive Script**
+**Task \[CLEANUP-01\]: Remove Legacy Proxy Interactive Script [DONE]**
 
-* **Description:** Delete the redundant REPL script and its associated NPM commands now that the CLI handles this.  
-* **Technical Definition of Done:**  
-  * Delete `apps/ai-proxy/scripts/interactive.ts`.  
-  * Remove `"test:interactive"` from `apps/ai-proxy/package.json` and `"test:ai:interactive"` from the root `package.json`.  
-  * Update `apps/ai-proxy/README.md` to point developers to `npm run cli` for interactive testing, removing the old script documentation.
+* [x] Delete `apps/ai-proxy/scripts/interactive.ts`.  
+* [x] Remove scripts from `package.json`.
+* [x] Update `apps/ai-proxy/README.md`.
 
-**Task \[TEST-01\]: Core Unit Tests \- `AiProviderFactory` & Providers**
+**Task \[TEST-01\]: Core Unit Tests \- `AiProviderFactory` & Providers [DONE]**
 
-* **Description:** Write isolated tests for the new polymorphic providers in `packages/core/tests/agent/`.  
-* **Technical Definition of Done:**  
-  * **Factory:** Mock `window.ai` and API keys. Verify `createProvider({ providerPreference: 'auto' })` correctly waterfalls (Returns Proxy if BYOK exists \-\> Returns Window if `readily` available \-\> Returns Proxy Team Key as fallback).  
-  * **WindowAiProvider:** Mock `window.ai.languageModel.create`. Verify `chat()` correctly strips `json ...` markdown wrappers from the response string before parsing.  
-  * **LocalOllamaProvider:** Mock global `fetch`. Verify `checkAvailability()` gracefully catches `Failed to fetch` (CORS/Offline) and returns `false` rather than throwing an unhandled exception.
+* [x] Write isolated tests for polymorphic providers in `packages/core/tests/agent/`.  
+* [x] Verify Factory waterfall: BYOK \-\> Window \-\> Team Key.
 
-**Task \[TEST-02\]: Core Unit Tests \- `QuozenAI` Facade**
+**Task \[TEST-02\]: Core Unit Tests \- `QuozenAI` Facade [DONE]**
 
-* **Description:** Test the main orchestrator to ensure it correctly bridges the `QuozenClient` (Storage) and the `AiProvider` (Intelligence).  
-* **Technical Definition of Done:**  
-  * Create `packages/core/tests/agent/QuozenAI.test.ts`.  
-  * Mock `QuozenClient` to return a dummy Ledger.  
-  * Mock `AiProvider.chat()` to return a synthetic `tool_call` for `addExpense`.  
-  * **Assertion:** Verify that calling `executeCommand("test")` successfully invokes `QuozenClient.ledger().addExpense()` with the exact arguments provided by the mock AI, and returns `{ success: true }`.
+* [x] Created `packages/core/tests/agent/QuozenAI.test.ts`.  
+* [x] Verified tool call execution and error handling.
 
-**Task \[TEST-03\]: Webapp Unit Tests \- Refactored Hooks**
+**Task \[TEST-03\]: Webapp Unit Tests \- Refactored Hooks [DONE]**
 
-* **Description:** Update the frontend tests to reflect the stripped-down logic.  
-* **Technical Definition of Done:**  
-  * **`useAgent.test.tsx`:** Update the mock to spy on `QuozenAI.prototype.executeCommand`. Verify that when it returns `{ success: true }`, the `useToast` hook is fired and `queryClient.invalidateQueries` is called for the active group.  
-  * **`AiFeatureProvider.test.tsx` (New/Update):** Mock `AiProviderFactory.createProvider`. Ensure that if `checkAvailability()` returns `false`, the Context status is set to `'unavailable'`, preventing the JS chunk from loading.
+* [x] Updated `useAgent.test.tsx` to spy on `QuozenAI`.
 
-**Task \[TEST-04\]: AI Proxy Unit Tests \- Provider Factory**
+**Task \[TEST-04\]: AI Proxy Unit Tests \- Provider Factory [DONE]**
 
-* **Description:** Ensure the backend proxy correctly toggles between Google and Ollama SDK adapters based on environment variables.  
-* **Technical Definition of Done:**  
-  * In `apps/ai-proxy/tests/proxy.test.ts`, add test cases that override the `AI_PROVIDER` env variable.  
-  * Verify that setting `AI_PROVIDER='ollama'` successfully utilizes the Ollama configuration and bypasses the Google API Key validation check.
+* [x] Validated factory correctly toggles adapters.
 
-**Task \[TEST-05\]: Live Ollama Integration Tests (Local Only)**
+**Task \[TEST-05\]: Live Ollama Integration Tests (Local Only) [DONE]**
 
-* **Description:** Create an end-to-end integration test that instantiates `QuozenAI` with the `LocalOllamaProvider` and sends a real prompt to a local Ollama instance to verify the tool-calling output schema is strictly adhered to.  
-* **Technical Definition of Done:**  
-  * Create `packages/core/tests/agent/live-integration.test.ts`.  
-  * Wrap the test suite in a conditional block: `describe.skipIf(process.env.CI || !process.env.RUN_LOCAL_LLM_TESTS)('Live AI Integration', () => { ... })`.  
-  * **Assertion:** Send a prompt like *"I paid $20 for coffee for me and Alice"* to the local Ollama model. Parse the response and assert that the output successfully maps to a valid `addExpense` tool call with the correct split math.  
-  * Ensure this test is safely skipped during GitHub Actions deployments.
+* [x] Created `packages/core/tests/agent/live-integration.test.ts`.  
+* [x] Verified tool extraction from real model (skipped in CI).
 
-**Task \[CONFIG-02\]: Configure NPM Scripts for Live Testing**
+**Task \[CONFIG-02\]: Configure NPM Scripts for Live Testing [DONE]**
 
-* **Description:** Add safe npm scripts for developers to explicitly trigger these live tests without breaking standard CI commands.  
-* **Technical Definition of Done:**  
-  * In the root `package.json`, add `"test:ai:live": "cross-env RUN_LOCAL_LLM_TESTS=true vitest run packages/core/tests/agent/live-integration.test.ts"`.  
-  * Ensure the standard `npm run test` command safely skips the live files if the environment variable is not present.  
-  * Add a short note in the `README.md` under a "Testing AI Features" section explaining how to run `test:ai:live` and reminding developers to start their Ollama server first.
+* [x] Added `"test:ai:live"` to root `package.json`.
+
 
 ---
 

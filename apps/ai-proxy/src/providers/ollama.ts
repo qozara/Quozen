@@ -1,8 +1,8 @@
 import { createOllama } from 'ollama-ai-provider';
-import { AiProvider, ProviderConfig } from './types';
+import { AiSdkAdapter, ProviderConfig } from './types';
 import { LanguageModel } from 'ai';
 
-export class OllamaProvider implements AiProvider {
+export class OllamaProvider implements AiSdkAdapter {
     readonly id = 'ollama';
     readonly isCloud = false;
 

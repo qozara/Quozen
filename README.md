@@ -144,3 +144,28 @@ The CLI connects directly to your Google Drive via a local OAuth loopback server
    ```bash
    npm run cli
    ```
+
+---
+
+## 🤖 Agentic UI & Polymorphic Providers
+
+Quozen features a state-of-the-art **Agentic UI** that allows you to manage your expenses using natural language (e.g., *"I paid $50 for lunch, split it with Alice"*). 
+
+The system uses a **Polymorphic Provider Architecture** that automatically routes your commands through a waterfall strategy:
+
+1.  **Bring Your Own Key (BYOK):** If you provide a personal Gemini/OpenAI API key in settings, it is encrypted via our **Edge KMS** and stored safely in your Google Drive. All AI processing then happens using your dedicated quota.
+2.  **On-Device AI (Gemini Nano):** If your browser supports it (e.g., Chrome with AI features enabled), Quozen uses your local hardware for 100% private and free processing.
+3.  **Local LLM (Ollama):** Power users can connect the WebApp or CLI to a local `Ollama` instance running models like `qwen2.5` or `llama3`.
+4.  **Cloud Proxy (Team Key):** As a fallback, Quozen provided a rate-limited cloud proxy utilizing a budget-friendly model for occasional use.
+
+### Enabling Local AI (Chrome)
+To use On-Device AI:
+1.  Use **Chrome Dev/Canary** (Version 127+).
+2.  Enable `#prompt-api-for-gemini-nano` and `#enlightened-optimization-guide` in `chrome://flags`.
+3.  Relaunch and verify progress in `chrome://components`.
+
+### Running with Ollama
+1.  Install [Ollama](https://ollama.com/).
+2.  Start with external origins allowed: `OLLAMA_ORIGINS="*" ollama serve`.
+3.  Pull a model: `ollama pull qwen2.5:0.5b`.
+4.  Update your `.env` with `VITE_OLLAMA_URL=http://localhost:11434/api`.

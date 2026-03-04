@@ -1,8 +1,8 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { AiProvider, ProviderConfig } from './types';
+import { AiSdkAdapter, ProviderConfig } from './types';
 import { LanguageModel } from 'ai';
 
-export class GoogleProvider implements AiProvider {
+export class GoogleProvider implements AiSdkAdapter {
     readonly id = 'google';
     readonly isCloud = true;
 

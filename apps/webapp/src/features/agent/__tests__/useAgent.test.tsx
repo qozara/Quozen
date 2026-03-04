@@ -5,6 +5,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from 'react';
 
 // Mocks
+const mockExecuteCommand = vi.fn();
+vi.mock("@quozen/core", () => {
+    return {
+        QuozenAI: vi.fn().mockImplementation(function (this: any) {
+            this.executeCommand = mockExecuteCommand;
+            return this;
+        }),
+        AiProviderFactory: {
+            createProvider: vi.fn().mockResolvedValue({ id: 'test' }),
+            getSetupMessage: vi.fn().mockReturnValue(null)
+        }
+    };
+});
+
 vi.mock("@/hooks/use-settings", () => ({
     useSettings: vi.fn(() => ({
         settings: {
@@ -16,27 +30,24 @@ vi.mock("@/hooks/use-settings", () => ({
 
 vi.mock("../useRagContext", () => ({
     useRagContext: vi.fn(() => ({
-        systemPrompt: 'System Prompt',
-        ledger: {},
         activeGroupId: 'g1'
     })),
 }));
 
-vi.mock("@/hooks/use-toast", () => ({
-    useToast: vi.fn(() => ({ toast: vi.fn() })),
-}));
+vi.mock("@/hooks/use-toast", () => {
+    const toast = vi.fn();
+    return {
+        useToast: () => ({ toast }),
+        toast
+    };
+});
 
 vi.mock("react-i18next", () => ({
     useTranslation: () => ({ t: (key: string) => key }),
 }));
 
 vi.mock("@/lib/storage", () => ({
-    quozen: {
-        ledger: vi.fn(() => ({
-            addExpense: vi.fn().mockResolvedValue({}),
-            addSettlement: vi.fn().mockResolvedValue({}),
-        })),
-    },
+    quozen: {},
 }));
 
 vi.mock("@/lib/tokenStore", () => ({
@@ -50,44 +61,36 @@ const queryClient = new QueryClient({
 });
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client= { queryClient } > { children } </QueryClientProvider>
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 );
 
 describe("useAgent Hook", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        global.fetch = vi.fn();
     });
 
-    it("executeCommand calls proxy when provider is cloud", async () => {
-        (global.fetch as any).mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ type: 'text', content: 'AI Response' })
-        });
+    it("should instantiate QuozenAI and call executeCommand", async () => {
+        mockExecuteCommand.mockResolvedValue({ success: true, message: 'Success!' });
 
         const { result } = renderHook(() => useAgent(), { wrapper });
 
         const response = await result.current.executeCommand("hello");
 
-        expect(global.fetch).toHaveBeenCalled();
-        expect(response.success).toBe(false); // Success is false for text response as per current implementation
-        expect(response.message).toBe('AI Response');
+        expect(mockExecuteCommand).toHaveBeenCalledWith("hello", "g1");
+        expect(response.success).toBe(true);
+        expect(response.message).toBe('Success!');
     });
 
-    it("handleToolCall adds expense when AI returns tool_call", async () => {
-        (global.fetch as any).mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({
-                type: 'tool_call',
-                tool: 'addExpense',
-                arguments: { description: 'lunch', amount: 50 }
-            })
-        });
+    it("should show error toast if no active group", async () => {
+        const { useRagContext } = await import("../useRagContext");
+        (useRagContext as any).mockReturnValue({ activeGroupId: null });
 
         const { result } = renderHook(() => useAgent(), { wrapper });
+        await result.current.executeCommand("hello");
 
-        const response = await result.current.executeCommand("I paid 50 for lunch");
-
-        expect(response.success).toBe(true);
+        const { toast } = await import("@/hooks/use-toast");
+        expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+            variant: "destructive"
+        }));
     });
 });

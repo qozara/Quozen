@@ -24,6 +24,10 @@ export class QuozenClient {
         this.groups = new GroupRepository(this.storage, config.user);
     }
 
+    public get user(): User {
+        return this.config.user;
+    }
+
     public ledger(groupId: string): LedgerService {
         const repo = new LedgerRepository(this.storage, groupId);
         return new LedgerService(repo, this.config.user);

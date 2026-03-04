@@ -21,7 +21,7 @@
     "test:all": "npm test --workspaces",
     "test:api": "npm run test --workspace=@quozen/api",
     "test:ai": "npm run test --workspace=@quozen/ai-proxy",
-    "test:ai:interactive": "npm run test:interactive --workspace=@quozen/ai-proxy",
+    "test:ai:live": "cross-env RUN_LOCAL_LLM_TESTS=true vitest run packages/core/tests/agent/live-integration.test.ts",
     "deploy:api:vercel": "npm run build --workspaces --if-present && vercel deploy",
     "deploy:api:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/api",
     "deploy:ai:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/ai-proxy",

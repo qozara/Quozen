@@ -16,6 +16,7 @@ import React from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAiFeature } from "@/features/agent/AiFeatureContext";
 import { agentClient } from "@/lib/agent";
+import { AiProviderFactory } from "@quozen/core";
 
 const POPULAR_CURRENCIES = [
   "USD", "EUR", "GBP", "JPY", "CAD", "AUD", "INR", "CNY", "BRL", "MXN", "ARS", "CHF"
@@ -362,6 +363,11 @@ export default function Profile() {
                 <p className="text-xs text-muted-foreground">
                   {t("profile.aiProviderDesc")}
                 </p>
+                {AiProviderFactory.getSetupMessage(settings?.preferences?.aiProvider || 'auto') && (
+                  <p className="text-xs font-medium text-amber-600 mt-2 bg-amber-50 p-2 rounded border border-amber-100 italic">
+                    {AiProviderFactory.getSetupMessage(settings?.preferences?.aiProvider || 'auto')}
+                  </p>
+                )}
               </div>
 
               {settings?.preferences?.aiProvider === 'byok' && (

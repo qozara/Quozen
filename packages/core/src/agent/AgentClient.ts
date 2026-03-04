@@ -1,18 +1,4 @@
-export interface AgentChatRequest {
-    messages: { role: string; content: string }[];
-    systemPrompt: string;
-    tools?: any[];
-    ciphertext?: string;
-}
-
-export interface AgentChatResponse {
-    type: 'text' | 'tool_call';
-    content?: string;
-    tool?: string;
-    arguments?: any;
-    error?: string;
-    message?: string;
-}
+import { AgentChatRequest, AgentChatResponse } from './providers/types';
 
 export class AgentClient {
     constructor(

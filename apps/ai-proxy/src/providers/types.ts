@@ -6,7 +6,7 @@ export interface ProviderConfig {
     model: string;
 }
 
-export interface AiProvider {
+export interface AiSdkAdapter {
     readonly id: string;
     readonly isCloud: boolean;
     getLanguageModel(config: ProviderConfig): LanguageModel;

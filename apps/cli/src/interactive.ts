@@ -1,7 +1,7 @@
 import prompts from 'prompts';
 import chalk from 'chalk';
-import { getQuozenCliClient } from './quozen.js';
-import { formatCurrency } from '@quozen/core';
+import { formatCurrency, AiProviderFactory, QuozenAI } from '@quozen/core';
+import { getQuozenCliClient, getAuthToken } from './quozen.js';
 
 export async function startInteractive() {
     console.log(chalk.cyan("Initializing Quozen CLI..."));
@@ -24,6 +24,7 @@ export async function startInteractive() {
             message: `Quozen CLI - Select an action (Current Group: ${chalk.green(groupName)})`,
             choices: [
                 { title: 'View Dashboard', value: 'dashboard' },
+                { title: 'Ask AI 🤖', value: 'ask_ai' },
                 { title: 'Switch Group', value: 'switch_group' },
                 { title: 'Add Expense', value: 'add_expense' },
                 { title: 'Record Settlement', value: 'record_settlement' },
@@ -55,6 +56,39 @@ export async function startInteractive() {
                     }
                 });
                 console.log("");
+            } else if (action === 'ask_ai') {
+                if (!activeGroupId) {
+                    console.log(chalk.red("No active group selected."));
+                    continue;
+                }
+
+                const { prompt: aiPrompt } = await prompts({
+                    type: 'text',
+                    name: 'prompt',
+                    message: 'What do you want to do?'
+                });
+
+                if (aiPrompt) {
+                    console.log(chalk.cyan("🤖 Processing with AI..."));
+
+                    const config = {
+                        providerPreference: (settings?.preferences?.aiProvider || 'auto') as any,
+                        encryptedApiKey: settings?.encryptedApiKey,
+                        proxyUrl: process.env.VITE_AI_PROXY_URL || 'http://localhost:8788'
+                    };
+
+                    const provider = await AiProviderFactory.createProvider(config, getAuthToken);
+
+                    const ai = new QuozenAI(quozen, provider);
+
+                    const result = await ai.executeCommand(aiPrompt, activeGroupId);
+
+                    if (result.success) {
+                        console.log(chalk.green(`✨ ${result.message}`));
+                    } else {
+                        console.log(chalk.red(`❌ AI Error: ${result.message}`));
+                    }
+                }
             } else if (action === 'switch_group') {
                 const { newGroupId } = await prompts({
                     type: 'select',

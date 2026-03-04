@@ -16,17 +16,14 @@ npm run dev
 
 ---
 
-## Testing the Proxy Locally (Google Cloud)
+## Testing the Proxy
+The easiest way to test the proxy is to use the Quozen CLI in a separate terminal:
 
-To test the proxy without running the full web app, you can use the interactive CLI test script.
+1. Start the proxy: `npm run dev`
+2. Run the CLI: `npm run cli`
+3. Select **Ask AI** from the menu.
 
-1. Ensure `.dev.vars` has a valid `GOOGLE_GENERATIVE_AI_API_KEY`.
-2. Set `AI_PROVIDER=google` (default).
-3. Run:
-   ```bash
-   npm run test:interactive
-   ```
-   (Or `npm run test:ai:interactive` from the root)
+The CLI will utilize the `VITE_AI_PROXY_URL` (default: http://localhost:8788) to communicate with this service.
 
 ---
 
@@ -49,11 +46,6 @@ Update your `.dev.vars`:
 AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434/api
 OLLAMA_AI_MODEL=qwen3:0.6b
-```
-
-### 4. Run the interactive test
-```bash
-npm run test:interactive
 ```
 
 ---

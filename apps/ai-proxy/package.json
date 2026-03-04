@@ -7,7 +7,6 @@
         "dev": "wrangler dev src/index.ts --port 8788",
         "build": "npm run build --workspace=@quozen/core && tsc --noEmit",
         "test": "vitest run",
-        "test:interactive": "tsx scripts/interactive.ts",
         "deploy": "wrangler deploy"
     },
     "dependencies": {

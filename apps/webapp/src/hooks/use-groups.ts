@@ -11,7 +11,7 @@ export function useGroups() {
         description: "Google Sheet Group",
         createdBy: "Unknown",
         participants: [], // Cache doesn't store participants details for performance
-        createdAt: cg.lastAccessed || new Date().toISOString(),
+        createdAt: cg.lastAccessed ? new Date(cg.lastAccessed) : new Date(),
         isOwner: cg.role === "owner",
     })) || [];
 

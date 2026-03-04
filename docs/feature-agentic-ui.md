@@ -115,7 +115,19 @@ We now have all the pieces for this massive feature:
 3. **The 'Auto' Routing Waterfall** (BYOK \-\> Local AI \-\> Team Key)  
 4. **The Command Drawer UX** (Invisible execution with Toast feedback)
 
-### **7\. Epic Definition**
+### **7\. New Architecture: The Core AI Layer**
+
+To ensure consistency across the WebApp, CLI, and future platforms, the AI orchestration has been encapsulated within the `@quozen/core` package:
+
+*   **`AiProvider` Contract:** An abstract interface standardizing `chat()`, `checkAvailability()`, and `getSetupMessage()`.
+*   **`ProxyAiProvider`:** Handles communication with the `ai-proxy` microservice, supporting both Team Keys and Client-Side Encrypted BYOK.
+*   **`WindowAiProvider`:** Leverages `window.ai` (Gemini Nano) for 100% private, zero-latency execution.
+*   **`LocalOllamaProvider`:** Enables developers and power users to use local models via `Ollama`.
+*   **`AiProviderFactory`:** A singleton that resolves the best available provider based on user settings and environment capabilities.
+*   **`QuozenAI` Facade:** A simplified class that marries a `QuozenClient` with an `AiProvider` to provide a one-line `executeCommand()` method.
+
+### **8\. Epic Definition**
+
 
 This is for the Software Architect to create the detailed plan.
 

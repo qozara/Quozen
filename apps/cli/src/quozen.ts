@@ -67,3 +67,9 @@ export async function getQuozenCliClient() {
         cacheTtlMs: 60000
     });
 }
+
+export async function getAuthToken(): Promise<string | null> {
+    const credentials = await getCredentials();
+    if (!credentials) return null;
+    return credentials.access_token;
+}

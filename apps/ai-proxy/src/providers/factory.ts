@@ -1,8 +1,8 @@
-import { AiProvider } from './types';
+import { AiSdkAdapter } from './types';
 import { GoogleProvider } from './google';
 import { OllamaProvider } from './ollama';
 
-const providers: Record<string, AiProvider> = {
+const providers: Record<string, AiSdkAdapter> = {
     google: new GoogleProvider(),
     ollama: new OllamaProvider(),
 };
@@ -11,7 +11,7 @@ const providers: Record<string, AiProvider> = {
  * Registry for AI Providers. New providers can be added here without touching the main business logic.
  */
 export const ProviderFactory = {
-    getProvider(id: string): AiProvider | undefined {
+    getProvider(id: string): AiSdkAdapter | undefined {
         return providers[id];
     },
 

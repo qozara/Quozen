@@ -1,0 +1,64 @@
+import { AiProvider, AgentChatRequest, AgentChatResponse, AuthTokenGetter } from './types';
+
+export class ProxyAiProvider implements AiProvider {
+    readonly id = 'cloud-proxy';
+
+    constructor(
+        private proxyUrl: string,
+        private getAuthToken: AuthTokenGetter,
+        private encryptedApiKey?: string
+    ) { }
+
+    async chat(request: AgentChatRequest): Promise<AgentChatResponse> {
+        try {
+            const token = await this.getAuthToken();
+            if (!token) {
+                return { type: 'text', error: 'Authorization required' };
+            }
+
+            const response = await fetch(`${this.proxyUrl}/api/v1/agent/chat`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    messages: request.messages,
+                    systemPrompt: request.systemPrompt,
+                    tools: request.tools,
+                    ciphertext: this.encryptedApiKey
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({})) as any;
+                return {
+                    type: 'text',
+                    error: error.message || error.error || `Proxy request failed (${response.status})`
+                };
+            }
+
+            return await response.json() as AgentChatResponse;
+        } catch (error: any) {
+            return { type: 'text', error: error.message || 'Network error' };
+        }
+    }
+
+    async checkAvailability(): Promise<boolean> {
+        if (!this.proxyUrl) return false;
+        try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 3000);
+            // Health check is unauthenticated
+            const response = await fetch(this.proxyUrl, { signal: controller.signal });
+            clearTimeout(id);
+            return response.ok;
+        } catch {
+            return false;
+        }
+    }
+
+    getSetupMessage(): string | null {
+        return null;
+    }
+}
