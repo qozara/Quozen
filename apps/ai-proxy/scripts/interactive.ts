@@ -126,11 +126,11 @@ async function main() {
 
         conversationHistory.push({ role: 'user', content: input });
 
-        // Set process.env directly for the current request context (reliable for Node/tsx tests)
+        const requestEnv = { ...process.env };
         if (AI_PROVIDER === 'google') {
-            process.env.GOOGLE_GENERATIVE_AI_MODEL = selectedModel;
+            requestEnv.GOOGLE_GENERATIVE_AI_MODEL = selectedModel;
         } else {
-            process.env.OLLAMA_AI_MODEL = selectedModel;
+            requestEnv.OLLAMA_AI_MODEL = selectedModel;
         }
 
         console.log(`[DEBUG] Context Env: ${AI_PROVIDER === 'google' ? 'GOOGLE_GENERATIVE_AI_MODEL' : 'OLLAMA_AI_MODEL'}=${process.env[AI_PROVIDER === 'google' ? 'GOOGLE_GENERATIVE_AI_MODEL' : 'OLLAMA_AI_MODEL']}`);
