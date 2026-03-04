@@ -137,7 +137,7 @@ app.post('/api/v1/agent/chat', async (c) => {
         console.error('LLM Error:', error);
         return c.json({
             error: 'Internal Server Error',
-            message: error.message || 'LLM request failed'
+            message: 'LLM request failed'
         }, 500);
     }
 });
