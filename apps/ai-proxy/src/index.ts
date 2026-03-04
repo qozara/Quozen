@@ -7,6 +7,23 @@ import { Redis } from '@upstash/redis';
 import { authMiddleware, AppEnv } from './middleware/auth';
 import { encrypt, decrypt } from './lib/kms';
 import { ProviderFactory } from './providers/factory';
+import { z } from 'zod';
+
+const ChatRequestSchema = z.object({
+    messages: z.array(z.any()),
+    systemPrompt: z.string().optional(),
+    tools: z.array(z.object({
+        name: z.string(),
+        description: z.string(),
+        parameters: z.any(),
+    })).optional(),
+    ciphertext: z.string().optional(),
+});
+
+const EncryptRequestSchema = z.object({
+    apiKey: z.string(),
+});
+
 
 const app = new Hono<AppEnv>();
 
@@ -23,11 +40,18 @@ app.get('/health', (c) => {
 app.use('/api/*', authMiddleware);
 
 app.post('/api/v1/agent/encrypt', async (c) => {
-    const { apiKey } = await c.req.json();
+    const body = await c.req.json();
+    const validation = EncryptRequestSchema.safeParse(body);
 
-    if (!apiKey) {
-        return c.json({ error: 'Bad Request', message: 'Missing apiKey' }, 400);
+    if (!validation.success) {
+        return c.json({
+            error: 'Bad Request',
+            message: 'Invalid request body',
+            issues: validation.error.issues
+        }, 400);
     }
+
+    const { apiKey } = validation.data;
 
     const { KMS_SECRET } = env(c) as AppEnv['Bindings'];
 
@@ -44,7 +68,19 @@ app.post('/api/v1/agent/encrypt', async (c) => {
 });
 
 app.post('/api/v1/agent/chat', async (c) => {
-    const { messages, systemPrompt, tools, ciphertext } = await c.req.json();
+    const body = await c.req.json();
+    const requestValidation = ChatRequestSchema.safeParse(body);
+
+    if (!requestValidation.success) {
+        return c.json({
+            error: 'Bad Request',
+            message: 'Invalid request body',
+            issues: requestValidation.error.issues
+        }, 400);
+    }
+
+    const { messages, systemPrompt, tools, ciphertext } = requestValidation.data;
+
     const user = c.get('user');
     const bindings = env(c) as AppEnv['Bindings'];
     const providerId = bindings.AI_PROVIDER || 'google';
