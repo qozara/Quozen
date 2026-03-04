@@ -16,6 +16,7 @@ export type AppEnv = {
         AI_RATE_LIMIT_REQUESTS: string;
         AI_RATE_LIMIT_WINDOW: string;
         AI_PROVIDER: string;
+        NODE_ENV: string;
     };
 };
 
@@ -28,11 +29,16 @@ export const authMiddleware = async (c: Context<AppEnv>, next: Next) => {
 
     const token = authHeader.replace('Bearer ', '');
 
-    // Support for testing
+    // Support for testing (strictly limited to non-production)
     if (token === 'mock-test-token') {
-        const user: User = { id: 'u1', email: 'test@quozen.com', name: 'Test User', username: 'testuser' };
-        c.set('user', user);
-        return next();
+        const isTest = typeof (globalThis as any).process !== 'undefined' && (globalThis as any).process.env?.NODE_ENV === 'test';
+        const isDev = (c.env as any)?.NODE_ENV === 'development';
+
+        if (isTest || isDev) {
+            const user: User = { id: 'u1', email: 'test@quozen.com', name: 'Test User', username: 'testuser' };
+            c.set('user', user);
+            return next();
+        }
     }
 
     try {
