@@ -74,13 +74,13 @@ export const useAgent = () => {
 
         const fewShotExamples = `
 User: "I paid 100 for lunch split with Alice"
-Output: {"tool": "addExpense", "arguments": {"description": "lunch", "amount": 100, "paidByUserId": "me", "splits": [{"userId": "me", "amount": 50}, {"userId": "alice-id", "amount": 50}]}}
+Output: {"tool": "addExpense", "arguments": {"description": "lunch", "amount": 100, "paidByUserId": "user-id-of-payer", "splits": [{"userId": "user-id-of-payer", "amount": 50}, {"userId": "user-id-of-alice", "amount": 50}]}}
 
 User: "Bob paid 40 bucks for drinks"
-Output: {"tool": "addExpense", "arguments": {"description": "drinks", "amount": 40, "paidByUserId": "bob-id", "splits": []}}
+Output: {"tool": "addExpense", "arguments": {"description": "drinks", "amount": 40, "paidByUserId": "user-id-of-bob", "splits": []}}
 
 User: "I sent 20 to Alice for the pizza"
-Output: {"tool": "addSettlement", "arguments": {"fromUserId": "me", "toUserId": "alice-id", "amount": 20, "method": "Cash", "notes": "pizza"}}
+Output: {"tool": "addSettlement", "arguments": {"fromUserId": "user-id-of-sender", "toUserId": "user-id-of-alice", "amount": 20, "method": "Cash", "notes": "pizza"}}
 `;
 
         const session = await ai.languageModel.create({
