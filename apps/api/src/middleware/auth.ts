@@ -7,6 +7,9 @@ export type AppEnv = {
         user: User;
         quozen: QuozenClient;
     };
+    Bindings: {
+        NODE_ENV: string;
+    };
 };
 
 // Persist memory adapter across test requests
@@ -21,12 +24,18 @@ export const authMiddleware = async (c: Context<AppEnv>, next: Next) => {
 
     const token = authHeader.replace('Bearer ', '');
 
-    // Phase 6 Readiness: Support for Vitest isolated testing
+    // Phase 6 Readiness: Support for Vitest isolated testing (strictly limited to non-production)
     if (token === 'mock-test-token') {
-        const user: User = { id: 'u1', email: 'test@quozen.com', name: 'Test User', username: 'testuser' };
-        c.set('user', user);
-        c.set('quozen', new QuozenClient({ storage: testStorage, user }));
-        return next();
+        const env = (c.env as any)?.NODE_ENV || 'production';
+        const isTest = typeof (globalThis as any).process !== 'undefined' && (globalThis as any).process.env?.NODE_ENV === 'test';
+        const isDev = env === 'development';
+
+        if (isTest || isDev) {
+            const user: User = { id: 'u1', email: 'test@quozen.com', name: 'Test User', username: 'testuser' };
+            c.set('user', user);
+            c.set('quozen', new QuozenClient({ storage: testStorage, user }));
+            return next();
+        }
     }
 
     try {

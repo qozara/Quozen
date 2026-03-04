@@ -31,8 +31,9 @@ export const authMiddleware = async (c: Context<AppEnv>, next: Next) => {
 
     // Support for testing (strictly limited to non-production)
     if (token === 'mock-test-token') {
+        const env = (c.env as any)?.NODE_ENV || 'production';
         const isTest = typeof (globalThis as any).process !== 'undefined' && (globalThis as any).process.env?.NODE_ENV === 'test';
-        const isDev = (c.env as any)?.NODE_ENV === 'development';
+        const isDev = env === 'development';
 
         if (isTest || isDev) {
             const user: User = { id: 'u1', email: 'test@quozen.com', name: 'Test User', username: 'testuser' };
