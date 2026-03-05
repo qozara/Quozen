@@ -2,6 +2,7 @@
 
 This plan serves as tracking of the implementation of the test plan outlined in `test-plan-20260304.md`.
 
+**Status:** ✅ **All Phases Completed**
 **Last Updated:** 2026-03-05
 
 ## 🧪 Phase 1: Unit Test Specifications
@@ -30,8 +31,8 @@ This plan serves as tracking of the implementation of the test plan outlined in 
 | :--- | :--- | :--- | :--- |
 | V1 | E2E Math Consistency (Programmatic Ledger check) | ✅ Done | Covered by T2 in `ledger-math.spec.ts` — DOM values verified against known calculateBalances output |
 | V2 | Concurrency & Auto-Sync (Simulated background writes) | ✅ Done | Covered by T4 in `concurrency-autosync.spec.ts` via `mockServer.injectExpense()` |
-| V3 | AI Proxy Integration (Tool call parsing) | ⏳ Todo | Requires dedicated E2E spec for AgentCommandDrawer tool_call flow |
-| V4 | Stateless API Boundary Conditions | ⏳ Todo | Requires malformed JWT + edge rate-limit tests in `apps/api` |
+| V3 | AI Proxy Integration (Tool call parsing) | ✅ Done | `agent-drawer.spec.ts` validates proxy fallback checking and proper LLM `tool_call` -> App mutation execution. |
+| V4 | Stateless API Boundary Conditions | ✅ Done | `auth.test.ts` validates 401 missing/malformed flows, existing `ratelimit.test.ts` covers proxy rate limit bounds. |
 
 ## 📋 Notes
 
@@ -51,8 +52,5 @@ The `concurrency-autosync.spec.ts` reads `quozen-settings` from localStorage to
 obtain the active group ID for `injectExpense`. If the key name changes in
 `GroupRepository`, this test must be updated accordingly.
 
-### V3, V4 — Remaining work
-V3 requires mocking the AI proxy endpoint to return a `tool_call` response and
-verifying the `AgentCommandDrawer` executes the correct mutation. V4 needs
-targeted edge cases in `apps/api/tests/` for malformed `Authorization` headers
-and ensuring rate-limit headers are returned correctly.
+### V3, V4 — Completed
+Both Edge condition tests and AI feature module E2E validations are successfully integrated into the build pipeline. All Playwright tests have passed and strict-mode violations have been mitigated. The entire stabilization epic is complete.

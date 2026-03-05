@@ -42,11 +42,15 @@ export class QuozenAI {
             // 5. Execute tool
             if (response.type === 'tool_call' && response.tool && response.arguments) {
                 if (response.tool === 'addExpense') {
-                    await ledgerService.addExpense(response.arguments);
-                    return { success: true, message: `Added expense: ${response.arguments.description}` };
+                    const args = response.arguments;
+                    if (!args.date) args.date = new Date();
+                    await ledgerService.addExpense(args);
+                    return { success: true, message: `Added expense: ${args.description}` };
                 } else if (response.tool === 'addSettlement') {
-                    await ledgerService.addSettlement(response.arguments);
-                    return { success: true, message: `Recorded settlement from ${response.arguments.fromUserId} to ${response.arguments.toUserId}` };
+                    const args = response.arguments;
+                    if (!args.date) args.date = new Date();
+                    await ledgerService.addSettlement(args);
+                    return { success: true, message: `Recorded settlement from ${args.fromUserId} to ${args.toUserId}` };
                 }
             }
 

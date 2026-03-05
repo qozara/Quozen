@@ -50,8 +50,6 @@ test.describe('T2 & T3: Ledger Math & Settlement Verification', () => {
 
         await expect(page.getByTestId('text-user-balance')).toContainText('+$60.00');
 
-        // Click collapsible and wait for it to open before asserting children
-        await page.getByText('Group Balances').click();
         await expect(page.getByTestId('text-balance-bob')).toBeVisible({ timeout: 5_000 });
         await expect(page.getByTestId('text-balance-bob')).toContainText('-$30.00');
         await expect(page.getByTestId('text-balance-charlie')).toContainText('-$30.00');
@@ -77,7 +75,6 @@ test.describe('T2 & T3: Ledger Math & Settlement Verification', () => {
         await page.getByTestId('button-nav-home').click();
         await expect(page.getByTestId('text-user-balance')).toContainText('+$60.00');
 
-        await page.getByText('Group Balances').click();
         await expect(page.getByTestId('text-balance-bob')).toBeVisible({ timeout: 5_000 });
         await expect(page.getByTestId('text-balance-bob')).toContainText('-$30.00');
 

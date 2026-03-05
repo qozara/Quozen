@@ -2,9 +2,15 @@ import { test, expect } from '@playwright/test';
 import { setupAuth, ensureLoggedIn, resetTestState, setupTestEnvironment } from './utils';
 import { mockServer } from './mock-server';
 
-async function createGroup(page: any, name: string): Promise<string> {
+async function createGroup(page: any, name: string, members: string[] = []): Promise<string> {
     await page.getByRole('button', { name: /new group/i }).click();
     await page.getByLabel('Group Name').fill(name);
+
+    for (const member of members) {
+        await page.getByLabel('Members (Optional)').fill(member);
+        await page.keyboard.press('Enter');
+    }
+
     await page.getByRole('button', { name: /create group/i }).click();
 
     const shareTitle = page.getByRole('heading', { name: new RegExp(`Share "${name}"`, 'i') });
@@ -29,7 +35,7 @@ test.describe('T4: Concurrency & Auto-Sync', () => {
         await ensureLoggedIn(page);
 
         // Capture group ID at creation time — adapter is fresh from resetTestState
-        const activeGroupId = await createGroup(page, 'Sync Test Group');
+        const activeGroupId = await createGroup(page, 'Sync Test Group', ['bob']);
         await expect(page.getByTestId('header').getByText('Sync Test Group')).toBeVisible();
 
         await page.getByTestId('button-nav-home').click();
@@ -44,7 +50,7 @@ test.describe('T4: Concurrency & Auto-Sync', () => {
                 amount: 60,
                 paidByUserId: 'test-user-id',
                 category: 'Food & Dining',
-                splits: [{ userId: 'test-user-id', amount: 60 }],
+                splits: [{ userId: 'bob', amount: 60 }], // User paid 60, Bob consumed 60
             });
         }
 
@@ -52,7 +58,17 @@ test.describe('T4: Concurrency & Auto-Sync', () => {
         if (await refreshBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
             await refreshBtn.click();
         } else {
-            await page.waitForTimeout(12_000);
+            // Force immediate sync by toggling visibility (simulating tab switch)
+            await page.evaluate(() => {
+                Object.defineProperty(document, "hidden", { value: true, configurable: true });
+                document.dispatchEvent(new Event("visibilitychange"));
+            });
+            await page.waitForTimeout(100);
+            await page.evaluate(() => {
+                Object.defineProperty(document, "hidden", { value: false, configurable: true });
+                document.dispatchEvent(new Event("visibilitychange"));
+            });
+            await page.waitForTimeout(2000); // Give it time to fetch
         }
 
         await expect(page.getByTestId('text-user-balance')).not.toContainText('$0.00', { timeout: 10_000 });

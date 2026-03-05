@@ -155,7 +155,7 @@ export default function Dashboard() {
               className={`text-4xl font-bold ${userBalance >= 0 ? 'expense-positive' : 'expense-negative'}`}
               data-testid="text-user-balance"
             >
-              {userBalance >= 0 ? '+' : ''}{formatCurrency(Math.abs(userBalance), currencyCode, i18n.language)}
+              {userBalance > 0 ? '+' : userBalance < 0 ? '-' : ''}{formatCurrency(Math.abs(userBalance), currencyCode, i18n.language)}
             </div>
             <p className="text-sm text-muted-foreground mt-1">
               {userBalance >= 0 ? t("dashboard.owed") : t("dashboard.owe")}
@@ -221,7 +221,7 @@ export default function Dashboard() {
                               className={`font-semibold ${balance >= 0 ? 'expense-positive' : 'expense-negative'}`}
                               data-testid={`text-balance-${u.userId}`}
                             >
-                              {balance >= 0 ? '+' : ''}{formatCurrency(Math.abs(balance), currencyCode, i18n.language)}
+                              {balance > 0 ? '+' : balance < 0 ? '-' : ''}{formatCurrency(Math.abs(balance), currencyCode, i18n.language)}
                             </div>
                           </div>
                           <Button
