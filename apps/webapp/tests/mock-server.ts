@@ -1,7 +1,7 @@
 import { Route, Request } from '@playwright/test';
 import { InMemoryAdapter } from '@quozen/core';
 
-// Polyfill crypto for Node environment if needed
+// Polyfill self.crypto for Node environment if needed
 if (typeof self === 'undefined') {
     (global as any).self = global;
 }
@@ -11,72 +11,121 @@ if (!global.crypto) {
 
 class MockServer {
     private adapter: InMemoryAdapter;
-    /** Latency to add to every response (ms). 0 = no latency. */
     private _latencyMs: number = 0;
-    /** If set, the next request will fail with this status code and then be cleared. */
-    private _forcedErrorStatus: number | null = null;
+    private _nextErrorStatus: number | null = null;
 
     constructor() {
         this.adapter = new InMemoryAdapter();
     }
 
-    /**
-     * T1: Chaos Testing — Inject a fixed latency into all subsequent responses.
-     * Call with 0 to disable.
-     */
-    simulateLatency(ms: number): this {
-        this._latencyMs = ms;
-        return this;
-    }
-
-    /**
-     * T1: Chaos Testing — Force the NEXT request to fail with the given HTTP
-     * status code (e.g. 409, 403, 500). The override is consumed after one use.
-     */
-    forceNextError(statusCode: number): this {
-        this._forcedErrorStatus = statusCode;
-        return this;
-    }
-
     reset() {
         this.adapter = new InMemoryAdapter();
         this._latencyMs = 0;
-        this._forcedErrorStatus = null;
+        this._nextErrorStatus = null;
+    }
+
+    /** Add artificial delay to every response (ms). Pass 0 to disable. */
+    simulateLatency(ms: number) {
+        this._latencyMs = ms;
+    }
+
+    /**
+     * Force the next storage request to fail with the given HTTP status,
+     * then automatically clear. Use for testing error-handling UI flows.
+     */
+    forceNextError(statusCode: number) {
+        this._nextErrorStatus = statusCode;
+    }
+
+    /**
+     * Directly inject an expense row into the InMemoryAdapter for a given
+     * spreadsheetId (groupId), simulating a background write by another user.
+     * 
+     * Row format matches SheetDataMapper.mapFromExpense:
+     * [id, date, description, amount, paidByUserId, category, splitsJSON, metaJSON]
+     */
+    async injectExpense(spreadsheetId: string, expense: {
+        id: string;
+        date: string;
+        description: string;
+        amount: number;
+        paidByUserId: string;
+        category: string;
+        splits: { userId: string; amount: number }[];
+    }): Promise<void> {
+        const now = new Date().toISOString();
+        const row = [
+            expense.id,
+            expense.date,
+            expense.description,
+            expense.amount,
+            expense.paidByUserId,
+            expense.category,
+            JSON.stringify(expense.splits),
+            JSON.stringify({ createdAt: now, lastModified: now }),
+        ];
+        await this.adapter.appendValues(spreadsheetId, 'Expenses!A1', [row]);
+    }
+
+    /**
+ * Overwrites the lastModified timestamp of an existing expense row to a future
+ * time, so LedgerService's OCC check throws ConflictError when the edit form saves.
+ */
+    async updateExpenseTimestamp(spreadsheetId: string, expenseId: string): Promise<void> {
+        const rows = await this.adapter.batchGetValues(spreadsheetId, ['Expenses!A2:Z']);
+        const allRows: any[][] = rows[0]?.values || [];
+        const rowIndex = allRows.findIndex((r: any[]) => r[0] === expenseId);
+        if (rowIndex === -1) return;
+
+        const row = [...allRows[rowIndex]];
+        const future = new Date(Date.now() + 60_000).toISOString();
+        let meta: any = {};
+        try { meta = JSON.parse(row[7]); } catch { }
+        meta.lastModified = future;
+        row[7] = JSON.stringify(meta);
+
+        // +2 because rows are 1-indexed and row 1 is the header
+        const sheetRow = rowIndex + 2;
+        await this.adapter.updateValues(spreadsheetId, `Expenses!A${sheetRow}`, [row]);
+    }
+
+    /** Returns the ID of the most recently created group file in the adapter. */
+    async getLatestGroupId(): Promise<string | null> {
+        const files = await this.adapter.listFiles(
+            "properties has { key='quozen_type' and value='group' }"
+        );
+        if (!files.length) return null;
+        // Most recently created is last in insertion order
+        return files[files.length - 1].id;
     }
 
     async handle(route: Route) {
+        if (this._latencyMs > 0) {
+            await new Promise(r => setTimeout(r, this._latencyMs));
+        }
+
+        if (this._nextErrorStatus !== null) {
+            const status = this._nextErrorStatus;
+            this._nextErrorStatus = null;
+            const bodies: Record<number, object> = {
+                409: { error: 'Conflict', message: 'The resource was modified by another user.' },
+                403: { error: 'Forbidden', message: 'Access denied.' },
+                429: { error: 'Too Many Requests', message: 'Rate limit exceeded.' },
+                500: { error: 'Internal Server Error', message: 'An unexpected error occurred.' },
+            };
+            await route.fulfill({
+                status,
+                contentType: 'application/json',
+                body: JSON.stringify(bodies[status] ?? { error: 'Error' }),
+            });
+            return;
+        }
+
         const request = route.request();
         const body = request.postDataJSON();
 
         try {
-            // T1: Inject forced error before any real dispatch
-            if (this._forcedErrorStatus !== null) {
-                const status = this._forcedErrorStatus;
-                this._forcedErrorStatus = null; // consume
-                if (this._latencyMs > 0) {
-                    await new Promise((r) => setTimeout(r, this._latencyMs));
-                }
-                const errorBodies: Record<number, object> = {
-                    409: { error: 'Conflict', message: 'Data has been modified by another user.' },
-                    403: { error: 'Forbidden', message: 'You do not have permission to perform this action.' },
-                    429: { error: 'Too Many Requests', message: 'Rate limit exceeded.' },
-                    500: { error: 'Internal Server Error', message: 'An unexpected error occurred.' },
-                };
-                await route.fulfill({
-                    status,
-                    contentType: 'application/json',
-                    body: JSON.stringify(errorBodies[status] ?? { error: 'Error', message: `HTTP ${status}` }),
-                });
-                return;
-            }
-
             const response = await this.dispatch(request.method(), request.url(), body);
-
-            // T1: Apply simulated latency
-            if (this._latencyMs > 0) {
-                await new Promise((r) => setTimeout(r, this._latencyMs));
-            }
-
             await route.fulfill({
                 status: response.status,
                 contentType: 'application/json',
@@ -89,7 +138,7 @@ class MockServer {
     }
 
     async dispatch(method: string, urlStr: string, body: any): Promise<{ status: number, body: any }> {
-        const url = new URL(urlStr, 'http://localhost'); // Ensure base if relative
+        const url = new URL(urlStr, 'http://localhost');
         const path = url.pathname.replace('/_test/storage', '');
 
         let result: any;
@@ -106,7 +155,6 @@ class MockServer {
             }
         }
         else if (path.match(/\/files\/[^\/]+$/)) {
-            // /files/:id
             const id = path.split('/')[2];
             if (method === 'DELETE') {
                 await this.adapter.deleteFile(id);
@@ -194,35 +242,6 @@ class MockServer {
         } else {
             return { status: 404, body: 'Not Found' };
         }
-    }
-
-    /**
-     * Directly inject an expense into the in-memory adapter for a given
-     * spreadsheet (group). Used by T4 concurrency tests to simulate a
-     * background write by another user without going through the app UI.
-     */
-    async injectExpense(spreadsheetId: string, expense: {
-        id: string;
-        date: string;
-        description: string;
-        amount: number;
-        paidBy: string;
-        category: string;
-        splits: Array<{ userId: string; amount: number }>;
-    }): Promise<void> {
-        const splitsJson = JSON.stringify(expense.splits);
-        const meta = JSON.stringify({ lastModified: new Date().toISOString() });
-        const row = [
-            expense.id,
-            expense.date,
-            expense.description,
-            String(expense.amount),
-            expense.paidBy,
-            expense.category,
-            splitsJson,
-            meta,
-        ];
-        await this.adapter.appendValues(spreadsheetId, 'Expenses!A1', [row]);
     }
 }
 
