@@ -5,15 +5,20 @@ const { mockLimit } = vi.hoisted(() => ({
     mockLimit: vi.fn().mockResolvedValue({ success: true })
 }));
 
-// Mock Upstash
+// Redis must be mocked as a proper constructor function (not an arrow fn)
+// because the source code calls `new Redis(...)`.
 vi.mock('@upstash/redis', () => ({
-    Redis: vi.fn().mockImplementation(() => ({})),
+    Redis: vi.fn().mockImplementation(function (this: any) {
+        // plain object — no methods needed, Ratelimit is mocked separately
+        return this;
+    }),
 }));
 
 vi.mock('@upstash/ratelimit', () => {
-    const Ratelimit = vi.fn().mockImplementation(() => ({
-        limit: mockLimit
-    }));
+    const Ratelimit = vi.fn().mockImplementation(function (this: any) {
+        this.limit = mockLimit;
+        return this;
+    });
     (Ratelimit as any).slidingWindow = vi.fn();
     return { Ratelimit };
 });
@@ -25,6 +30,11 @@ vi.mock('ai', () => ({
         toolCalls: []
     }),
     jsonSchema: vi.fn(),
+}));
+
+// Mock the Google AI SDK so ProviderFactory doesn't fail to build the model
+vi.mock('@ai-sdk/google', () => ({
+    createGoogleGenerativeAI: vi.fn(() => vi.fn()),
 }));
 
 describe('AI Proxy Rate Limiting', () => {
@@ -44,7 +54,6 @@ describe('AI Proxy Rate Limiting', () => {
     });
 
     it('should return 429 when rate limit is exceeded', async () => {
-        // Mock rate limit failure
         mockLimit.mockResolvedValue({ success: false });
 
         const res = await app.request('/api/v1/agent/chat', {
@@ -68,7 +77,6 @@ describe('AI Proxy Rate Limiting', () => {
     });
 
     it('should return 200 when rate limit is NOT exceeded', async () => {
-        // Mock rate limit success
         mockLimit.mockResolvedValue({ success: true });
 
         const res = await app.request('/api/v1/agent/chat', {
@@ -107,8 +115,6 @@ describe('AI Proxy Rate Limiting', () => {
         }, ENV);
 
         expect(res.status).toBe(200);
-        // limit should NOT have been called (reset in beforeEach, so count should be 0 or 1 for the encrypt call if it shared something, but here it shouldn't)
-        // Actually, encrypt doesn't call limit.
         expect(mockLimit).not.toHaveBeenCalled();
     });
 });

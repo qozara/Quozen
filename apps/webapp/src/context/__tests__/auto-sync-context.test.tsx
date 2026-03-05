@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { AutoSyncProvider } from "@/context/auto-sync-context";
 import { useAutoSync } from "@/hooks/use-auto-sync";
@@ -6,7 +6,7 @@ import { useAppContext } from "@/context/app-context";
 import { useQueryClient } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
 import { MemoryRouter, useLocation } from "react-router-dom";
-
+import React from "react";
 // Mock dependencies using aliases
 vi.mock("@/context/app-context", () => ({
     useAppContext: vi.fn(),
@@ -129,5 +129,88 @@ describe("AutoSyncContext", () => {
         });
 
         expect(quozen.getLastModified).toHaveBeenCalled();
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // U6 — Visibility Guard: polling must pause when document becomes hidden
+    // ─────────────────────────────────────────────────────────────────────────
+
+    describe("U6: Page Visibility Guard", () => {
+        let visibilityListeners: Array<EventListener>;
+
+        beforeEach(() => {
+            visibilityListeners = [];
+
+            // Intercept addEventListener so we can fire visibility changes manually
+            vi.spyOn(document, "addEventListener").mockImplementation(
+                (event: string, handler: EventListenerOrEventListenerObject) => {
+                    if (event === "visibilitychange") {
+                        visibilityListeners.push(handler as EventListener);
+                    }
+                }
+            );
+            vi.spyOn(document, "removeEventListener").mockImplementation(() => { });
+        });
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        const simulateVisibility = (hidden: boolean) => {
+            Object.defineProperty(document, "hidden", {
+                configurable: true,
+                get: () => hidden,
+            });
+            visibilityListeners.forEach((l) => l(new Event("visibilitychange")));
+        };
+
+        it("pauses polling immediately when the page becomes hidden", async () => {
+            // Start with page visible
+            simulateVisibility(false);
+
+            renderHook(() => useAutoSync(), { wrapper });
+
+            // Clear the initial sync call
+            (quozen.getLastModified as any).mockClear();
+
+            // Page hides — e.g. user switches tab
+            await act(async () => {
+                simulateVisibility(true);
+            });
+
+            // Advance well past the polling interval
+            await act(async () => {
+                vi.advanceTimersByTime(TEST_INTERVAL_MS * 3);
+            });
+
+            // Polling must NOT have fired while page is hidden
+            expect(quozen.getLastModified).not.toHaveBeenCalled();
+        });
+
+        it("resumes polling when the page becomes visible again", async () => {
+            // Start hidden
+            simulateVisibility(true);
+
+            renderHook(() => useAutoSync(), { wrapper });
+            (quozen.getLastModified as any).mockClear();
+
+            // Advance — should NOT poll
+            await act(async () => {
+                vi.advanceTimersByTime(TEST_INTERVAL_MS);
+            });
+            expect(quozen.getLastModified).not.toHaveBeenCalled();
+
+            // Page becomes visible again
+            await act(async () => {
+                simulateVisibility(false);
+            });
+
+            // Give the re-rendered effect time to fire the immediate check
+            await act(async () => {
+                vi.advanceTimersByTime(100);
+            });
+
+            expect(quozen.getLastModified).toHaveBeenCalled();
+        });
     });
 });
