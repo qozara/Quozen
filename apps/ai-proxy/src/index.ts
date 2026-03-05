@@ -53,7 +53,7 @@ app.post('/api/v1/agent/encrypt', async (c) => {
 
     const { apiKey } = validation.data;
 
-    const { KMS_SECRET } = env(c) as AppEnv['Bindings'];
+    const { KMS_SECRET } = (c.env || env(c)) as AppEnv['Bindings'];
 
     if (!KMS_SECRET) {
         return c.json({ error: 'Internal Server Error', message: 'KMS_SECRET not configured' }, 500);
@@ -82,7 +82,8 @@ app.post('/api/v1/agent/chat', async (c) => {
     const { messages, systemPrompt, tools, ciphertext } = requestValidation.data;
 
     const user = c.get('user');
-    const bindings = env(c) as AppEnv['Bindings'];
+    // Use c.env if available (common in tests/Cloudflare), otherwise fall back to adapter env
+    const bindings = (c.env || env(c)) as AppEnv['Bindings'];
     const providerId = bindings.AI_PROVIDER || 'google';
 
     const provider = ProviderFactory.getProvider(providerId);

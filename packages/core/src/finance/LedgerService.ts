@@ -16,6 +16,12 @@ export class LedgerService {
         const isMember = members.some(m => m.userId === this.user.id || m.email === this.user.email);
         if (!isMember) throw new Error("Forbidden: User is not a member of this group");
 
+        // Validate splits mismatch
+        const splitSum = payload.splits.reduce((sum, s) => sum + s.amount, 0);
+        if (Math.abs(splitSum - payload.amount) > 0.01) {
+            throw new Error("Splits mismatch");
+        }
+
         const expense: Expense = {
             id: (typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString()),
             description: payload.description,
@@ -38,6 +44,14 @@ export class LedgerService {
 
         if (expectedLastModified && current.updatedAt.getTime() > expectedLastModified.getTime()) {
             throw new ConflictError("Data has been modified by another user.");
+        }
+
+        // Validate splits mismatch if amount or splits are updated
+        const newAmount = payload.amount ?? current.amount;
+        const newSplits = payload.splits ?? current.splits;
+        const splitSum = newSplits.reduce((sum, s) => sum + s.amount, 0);
+        if (Math.abs(splitSum - newAmount) > 0.01) {
+            throw new Error("Splits mismatch");
         }
 
         const updated: Expense = {
