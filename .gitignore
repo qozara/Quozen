@@ -16,3 +16,4 @@ vite.config.ts.*
 /apps/webapp/playwright/.cache/
 /apps/webapp/playwright/.auth/
 changes.patch
+repomix-output.xml
