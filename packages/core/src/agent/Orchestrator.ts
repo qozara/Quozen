@@ -6,6 +6,7 @@ export interface OrchestratorContext {
     me: User;
     ledger: Ledger;
     today?: string;
+    locale?: string;
 }
 
 export class AgentOrchestrator {
@@ -43,9 +44,10 @@ MANDATORY RULES:
 1. Use 'addExpense' for spending (grocery, dinner, rent, etc.).
 2. Use 'addSettlement' for payments between members (repaying, settling up, etc.).
 3. If the user says "I paid", use paidByUserId: "${me.id}".
-4. If splitting "among everyone", "between all", or "the whole group", create a split for EVERY one of the ${ledger.members.length} members (including the payer), dividing the total amount equally.
+4. If splitting "among everyone", "between all", or the user doesn't specify how to split, omit the splits entirely. The system will automatically divide the amount equally among all ${ledger.members.length} members.
 5. If the user mentions a member by name, map it to their ID from the list.
-6. If you cannot fulfill the request with these two tools, respond that you can only add expenses or record settlements.`;
+6. If you cannot fulfill the request with these two tools, respond that you can only add expenses or record settlements.
+7. You must understand and reply in the following language: ${ctx.locale || 'en'}.`;
     }
 
     static validateResponse(response: any): { isValid: boolean; error?: string } {

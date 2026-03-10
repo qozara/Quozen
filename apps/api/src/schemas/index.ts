@@ -48,7 +48,7 @@ export const CreateExpenseDTOSchema = z.object({
     category: z.string().describe('The category for tracking').openapi({ example: 'Food & Dining' }),
     date: z.string().describe('ISO 8601 date string').openapi({ example: '2023-10-15T18:00:00Z' }),
     paidByUserId: z.string().describe('The ID of the user who paid').openapi({ example: 'user-id-1' }),
-    splits: z.array(ExpenseSplitSchema).describe('AGENT INSTRUCTION: If the user does not specify how to split the cost, you MUST first fetch the group ledger to get the list of members, and then divide the amount equally. The sum of all splits MUST exactly equal the total amount.'),
+    splits: z.array(ExpenseSplitSchema).optional().describe('AGENT INSTRUCTION: Omit this field to automatically split the cost equally among all group members.'),
 }).openapi('CreateExpenseRequest');
 
 export const UpdateExpenseDTOSchema = CreateExpenseDTOSchema.partial().extend({

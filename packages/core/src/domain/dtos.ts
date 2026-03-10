@@ -26,7 +26,7 @@ export interface CreateExpenseDTO {
     category: string;
     date: Date;
     paidByUserId: string;
-    splits: ExpenseSplit[];
+    splits?: ExpenseSplit[];
 }
 
 export interface CreateSettlementDTO {

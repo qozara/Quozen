@@ -9,7 +9,7 @@ export class QuozenAI {
         private provider: AiProvider
     ) { }
 
-    async executeCommand(prompt: string, activeGroupId: string): Promise<{ success: boolean; message: string }> {
+    async executeCommand(prompt: string, activeGroupId: string, locale: string = 'en'): Promise<{ success: boolean; message: string }> {
         try {
             // 1. Fetch the Ledger
             const ledgerService = this.client.ledger(activeGroupId);
@@ -19,7 +19,8 @@ export class QuozenAI {
             const systemPrompt = AgentOrchestrator.buildSystemPrompt({
                 activeGroupId,
                 me: this.client.user,
-                ledger
+                ledger,
+                locale
             });
 
             // 3. Invoke Provider
@@ -41,14 +42,21 @@ export class QuozenAI {
 
             // 5. Execute tool
             if (response.type === 'tool_call' && response.tool && response.arguments) {
+                let args = response.arguments;
+
+                // Normalize stringified JSON returned by some local LLMs
+                if (typeof args === 'string') {
+                    try { args = JSON.parse(args); } catch (e) { throw new Error("AI returned malformed arguments"); }
+                }
+
                 if (response.tool === 'addExpense') {
-                    const args = response.arguments;
                     if (!args.date) args.date = new Date();
+                    if (!args.category) args.category = "Other";
                     await ledgerService.addExpense(args);
                     return { success: true, message: `Added expense: ${args.description}` };
                 } else if (response.tool === 'addSettlement') {
-                    const args = response.arguments;
                     if (!args.date) args.date = new Date();
+                    if (!args.method) args.method = "cash";
                     await ledgerService.addSettlement(args);
                     return { success: true, message: `Recorded settlement from ${args.fromUserId} to ${args.toUserId}` };
                 }

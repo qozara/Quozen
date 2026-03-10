@@ -215,7 +215,7 @@ const createExpenseRoute = createRoute({
     operationId: 'createGroupExpense',
     tags: ['Expenses'],
     summary: 'Create an expense',
-    description: 'Creates a new expense. AGENT INSTRUCTION: If the user requests to add an expense but does not explicitly state how to split it, you MUST first call `getGroupLedgerAnalytics` to get the list of members, and then split the amount equally among everyone. The sum of all splits MUST exactly equal the total expense amount.',
+    description: 'Creates a new expense. AGENT INSTRUCTION: If the user does not specify how to split the cost, simply omit the splits array and the system will automatically divide the amount equally among all members.',
     request: {
         params: z.object({ id: z.string() }),
         body: { content: { 'application/json': { schema: CreateExpenseDTOSchema } } }
