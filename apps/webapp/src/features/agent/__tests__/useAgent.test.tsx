@@ -76,7 +76,7 @@ describe("useAgent Hook", () => {
 
         const response = await result.current.executeCommand("hello");
 
-        expect(mockExecuteCommand).toHaveBeenCalledWith("hello", "g1");
+        expect(mockExecuteCommand).toHaveBeenCalledWith("hello", "g1", "en");
         expect(response.success).toBe(true);
         expect(response.message).toBe('Success!');
     });
