@@ -16,7 +16,11 @@
         "build": "tsup src/index.ts --format esm --dts",
         "dev": "tsup src/index.ts --format esm --watch --dts",
         "lint": "tsc --noEmit",
-        "test": "vitest run"
+        "test": "vitest run",
+        "test:all:non-interactive": "npm run test && npm run test:ai:llm-behavior",
+        "test:all": "npm run test:all:non-interactive && npm run test:ai:live-smoke-test",
+        "test:ai:llm-behavior": "cross-env RUN_LOCAL_LLM_TESTS=true vitest run tests/agent/llm-behavior.test.ts",
+        "test:ai:live-smoke-test": "cross-env RUN_LOCAL_LLM_TESTS=true vitest run tests/agent/infrastructure-smoke.test.ts"
     },
     "devDependencies": {
         "tsup": "^8.0.0",

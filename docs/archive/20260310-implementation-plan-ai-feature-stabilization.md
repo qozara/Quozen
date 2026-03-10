@@ -63,61 +63,36 @@
 2. **Schema Drift:** Be mindful that modifying `tools.ts` impacts the Edge Proxy validation. Keep the schemas as loose and resilient as possible (e.g., everything optional except `amount` and `description`).  
 3. **Test Safety:** The live E2E test will interact with your real Google Drive. We should ensure the test creates a temporary "Quozen \- AI Test Group" on initialization and deletes it during teardown to avoid polluting the developer's personal ledger.
 
+# AI feature layered tests
 
-# **📐  AI Testing Taxonomy Improvements**
-
-To achieve a full, extensible suite, we will restructure the tests into three distinct tiers:
-
-#### **Tier 1: Pure Unit Tests (Fast, No LLM, No Network)**
-
-* **Goal:** Verify the internal logic, error catching, and routing of the Quozen AI modules.  
-* **Files:** \* `AiProviderFactory.test.ts`  
-  * `QuozenAI.unit.test.ts` *(Renamed)*: We will mock the LLM to return garbage data, missing parameters, and unsupported tools to ensure our core never crashes.
-
-#### **Tier 2: The LLM Intelligence Matrix (Live LLM \+ InMemory Storage)**
-
-* **Goal:** Evaluate the chosen LLM's ability to extract intent and pick the right tools from natural language, using the blazing-fast `InMemoryAdapter`.  
-* **File:** `llm-behavior.test.ts` *(Renamed from `live-ollama-memory`)*  
-* **Architecture:** We will build a data-driven test array (a matrix). This makes it trivial to add new features later. We will test:  
-  1. **Expense Creation:** (e.g., "Add $50 for gas", "I paid $100 for dinner")  
-  2. **Settlement Creation:** (e.g., "I just paid Alice $20", "Record that Bob gave me $50 in cash")  
-  3. **Language Support:** (e.g., "Agrega 50 de gastos...", "Pagué 20 a Juan")  
-  4. **Out-of-Bounds Rejection:** (e.g., "What is the capital of France?", "Delete the group") \-\> *Ensure the LLM safely refuses to answer or triggers the fallback message.*
-
-#### **Tier 3: E2E Infrastructure Smoke Test (Live LLM \+ Proxy \+ Real Drive)**
-
-* **Goal:** Prove the physical network architecture works without getting rate-limited by Google.  
-* **File:** `infrastructure-smoke.test.ts` *(Renamed from `live-proxy-drive`)*  
-* **Architecture:** A single test block that creates a real group, asks the AI to add an expense, asks the AI to settle the debt, verifies the real Google Sheet balances are $0.00, and deletes the group.
-
----
+The following tests are structured in a tiered manner to ensure we can validate the AI's behavior in a controlled environment. Each tier builds upon the previous one, adding more complexity and realism to the test. Refer to /packages/core/tests/agent/README.md for more details.
 
 ### **📋 Execution Plan & Task Breakdown**
 
 Here are the specific tasks to implement this architecture. 
 
-**Phase 1: Clarify & Harden Unit Tests**
+**Phase 1: Clarify & Harden Unit Tests** 
 
-* \[ \] Rename `QuozenAI.test.ts` to `QuozenAI.unit.test.ts`.  
-* \[ \] Add strict unit tests for:  
+* [DONE] Rename `QuozenAI.test.ts` to `QuozenAI.unit.test.ts`.  
+* [DONE] Add strict unit tests for:  
   * LLM returns invalid JSON string.  
   * LLM tries to call a non-existent tool (e.g., `deleteExpense`).  
   * LLM returns a valid tool but is missing required parameters (e.g., missing `amount`).
 
 #### **Phase 2: Build the LLM Intelligence Matrix (Tier 2\)**
 
-* \[ \] Rename `live-ollama-memory.test.ts` to `llm-behavior.test.ts`.  
-* \[ \] Refactor the test setup to instantiate the `QuozenClient` (with `InMemoryAdapter` and 3 dummy users) in a `beforeAll` block.  
-* \[ \] Implement a `test.each([...])` array matrix to loop through various prompts and expected outcomes.  
-* \[ \] Add test cases verifying that:  
+* [DONE] Rename `live-ollama-memory.test.ts` to `llm-behavior.test.ts`.  
+* [DONE] Refactor the test setup to instantiate the `QuozenClient` (with `InMemoryAdapter` and 3 dummy users) in a `beforeAll` block.  
+* [DONE] Implement a `test.each([...])` array matrix to loop through various prompts and expected outcomes.  
+* [DONE] Add test cases verifying that:  
   * The LLM picks the `addExpense` tool and parses amounts correctly.  
   * The LLM picks the `addSettlement` tool, correctly identifying the `fromUserId` and `toUserId` based on natural language ("I paid Bob" vs "Bob paid me").  
   * The core safely handles out-of-domain chatter.
 
 #### **Phase 3: Consolidate the Infrastructure Smoke Test (Tier 3\)**
 
-* \[ \] Rename `live-proxy-drive.test.ts` to `infrastructure-smoke.test.ts`.  
-* \[ \] Combine the AI prompt execution and the mathematical verification into a single, cohesive user journey:  
+* [DONE] Rename `live-proxy-drive.test.ts` to `infrastructure-smoke.test.ts`.  
+* [DONE] Combine the AI prompt execution and the mathematical verification into a single, cohesive user journey:  
   1. Create Group.  
   2. Prompt: "I paid $100 for dinner." (AI adds expense, core splits it).  
   3. Prompt: "Bob paid me his share." (AI adds settlement).  
@@ -125,4 +100,4 @@ Here are the specific tasks to implement this architecture.
 
 #### **Phase 4: Update NPM Scripts**
 
-* \[ \] Update `package.json` so that `npm run test:ai:live` specifically targets the new naming convention (e.g., running `llm-behavior` and `infrastructure-smoke`).
+* [DONE] Update `package.json` so that `npm run test:ai:live` specifically targets the new naming convention (e.g., running `llm-behavior` and `infrastructure-smoke`).

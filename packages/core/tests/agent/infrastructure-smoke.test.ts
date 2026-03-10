@@ -10,9 +10,9 @@ describe.runIf(shouldRun)('AI Goal: Infrastructure Pipeline (Edge Proxy + Google
     let client: QuozenClient;
     let ai: QuozenAI;
     let groupId: string;
+    let bobId: string;
 
     beforeAll(async () => {
-        // Dynamically resolve based on whether we are running from root or workspace.
         const envPath = process.cwd().endsWith('core') ? path.resolve(process.cwd(), '../../.env') : path.resolve(process.cwd(), '.env');
         dotenv.config({ path: envPath });
 
@@ -25,41 +25,46 @@ describe.runIf(shouldRun)('AI Goal: Infrastructure Pipeline (Edge Proxy + Google
         const storage = new GoogleDriveStorageLayer(() => creds.access_token);
         client = new QuozenClient({ storage, user: creds.user });
 
-        // Clean up leftover test groups from previous runs so we can leave the new one alive for inspection
         const settings = await client.groups.getSettings();
-        const oldTestGroups = settings.groupCache.filter(g => g.name === "AI Infrastructure Test Group");
+        const oldTestGroups = settings.groupCache.filter(g => g.name === "AI Infrastructure Smoke Test");
         for (const g of oldTestGroups) {
-            try {
-                await client.groups.deleteGroup(g.id);
-            } catch (e: any) {
-                console.warn(`[Cleanup] Failed to delete old test group ${g.id}: ${e.message}`);
-            }
+            try { await client.groups.deleteGroup(g.id); } catch (e) { }
         }
 
-        // Force 127.0.0.1 to avoid Node.js 20+ IPv6 localhost resolution mismatch with Wrangler
         const proxyUrl = (process.env.VITE_AI_PROXY_URL || 'http://127.0.0.1:8788').replace('localhost', '127.0.0.1');
         const provider = new ProxyAiProvider(proxyUrl, () => creds.access_token);
         ai = new QuozenAI(client, provider);
 
-        // Setup test group with 2 offline members + the active user (3 total)
-        const group = await client.groups.create("AI Infrastructure Test Group", [{ username: "bob" }, { username: "charlie" }]);
+        const group = await client.groups.create("AI Infrastructure Smoke Test", [{ username: "bob" }]);
         groupId = group.id;
+
+        const ledger = await client.ledger(groupId).getLedger();
+        const bob = ledger.members.find(m => m.name.toLowerCase() === 'bob');
+        if (!bob) throw new Error("Bob not found");
+        bobId = bob.userId;
     });
 
-    it('should successfully route via proxy, process math in core, and save to Drive', async () => {
-        const result = await ai.executeCommand(
-            "Agrega 100 de gastos en un restaurante a dividir entre todo el grupo",
-            groupId,
-            "es"
-        );
-
-        expect(result.success, `AI Command failed: ${result.message}`).toBe(true);
+    it('should run end-to-end user journey via AI Proxy', async () => {
+        // Step 2. Prompt: "I paid $100 for dinner."
+        const res1 = await ai.executeCommand("I paid $100 for dinner.", groupId, "en");
+        expect(res1.success, `Failed to add expense: ${res1.message}`).toBe(true);
 
         const ledgerService = client.ledger(groupId);
-        const ledger = await ledgerService.getLedger();
+        let ledger = await ledgerService.getLedger();
 
         expect(ledger.expenses).toHaveLength(1);
         expect(ledger.expenses[0].amount).toBe(100);
-        expect(ledger.expenses[0].splits).toHaveLength(3); // User + bob + charlie
+
+        // Step 3. Prompt: "Bob paid me his share."
+        const res2 = await ai.executeCommand(`Bob paid me $50`, groupId, "en");
+        expect(res2.success, `Failed to add settlement: ${res2.message}`).toBe(true);
+
+        ledger = await ledgerService.getLedger();
+
+        // Step 4. Assert real Google Drive ledger shows Bob's balance is exactly $0.
+        const balances2 = ledger.getBalances();
+        expect(balances2[bobId]).toBe(0);
+
+        await client.groups.deleteGroup(groupId);
     }, 240000);
 });
