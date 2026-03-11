@@ -10,8 +10,8 @@
         "check": "tsc --noEmit",
         "test": "vitest run",
         "test:watch": "vitest",
-        "test:e2e": "cross-env VITE_USE_MOCK_STORAGE=true VITE_E2E_MOCK=true playwright test",
-        "test:e2e:ui": "cross-env VITE_USE_MOCK_STORAGE=true VITE_E2E_MOCK=true playwright test --ui",
+        "test:e2e": "cross-env VITE_USE_MOCK_STORAGE=remote playwright test",
+        "test:e2e:ui": "cross-env VITE_USE_MOCK_STORAGE=remote playwright test --ui",
         "test:e2e:cloud": "cross-env VITE_USE_MOCK_STORAGE=false playwright test -c playwright.real.config.ts"
     },
     "dependencies": {

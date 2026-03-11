@@ -125,7 +125,7 @@ export default function ExpenseForm({ initialData, users, currentUserId, onSubmi
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!description || !amount || !paidBy || !category || !date) {
+    if (!description || !paidBy || !category || !date) {
       toast({
         title: t("expenseForm.missingInfo"),
         description: t("expenseForm.missingInfoDesc"),
@@ -145,6 +145,15 @@ export default function ExpenseForm({ initialData, users, currentUserId, onSubmi
     }
 
     const expenseAmount = parseFloat(String(amount).replace(',', '.'));
+    if (!amount || isNaN(expenseAmount)) {
+      toast({
+        title: t("expenseForm.invalidAmount"),
+        description: t("expenseForm.invalidAmountDesc"),
+        variant: "destructive",
+      });
+      return;
+    }
+
     const totalSplit = splits.reduce((sum, s) => sum + (s.selected ? s.amount : 0), 0);
 
     if (Math.abs(totalSplit - expenseAmount) > 0.05) {

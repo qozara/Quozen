@@ -32,6 +32,8 @@ vi.mock("react-i18next", () => ({
                 "expenseForm.invalidSplitDesc": en.expenseForm.invalidSplitDesc,
                 "expenseForm.splitMismatch": en.expenseForm.splitMismatch,
                 "expenseForm.splitMismatchDesc": en.expenseForm.splitMismatchDesc,
+                "expenseForm.invalidAmount": "Invalid amount",
+                "expenseForm.invalidAmountDesc": "Please enter a valid numeric value for the amount.",
                 "expenseForm.you": "You",
             };
             return keys[key] ?? key;
@@ -160,25 +162,32 @@ describe("ExpenseForm — Amount Validation (U5)", () => {
         expect(defaultProps.onSubmit).not.toHaveBeenCalled();
     });
 
-    it("does NOT call onSubmit when form has an invalid (non-numeric) amount value", async () => {
+    it("does NOT call onSubmit when form has an invalid (non-numeric) amount value and shows invalidAmount toast", async () => {
         render(<ExpenseForm {...defaultProps} />);
 
         fireEvent.change(screen.getByTestId("input-expense-description"), {
             target: { value: "Test" },
         });
 
-        // Simulate a type=number input receiving a non-numeric string:
-        // the browser coerces it to "", which is what we fire here.
+        // Simulate a value that parseFloat results in NaN
+        // Although type="number" blocks most, some browser/pasted inputs might bypass
         fireEvent.change(screen.getByTestId("input-expense-amount"), {
-            target: { value: "" },
+            target: { value: "abc" },
         });
+
+        // Set category to avoid "missing info" toast
+        const selects = screen.getAllByTestId("mock-select");
+        fireEvent.change(selects[1], { target: { value: "Other" } });
 
         const form = screen.getByTestId("form-expense");
         fireEvent.submit(form);
 
         expect(defaultProps.onSubmit).not.toHaveBeenCalled();
         expect(mockToast).toHaveBeenCalledWith(
-            expect.objectContaining({ variant: "destructive" })
+            expect.objectContaining({ 
+                title: "Invalid amount", // based on our mock's simple key return or explicit mapping
+                variant: "destructive" 
+            })
         );
     });
 });

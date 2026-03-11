@@ -52,7 +52,7 @@ export default defineConfig({
     stderr: 'pipe',
     env: {
       // Force mock storage for E2E tests to ensure reliable execution without real Google Auth
-      VITE_USE_MOCK_STORAGE: 'true',
+      VITE_USE_MOCK_STORAGE: 'remote',
     }
   },
 });

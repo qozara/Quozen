@@ -5,21 +5,19 @@ const { mockLimit } = vi.hoisted(() => ({
     mockLimit: vi.fn().mockResolvedValue({ success: true })
 }));
 
-// Redis must be mocked as a proper constructor function (not an arrow fn)
-// because the source code calls `new Redis(...)`.
+// Redis must be mocked as a proper class because the source code calls `new Redis(...)`.
 vi.mock('@upstash/redis', () => ({
-    Redis: vi.fn().mockImplementation(function (this: any) {
-        // plain object — no methods needed, Ratelimit is mocked separately
-        return this;
-    }),
+    Redis: class {
+        constructor() {}
+    },
 }));
 
 vi.mock('@upstash/ratelimit', () => {
-    const Ratelimit = vi.fn().mockImplementation(function (this: any) {
-        this.limit = mockLimit;
-        return this;
-    });
-    (Ratelimit as any).slidingWindow = vi.fn();
+    class Ratelimit {
+        limit = mockLimit;
+        constructor() {}
+        static slidingWindow = vi.fn();
+    }
     return { Ratelimit };
 });
 

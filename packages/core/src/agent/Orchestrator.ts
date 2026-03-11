@@ -46,8 +46,12 @@ MANDATORY RULES:
 3. If the user says "I paid", use paidByUserId: "${me.id}".
 4. If splitting "among everyone", "between all", or the user doesn't specify how to split, omit the splits entirely. The system will automatically divide the amount equally among all ${ledger.members.length} members.
 5. If the user mentions a member by name, map it to their ID from the list.
-6. If you cannot fulfill the request with these two tools, respond that you can only add expenses or record settlements.
-7. You must understand and reply in the following language: ${ctx.locale || 'en'}.`;
+6. ONLY use tools if money, spending, or payment is explicitly mentioned.
+7. Use 'addSettlement' when one member pays ANOTHER member (e.g. "Bob paid me", "I paid Alice back").
+8. Use 'addExpense' only for external spending (e.g. "Paid for dinner", "Grocery shopping").
+9. NEVER invent amounts or descriptions if not provided.
+10. If you cannot fulfill the request with these tools, or it is vague, respond with a refusal message.
+11. You must understand and reply in the following language: ${ctx.locale || 'en'}.`;
     }
 
     static validateResponse(response: any): { isValid: boolean; error?: string } {

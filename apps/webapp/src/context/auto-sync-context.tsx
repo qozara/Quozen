@@ -18,13 +18,20 @@ export const AutoSyncContext = createContext<AutoSyncContextType | undefined>(un
 const UNSAFE_ROUTES = ["/add-expense", "/edit-expense", "/join"];
 const DEFAULT_POLLING_INTERVAL = Number(import.meta.env.VITE_POLLING_INTERVAL || 30);
 
+declare global {
+    interface Window {
+        __QUOZEN_POLLING_OVERRIDE?: number;
+    }
+}
+
 export function AutoSyncProvider({
     children,
-    pollingInterval = DEFAULT_POLLING_INTERVAL
+    pollingInterval: propInterval = DEFAULT_POLLING_INTERVAL
 }: {
     children: React.ReactNode;
     pollingInterval?: number;
 }) {
+    const pollingInterval = window.__QUOZEN_POLLING_OVERRIDE || propInterval;
     const { activeGroupId } = useAppContext();
     const queryClient = useQueryClient();
     const location = useLocation();

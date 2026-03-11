@@ -1,7 +1,9 @@
 import { Page, BrowserContext, APIRequestContext, expect } from '@playwright/test';
 import { mockServer } from './mock-server';
 
-export const isMockMode = process.env.VITE_USE_MOCK_STORAGE === 'true';
+const mockValue = process.env.VITE_USE_MOCK_STORAGE;
+export const isMockMode = mockValue === 'true' || mockValue === 'remote';
+console.log(`[TestMode] isMockMode: ${isMockMode}`);
 
 const SETTINGS_FILE_NAME = "quozen-settings.json";
 const DRIVE_API_URL = "https://www.googleapis.com/drive/v3";

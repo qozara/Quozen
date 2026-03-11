@@ -49,14 +49,49 @@ export class QuozenAI {
                     try { args = JSON.parse(args); } catch (e) { throw new Error("AI returned malformed arguments"); }
                 }
 
-                if (response.tool === 'addExpense') {
+                const toolName = response.tool.toLowerCase();
+
+                // Normalize IDs (some LLMs return names instead of IDs)
+                const resolveId = (idOrName: string) => {
+                    if (!idOrName) return idOrName;
+                    const lowerIdOrName = idOrName.toLowerCase();
+                    if (lowerIdOrName === 'me' || lowerIdOrName === 'i' || lowerIdOrName === 'myself') return this.client.user.id;
+                    const member = ledger.members.find(m => 
+                        m.userId === idOrName || 
+                        m.name.toLowerCase() === lowerIdOrName || 
+                        m.email?.toLowerCase() === lowerIdOrName ||
+                        m.name.toLowerCase().includes(lowerIdOrName)
+                    );
+                    return member ? member.userId : idOrName;
+                };
+
+                if (toolName === 'addexpense') {
                     if (!args.date) args.date = new Date();
                     if (!args.category) args.category = "Other";
+                    if (!args.description) args.description = args.category || "AI Expense";
+                    if (args.paidByUserId) args.paidByUserId = resolveId(args.paidByUserId);
+                    if (args.splits) {
+                        args.splits = args.splits.map((s: any) => ({ ...s, userId: resolveId(s.userId) }));
+                        
+                        // Balance splits if they don't match total amount (assign remainder to payer)
+                        const splitSum = args.splits.reduce((sum: number, s: any) => sum + (s.amount || 0), 0);
+                        const diff = (args.amount || 0) - splitSum;
+                        if (Math.abs(diff) > 0.01 && args.paidByUserId) {
+                            const payerSplit = args.splits.find((s: any) => s.userId === args.paidByUserId);
+                            if (payerSplit) {
+                                payerSplit.amount = (payerSplit.amount || 0) + diff;
+                            } else {
+                                args.splits.push({ userId: args.paidByUserId, amount: diff });
+                            }
+                        }
+                    }
                     await ledgerService.addExpense(args);
                     return { success: true, message: `Added expense: ${args.description}` };
-                } else if (response.tool === 'addSettlement') {
+                } else if (toolName === 'addsettlement') {
                     if (!args.date) args.date = new Date();
                     if (!args.method) args.method = "cash";
+                    if (args.fromUserId) args.fromUserId = resolveId(args.fromUserId);
+                    if (args.toUserId) args.toUserId = resolveId(args.toUserId);
                     await ledgerService.addSettlement(args);
                     return { success: true, message: `Recorded settlement from ${args.fromUserId} to ${args.toUserId}` };
                 }

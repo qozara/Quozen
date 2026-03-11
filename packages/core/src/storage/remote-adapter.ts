@@ -1,3 +1,4 @@
+import { ConflictError, NotFoundError } from "../errors";
 import { IStorageLayer } from "../infrastructure/IStorageLayer";
 
 const MOCK_API_BASE = "/_test/storage";
@@ -17,6 +18,8 @@ export class RemoteMockAdapter implements IStorageLayer {
         const res = await (typeof fetch !== 'undefined' ? fetch(`${MOCK_API_BASE}${path}`, { ...options, headers }) : Promise.reject(new Error("fetch is not defined")));
         if (!res.ok) {
             const body = await res.text();
+            if (res.status === 409) throw new ConflictError();
+            if (res.status === 404) throw new NotFoundError();
             throw new Error(`Mock API Error ${res.status}: ${body}`);
         }
         return res;

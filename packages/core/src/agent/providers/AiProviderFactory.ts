@@ -40,7 +40,13 @@ export class AiProviderFactory {
                 return windowProvider;
             }
 
-            // c) Last resort: Team Key Cloud Proxy
+            // c) If Local Ollama is available
+            const localProvider = new LocalOllamaProvider();
+            if (await localProvider.checkAvailability()) {
+                return localProvider;
+            }
+
+            // d) Last resort: Team Key Cloud Proxy
             if (proxyUrl) {
                 return new ProxyAiProvider(proxyUrl, getAuthToken);
             }

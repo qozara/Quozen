@@ -137,6 +137,8 @@
         "invalidSplitDesc": "Al menos una persona debe ser seleccionada.",
         "splitMismatch": "Error en división",
         "splitMismatchDesc": "Los montos divididos no coinciden con el total.",
+        "invalidAmount": "Monto inválido",
+        "invalidAmountDesc": "Por favor ingresa un valor numérico válido para el monto.",
         "you": "Tú",
         "addError": "No se pudo añadir el gasto. Inténtalo de nuevo.",
         "updateError": "No se pudo actualizar el gasto. Revisa tu conexión.",

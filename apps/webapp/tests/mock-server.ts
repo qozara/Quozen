@@ -10,7 +10,7 @@ if (!global.crypto) {
 }
 
 class MockServer {
-    private adapter: InMemoryAdapter;
+    public adapter: InMemoryAdapter;
     private _latencyMs: number = 0;
     private _nextErrorStatus: number | null = null;
 
@@ -100,6 +100,8 @@ class MockServer {
     }
 
     async handle(route: Route) {
+        const request = route.request();
+        console.log(`[MockServer] Request: ${request.method()} ${request.url()}`);
         if (this._latencyMs > 0) {
             await new Promise(r => setTimeout(r, this._latencyMs));
         }
@@ -121,18 +123,18 @@ class MockServer {
             return;
         }
 
-        const request = route.request();
         const body = request.postDataJSON();
 
         try {
             const response = await this.dispatch(request.method(), request.url(), body);
+            console.log(`[MockServer] Response: ${response.status} for ${request.url()}`);
             await route.fulfill({
                 status: response.status,
                 contentType: 'application/json',
                 body: JSON.stringify(response.body)
             });
         } catch (e: any) {
-            console.error("Mock Server Route Error:", e);
+            console.error("[MockServer] Route Error:", e);
             await route.fulfill({ status: 500, body: e.message });
         }
     }
@@ -140,6 +142,36 @@ class MockServer {
     async dispatch(method: string, urlStr: string, body: any): Promise<{ status: number, body: any }> {
         const url = new URL(urlStr, 'http://localhost');
         const path = url.pathname.replace('/_test/storage', '');
+
+        // --- AI Proxy ---
+        if (path === '/_test/ai-proxy') {
+            return { status: 200, body: { status: 'ok' } };
+        }
+        if (path === '/_test/ai-proxy/api/v1/agent/chat') {
+            const prompt = body.messages?.[body.messages.length - 1]?.content || "";
+            if (prompt.toLowerCase().includes("uber")) {
+                return {
+                    status: 200,
+                    body: {
+                        type: "tool_call",
+                        tool: "add_expense",
+                        args: {
+                            description: "Uber rides",
+                            amount: 50,
+                            category: "Transport",
+                            splits: [
+                                { userId: "test-user-id", amount: 25 },
+                                { userId: "bob", amount: 25 }
+                            ]
+                        }
+                    }
+                };
+            }
+            return {
+                status: 200,
+                body: { type: "text", content: "I understood your message, but I don't know how to help with that yet." }
+            };
+        }
 
         let result: any;
 
@@ -207,7 +239,12 @@ class MockServer {
         else if (path.match(/\/spreadsheets\/[^\/]+\/values:batchGet$/)) {
             const id = path.split('/')[2];
             const rangesParam = url.searchParams.get('ranges');
-            const ranges = rangesParam ? JSON.parse(rangesParam) : [];
+            let ranges: string[] = [];
+            if (rangesParam?.startsWith('[')) {
+                try { ranges = JSON.parse(rangesParam); } catch { }
+            } else {
+                ranges = url.searchParams.getAll('ranges');
+            }
             const valueRanges = await this.adapter.batchGetValues(id, ranges);
             result = { valueRanges };
         }

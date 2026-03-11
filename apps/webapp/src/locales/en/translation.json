@@ -137,6 +137,8 @@
         "invalidSplitDesc": "At least one person must be selected for the split.",
         "splitMismatch": "Split mismatch",
         "splitMismatchDesc": "Split amounts don't match expense amount.",
+        "invalidAmount": "Invalid amount",
+        "invalidAmountDesc": "Please enter a valid numeric value for the amount.",
         "you": "You",
         "addError": "Failed to add expense. Please try again.",
         "updateError": "Failed to update expense. Please check your connection.",

@@ -105,4 +105,45 @@ describe('QuozenAI (Unit)', () => {
         expect(result.success).toBe(false);
         expect(result.message).toContain('Missing required parameters');
     });
+
+    it('should return text content when LLM does not call a tool', async () => {
+        (mockProvider.chat as any).mockResolvedValue({
+            type: 'text',
+            content: 'Hello! How can I help you today?'
+        });
+
+        const result = await ai.executeCommand('hi', 'group1');
+        expect(result.success).toBe(true);
+        expect(result.message).toBe('Hello! How can I help you today?');
+    });
+
+    it('should handle stringified JSON arguments from some LLMs', async () => {
+        (mockProvider.chat as any).mockResolvedValue({
+            type: 'tool_call',
+            tool: 'addExpense',
+            arguments: JSON.stringify({
+                description: 'Lunch',
+                amount: 15,
+                paidByUserId: 'u1'
+            })
+        });
+
+        const result = await ai.executeCommand('I paid 15 for lunch', 'group1');
+        expect(result.success).toBe(true);
+        expect(mockClient.ledger('group1').addExpense).toHaveBeenCalledWith(expect.objectContaining({
+            description: 'Lunch',
+            amount: 15
+        }));
+    });
+
+    it('should handle out-of-bounds requests by returning the AI refusal', async () => {
+        (mockProvider.chat as any).mockResolvedValue({
+            type: 'text',
+            content: "I'm sorry, I can only help you add an expense or record a settlement."
+        });
+
+        const result = await ai.executeCommand('Delete the database', 'group1');
+        expect(result.success).toBe(true);
+        expect(result.message).toContain('only help you add an expense');
+    });
 });

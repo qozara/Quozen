@@ -38,13 +38,38 @@ export class LocalOllamaProvider implements AiProvider {
 
             try {
                 const parsed = JSON.parse(content);
-                if (parsed.tool && parsed.arguments) {
+                
+                // Pattern 1 & 2: { tool: "name", arguments: { ... } } or { action/type/tool_used: "name", ...args }
+                const toolName = parsed.tool || parsed.action || parsed.type || parsed.tool_used;
+                if (toolName) {
+                    const args = parsed.arguments || { ...parsed };
+                    // Remove the tool name from arguments if it was a flat structure
+                    if (args === parsed) {
+                        delete (args as any).tool;
+                        delete (args as any).action;
+                        delete (args as any).type;
+                        delete (args as any).tool_used;
+                    }
                     return {
                         type: 'tool_call',
-                        tool: parsed.tool,
-                        arguments: parsed.arguments
+                        tool: toolName as string,
+                        arguments: args
                     };
                 }
+
+                // Pattern 3: { addExpense: { ... } } or { addSettlement: { ... } }
+                const knownTools = ['addExpense', 'addSettlement'];
+                for (const tool of knownTools) {
+                    const key = Object.keys(parsed).find(k => k.toLowerCase() === tool.toLowerCase());
+                    if (key) {
+                        return {
+                            type: 'tool_call',
+                            tool: tool,
+                            arguments: parsed[key]
+                        };
+                    }
+                }
+
                 return { type: 'text', content };
             } catch {
                 return { type: 'text', content };

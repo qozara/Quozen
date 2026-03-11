@@ -134,7 +134,7 @@ export default function Dashboard() {
   };
 
   if (isLoading) {
-    return <div className="p-4 text-center">{t("common.loading")}</div>;
+    return <div className="p-4 text-center" data-testid="loading-indicator">{t("common.loading")}</div>;
   }
 
   if (!ledger) {

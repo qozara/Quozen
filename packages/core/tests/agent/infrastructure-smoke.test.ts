@@ -42,11 +42,12 @@ describe.runIf(shouldRun)('AI Goal: Infrastructure Pipeline (Edge Proxy + Google
         const bob = ledger.members.find(m => m.name.toLowerCase() === 'bob');
         if (!bob) throw new Error("Bob not found");
         bobId = bob.userId;
-    });
+    }, 60000);
 
     it('should run end-to-end user journey via AI Proxy', async () => {
         // Step 2. Prompt: "I paid $100 for dinner."
         const res1 = await ai.executeCommand("I paid $100 for dinner.", groupId, "en");
+        console.log('AI Response 1:', res1.message);
         expect(res1.success, `Failed to add expense: ${res1.message}`).toBe(true);
 
         const ledgerService = client.ledger(groupId);
@@ -56,14 +57,16 @@ describe.runIf(shouldRun)('AI Goal: Infrastructure Pipeline (Edge Proxy + Google
         expect(ledger.expenses[0].amount).toBe(100);
 
         // Step 3. Prompt: "Bob paid me his share."
-        const res2 = await ai.executeCommand(`Bob paid me $50`, groupId, "en");
+        const bob = ledger.members.find(m => m.userId === bobId)!;
+        const res2 = await ai.executeCommand(`${bob.name} paid ${client.user.name} $50`, groupId, "en");
+        console.log('AI Response 2:', res2.message);
         expect(res2.success, `Failed to add settlement: ${res2.message}`).toBe(true);
 
         ledger = await ledgerService.getLedger();
 
         // Step 4. Assert real Google Drive ledger shows Bob's balance is exactly $0.
         const balances2 = ledger.getBalances();
-        expect(balances2[bobId]).toBe(0);
+        expect(balances2[bobId], `Bob ID ${bobId} balance is ${balances2[bobId]}. Full balances: ${JSON.stringify(balances2)}`).toBe(0);
 
         await client.groups.deleteGroup(groupId);
     }, 240000);

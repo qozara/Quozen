@@ -46,7 +46,7 @@ describe('AiProviderFactory', () => {
         expect(provider).toBeInstanceOf(ProxyAiProvider);
     });
 
-    it('should waterfall in "auto" mode: Proxy (BYOK) -> Window -> Proxy (Team)', async () => {
+    it('should waterfall in "auto" mode: Proxy (BYOK) -> Window -> Local Ollama -> Proxy (Team)', async () => {
         // 1. BYOK Case
         const p1 = await AiProviderFactory.createProvider({
             providerPreference: 'auto',
@@ -69,13 +69,26 @@ describe('AiProviderFactory', () => {
         }, mockGetToken);
         expect(p2).toBeInstanceOf(WindowAiProvider);
 
-        // 3. Fallback to Team Key
+        // 3. Local Ollama Case (No BYOK, No Window, Ollama available)
         (global as any).window = {};
+        const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+        vi.stubGlobal('fetch', mockFetch);
+        
         const p3 = await AiProviderFactory.createProvider({
             providerPreference: 'auto',
             proxyUrl: 'http://proxy'
         }, mockGetToken);
-        expect(p3).toBeInstanceOf(ProxyAiProvider);
+        expect(p3).toBeInstanceOf(LocalOllamaProvider);
+
+        // 4. Fallback to Team Key (No BYOK, No Window, No Ollama)
+        mockFetch.mockResolvedValue({ ok: false });
+        const p4 = await AiProviderFactory.createProvider({
+            providerPreference: 'auto',
+            proxyUrl: 'http://proxy'
+        }, mockGetToken);
+        expect(p4).toBeInstanceOf(ProxyAiProvider);
+
+        vi.unstubAllGlobals();
     });
 
     it('should handle getSetupMessage', () => {
