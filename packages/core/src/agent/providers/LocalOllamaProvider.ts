@@ -13,20 +13,34 @@ export class LocalOllamaProvider implements AiProvider {
 
     async chat(request: AgentChatRequest): Promise<AgentChatResponse> {
         try {
+            const bodyPayload: any = {
+                model: this.model,
+                messages: [
+                    { role: 'system', content: request.systemPrompt },
+                    ...request.messages
+                ],
+                stream: false
+            };
+
+            if (request.tools && request.tools.length > 0) {
+                bodyPayload.tools = request.tools.map((t: any) => ({
+                    type: 'function',
+                    function: {
+                        name: t.name,
+                        description: t.description,
+                        parameters: t.parameters
+                    }
+                }));
+            } else {
+                bodyPayload.format = 'json';
+            }
+
             const response = await fetch(`${this.baseUrl}/chat`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    model: this.model,
-                    messages: [
-                        { role: 'system', content: request.systemPrompt },
-                        ...request.messages
-                    ],
-                    stream: false,
-                    format: 'json'
-                })
+                body: JSON.stringify(bodyPayload)
             });
 
             if (!response.ok) {
@@ -34,11 +48,21 @@ export class LocalOllamaProvider implements AiProvider {
             }
 
             const data = await response.json() as any;
+
+            if (data.message?.tool_calls && data.message.tool_calls.length > 0) {
+                const call = data.message.tool_calls[0].function;
+                return {
+                    type: 'tool_call',
+                    tool: call.name,
+                    arguments: call.arguments
+                };
+            }
+
             const content = data.message?.content || '';
 
             try {
                 const parsed = JSON.parse(content);
-                
+
                 // Pattern 1 & 2: { tool: "name", arguments: { ... } } or { action/type/tool_used: "name", ...args }
                 const toolName = parsed.tool || parsed.action || parsed.type || parsed.tool_used;
                 if (toolName) {
