@@ -205,24 +205,26 @@ No external REST API changes are required. The contract updates are strictly int
 
 ### **4\. ENGINEER TASK BREAKDOWN**
 
-**Task \[CORE-01\]: Update Domain Models & Factory Interfaces**
+**Task \[CORE-01\]: Update Domain Models & Factory Interfaces** [DONE]
 
 * **Description:** 1\. Update the `UserSettings` interface in `packages/core/src/domain/models.ts` to include `ollamaBaseUrl?: string` and `ollamaModel?: string` under the `preferences` object. 2\. Ensure `apps/webapp/src/features/agent/AiFeatureProvider.tsx` and `useAgent.ts` pass these new preference fields into `AiProviderFactory.createProvider` as `baseUrl` and `ollamaModel`, falling back to `import.meta.env` values if they are undefined or empty strings.  
 * **Technical Definition of Done:** The TypeScript compiler passes, and the core package supports the new configuration fields.
 
-**Task \[FE-01\]: Always-Visible AI Settings Panel**
+**Task \[FE-01\]: Always-Visible AI Settings Panel** [DONE]
+
 
 * **Description:** In `apps/webapp/src/pages/profile.tsx`, remove the conditional rendering block that checks if `aiStatus === 'unavailable'`. The AI Provider `<Select>` dropdown and its child configurations must always render, regardless of the global `AiFeatureContext` status. Ensure the "Team Key" (Cloud Proxy) option is not manually selectable in the `<Select>` component.  
 * **Technical Definition of Done:** Users can view and interact with the AI provider dropdown even if the initial load evaluates the AI as unavailable.
 
-**Task \[FE-02\]: Local Ollama Configuration UI**
+**Task \[FE-02\]: Local Ollama Configuration UI** [DONE]
+
 
 * **Description:** In `apps/webapp/src/pages/profile.tsx`, add a new conditional rendering block: if `settings?.preferences?.aiProvider === 'local'`, display two new `<Input>` fields for "Ollama Base URL" and "Ollama Model".  
   * Bind their values to local React state (draft state).  
   * Set their `placeholder` attributes to `import.meta.env.VITE_OLLAMA_URL` and `import.meta.env.VITE_OLLAMA_MODEL` respectively.  
 * **Technical Definition of Done:** The inputs correctly appear only when "Local Chrome AI" (or "Local Ollama") is selected, and draft state is managed locally in the component.
 
-**Task \[FE-03\]: Real-Time Validation & Permissive Saving**
+**Task \[FE-03\]: Real-Time Validation & Permissive Saving** [DONE]
 
 * **Description:** In `apps/webapp/src/pages/profile.tsx`, implement a new `handleSaveAiSettings` function (triggered by a "Save AI Settings" button).  
   1. Set a local `isVerifying` loading state to true.  
