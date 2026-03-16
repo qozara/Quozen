@@ -291,6 +291,8 @@
         "aiCantPerform": "La AI no pudo realizar la acción.",
         "localAiNotAvailable": "AI local no disponible",
         "proxyRequestFailed": "Error en el proxy de AI",
-        "localAiInvalidJson": "La AI local no pudo generar un JSON válido"
+        "localAiInvalidJson": "La AI local no pudo generar un JSON válido",
+        "quotaExceeded": "La cuota de la API del equipo de Quozen se ha agotado. Inténtalo más tarde, o cambia a AI Local o usa tu propia llave en tu Perfil.",
+        "rateLimitExceeded": "Has excedido tu límite diario de solicitudes de AI. Por favor, inténtalo de nuevo mañana."
     }
 }

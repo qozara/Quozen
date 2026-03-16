@@ -118,7 +118,7 @@ app.post('/api/v1/agent/chat', async (c) => {
             });
             const { success } = await ratelimit.limit(`ai-limit:${user.id}`);
             if (!success) {
-                return c.json({ error: 'Too Many Requests', message: 'Daily limit exceeded' }, 429);
+                return c.json({ error: 'Too Many Requests', message: 'Daily limit exceeded', code: 'RATE_LIMIT_EXCEEDED' }, 429);
             }
         }
     }
@@ -172,6 +172,15 @@ app.post('/api/v1/agent/chat', async (c) => {
         });
     } catch (error: any) {
         console.error('LLM Error:', error);
+
+        // Handle Upstream Quota/Rate Limit Errors (429)
+        if (error?.statusCode === 429 || error?.message?.toLowerCase().includes('quota') || error?.message?.toLowerCase().includes('429')) {
+            return c.json({
+                error: 'Too Many Requests',
+                message: 'Upstream quota exceeded',
+                code: 'QUOTA_EXCEEDED'
+            }, 429);
+        }
         return c.json({
             error: 'Internal Server Error',
             message: 'LLM request failed'

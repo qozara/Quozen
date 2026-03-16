@@ -41,7 +41,7 @@ export class ProxyAiProvider implements AiProvider {
                 const error = await response.json().catch(() => ({})) as any;
                 return {
                     type: 'text',
-                    error: error.message || error.error || `Proxy request failed (${response.status})`
+                    error: error.code || error.message || error.error || `Proxy request failed (${response.status})`
                 };
             }
 

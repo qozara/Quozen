@@ -291,6 +291,8 @@
         "aiCantPerform": "AI couldn't perform the action.",
         "localAiNotAvailable": "Local AI not available",
         "proxyRequestFailed": "AI Proxy request failed",
-        "localAiInvalidJson": "Local AI failed to generate valid JSON"
+        "localAiInvalidJson": "Local AI failed to generate valid JSON",
+        "quotaExceeded": "Quozen Team API quota is exhausted. Please try again later, or switch to Local AI or Bring Your Own Key in your Profile settings.",
+        "rateLimitExceeded": "You have exceeded your daily AI request limit. Please try again tomorrow."
     }
 }
