@@ -61,11 +61,11 @@ export class AiProviderFactory {
         return new DisabledAiProvider();
     }
 
-    static getSetupMessage(providerId: string): string | null {
+    static getSetupMessage(providerId: string, config?: Partial<AiFactoryConfig>): string | null {
         switch (providerId) {
             case 'local':
             case 'local-ollama':
-                return new LocalOllamaProvider().getSetupMessage();
+                return new LocalOllamaProvider(config?.baseUrl || undefined, config?.ollamaModel || undefined).getSetupMessage();
             case 'local-browser':
             case 'window-ai':
                 return new WindowAiProvider().getSetupMessage();

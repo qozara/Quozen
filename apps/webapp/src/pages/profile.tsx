@@ -390,9 +390,9 @@ export default function Profile() {
               <p className="text-xs text-muted-foreground">
                 {t("profile.aiProviderDesc")}
               </p>
-              {AiProviderFactory.getSetupMessage(draftProvider) && (
+              {AiProviderFactory.getSetupMessage(draftProvider, { ollamaModel: draftOllamaModel || import.meta.env.VITE_OLLAMA_MODEL || "qwen2.5:0.5b" }) && (
                 <p className="text-xs font-medium text-amber-600 mt-2 bg-amber-50 p-2 rounded border border-amber-100 italic">
-                  {AiProviderFactory.getSetupMessage(draftProvider)}
+                  {AiProviderFactory.getSetupMessage(draftProvider, { ollamaModel: draftOllamaModel || import.meta.env.VITE_OLLAMA_MODEL || "qwen2.5:0.5b" })}
                 </p>
               )}
             </div>
