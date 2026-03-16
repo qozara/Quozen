@@ -29,30 +29,14 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        // Advanced manual chunks logic
-        manualChunks(id) {
-          if (id.includes("node_modules")) {
-            // Separate Routing from React Core
-            if (id.includes("react-router") || id.includes("@remix-run")) {
-              return "react-routing";
-            }
-            if (id.includes("react") || id.includes("react-dom")) {
-              return "react-framework";
-            }
-            // 2. Data Visualization & Heavy Motion (the "heavy hitters")
-            if (id.includes("recharts") || id.includes("framer-motion") || id.includes("d3")) {
-              return "viz";
-            }
-            // 3. UI Primitives (Radix and icons)
-            if (id.includes("@radix-ui") || id.includes("lucide-react") || id.includes("react-icons")) {
-              return "ui-primitives";
-            }
-            // 4. Fallback for all other dependencies
-            return "vendor";
-          }
-        },
+        manualChunks: {
+          // Safely extract massive visual libraries ONLY
+          'vendor-recharts': ['recharts'],
+          'vendor-lucide': ['lucide-react'],
+        }
       },
     },
   },
