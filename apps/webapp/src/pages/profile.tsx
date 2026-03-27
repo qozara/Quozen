@@ -475,6 +475,7 @@ export default function Profile() {
               variant="ghost"
               className="w-full justify-start"
               data-testid="button-help"
+              onClick={() => window.location.href = `mailto:${import.meta.env.VITE_SUPPORT_EMAIL || "support@qozara.org"}`}
             >
               <HelpCircle className="w-4 h-4 mr-3" />
               {t("profile.help")}
@@ -483,6 +484,7 @@ export default function Profile() {
               variant="ghost"
               className="w-full justify-start"
               data-testid="button-contact"
+              onClick={() => window.location.href = `mailto:${import.meta.env.VITE_SUPPORT_EMAIL || "support@qozara.org"}`}
             >
               <Mail className="w-4 h-4 mr-3" />
               {t("profile.contact")}
