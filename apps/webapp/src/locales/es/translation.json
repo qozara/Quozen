@@ -176,7 +176,7 @@
         "signIn": "Iniciar Sesión",
         "connect": "Conecta tu cuenta de Google para acceder a tus grupos.",
         "continue": "Continuar con Google",
-        "disclaimer": "Al continuar, aceptas que Quozen opera del lado del cliente y guarda datos directamente en tu Google Drive personal."
+        "disclaimer": "Al continuar, aceptas nuestros <tos>Términos de Servicio</tos> y reconoces nuestra <privacy>Política de Privacidad</privacy>. Quozen opera del lado del cliente y guarda los datos directamente en tu Google Drive personal."
     },
     "register": {
         "title": "Crear una Cuenta",

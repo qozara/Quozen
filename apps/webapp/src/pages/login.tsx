@@ -4,13 +4,14 @@ import { useAuth } from "@/context/auth-provider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import SiteFooter from "@/components/site-footer";
-import { useTranslation } from "react-i18next";
+import { useTranslation, Trans } from "react-i18next";
 
 export default function Login() {
   const { login, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
+  const legalBaseUrl = import.meta.env.VITE_LEGAL_BASE_URL || "https://qozara.org";
 
   // Clear message on component mount
   useEffect(() => {
@@ -77,9 +78,15 @@ export default function Login() {
               {t("login.continue")}
             </Button>
 
-            <p className="text-[10px] text-center text-muted-foreground/60 leading-relaxed px-4">
-              {t("login.disclaimer")}
-            </p>
+            <div className="text-[10px] text-center text-muted-foreground/60 leading-relaxed px-4">
+              <Trans 
+                i18nKey="login.disclaimer"
+                components={{
+                  tos: <a href={`${legalBaseUrl}/legal/quozen/tos.html`} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary transition-colors font-medium" />,
+                  privacy: <a href={`${legalBaseUrl}/legal/quozen/privacy.html`} target="_blank" rel="noopener noreferrer" className="underline hover:text-primary transition-colors font-medium" />
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
