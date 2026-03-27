@@ -176,7 +176,7 @@
         "signIn": "Sign In",
         "connect": "Connect your Google account to access your groups securely.",
         "continue": "Continue with Google",
-        "disclaimer": "By continuing, you acknowledge that Quozen operates client-side and stores data directly in your personal Google Drive."
+        "disclaimer": "By continuing, you agree to our <tos>Terms of Service</tos> and acknowledge our <privacy>Privacy Policy</privacy>. Quozen operates client-side and stores data directly in your personal Google Drive."
     },
     "register": {
         "title": "Create an Account",
@@ -291,6 +291,8 @@
         "aiCantPerform": "AI couldn't perform the action.",
         "localAiNotAvailable": "Local AI not available",
         "proxyRequestFailed": "AI Proxy request failed",
-        "localAiInvalidJson": "Local AI failed to generate valid JSON"
+        "localAiInvalidJson": "Local AI failed to generate valid JSON",
+        "quotaExceeded": "Quozen Team API quota is exhausted. Please try again later, or switch to Local AI or Bring Your Own Key in your Profile settings.",
+        "rateLimitExceeded": "You have exceeded your daily AI request limit. Please try again tomorrow."
     }
 }

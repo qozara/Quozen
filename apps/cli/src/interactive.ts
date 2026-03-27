@@ -75,8 +75,9 @@ export async function startInteractive() {
                         providerPreference: (settings?.preferences?.aiProvider || 'auto') as any,
                         encryptedApiKey: settings?.encryptedApiKey,
                         proxyUrl: process.env.VITE_AI_PROXY_URL || 'http://localhost:8788',
-                        baseUrl: process.env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
-                        ollamaModel: process.env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b'
+                        baseUrl: settings?.preferences?.ollamaBaseUrl || process.env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
+                        ollamaModel: settings?.preferences?.ollamaModel || process.env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
+                        byokProvider: settings?.preferences?.byokProvider || 'google'
                     };
 
                     const provider = await AiProviderFactory.createProvider(config, getAuthToken);

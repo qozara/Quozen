@@ -59,9 +59,10 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 const config = {
                     providerPreference: providerPreference as any,
                     encryptedApiKey: settings?.encryptedApiKey,
-                    baseUrl: (import.meta as any).env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
+                    baseUrl: settings?.preferences?.ollamaBaseUrl || (import.meta as any).env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
                     proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
-                    ollamaModel: (import.meta as any).env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b'
+                    ollamaModel: settings?.preferences?.ollamaModel || (import.meta as any).env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
+                    byokProvider: settings?.preferences?.byokProvider || 'google'
                 };
 
                 const provider = await AiProviderFactory.createProvider(config, getAuthToken);

@@ -101,7 +101,9 @@ class MockServer {
 
     async handle(route: Route) {
         const request = route.request();
-        console.log(`[MockServer] Request: ${request.method()} ${request.url()}`);
+        if (process.env.DEBUG_MOCK === 'true') {
+            console.log(`[MockServer] Request: ${request.method()} ${request.url()}`);
+        }
         if (this._latencyMs > 0) {
             await new Promise(r => setTimeout(r, this._latencyMs));
         }
@@ -127,7 +129,9 @@ class MockServer {
 
         try {
             const response = await this.dispatch(request.method(), request.url(), body);
-            console.log(`[MockServer] Response: ${response.status} for ${request.url()}`);
+            if (process.env.DEBUG_MOCK === 'true') {
+                console.log(`[MockServer] Response: ${response.status} for ${request.url()}`);
+            }
             await route.fulfill({
                 status: response.status,
                 contentType: 'application/json',

@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { AiSdkAdapter, ProviderConfig } from './types';
+import { AiSdkAdapter, ProviderConfig } from './types.js';
 import { LanguageModel } from 'ai';
 
 export class GoogleProvider implements AiSdkAdapter {

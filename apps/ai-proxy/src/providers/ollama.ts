@@ -1,5 +1,5 @@
 import { createOllama } from 'ollama-ai-provider';
-import { AiSdkAdapter, ProviderConfig } from './types';
+import { AiSdkAdapter, ProviderConfig } from './types.js';
 import { LanguageModel } from 'ai';
 
 export class OllamaProvider implements AiSdkAdapter {

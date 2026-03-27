@@ -4,9 +4,9 @@ import { env } from 'hono/adapter';
 import { generateText, jsonSchema } from 'ai';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { authMiddleware, AppEnv } from './middleware/auth';
-import { encrypt, decrypt } from './lib/kms';
-import { ProviderFactory } from './providers/factory';
+import { authMiddleware, AppEnv } from './middleware/auth.js';
+import { encrypt, decrypt } from './lib/kms.js';
+import { ProviderFactory } from './providers/factory.js';
 import { z } from 'zod';
 
 const ChatRequestSchema = z.object({
@@ -18,6 +18,7 @@ const ChatRequestSchema = z.object({
         parameters: z.any(),
     })).optional(),
     ciphertext: z.string().optional(),
+    byokProvider: z.string().optional(),
 });
 
 const EncryptRequestSchema = z.object({
@@ -79,12 +80,12 @@ app.post('/api/v1/agent/chat', async (c) => {
         }, 400);
     }
 
-    const { messages, systemPrompt, tools, ciphertext } = requestValidation.data;
+    const { messages, systemPrompt, tools, ciphertext, byokProvider } = requestValidation.data;
 
     const user = c.get('user');
     // Use c.env if available (common in tests/Cloudflare), otherwise fall back to adapter env
     const bindings = (c.env || env(c)) as AppEnv['Bindings'];
-    const providerId = bindings.AI_PROVIDER || 'google';
+    const providerId = (ciphertext && byokProvider) ? byokProvider : (bindings.AI_PROVIDER || 'google');
 
     const provider = ProviderFactory.getProvider(providerId);
 
@@ -118,7 +119,7 @@ app.post('/api/v1/agent/chat', async (c) => {
             });
             const { success } = await ratelimit.limit(`ai-limit:${user.id}`);
             if (!success) {
-                return c.json({ error: 'Too Many Requests', message: 'Daily limit exceeded' }, 429);
+                return c.json({ error: 'Too Many Requests', message: 'Daily limit exceeded', code: 'RATE_LIMIT_EXCEEDED' }, 429);
             }
         }
     }
@@ -172,6 +173,15 @@ app.post('/api/v1/agent/chat', async (c) => {
         });
     } catch (error: any) {
         console.error('LLM Error:', error);
+
+        // Handle Upstream Quota/Rate Limit Errors (429)
+        if (error?.statusCode === 429 || error?.message?.toLowerCase().includes('quota') || error?.message?.toLowerCase().includes('429')) {
+            return c.json({
+                error: 'Too Many Requests',
+                message: 'Upstream quota exceeded',
+                code: 'QUOTA_EXCEEDED'
+            }, 429);
+        }
         return c.json({
             error: 'Internal Server Error',
             message: 'LLM request failed'

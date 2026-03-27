@@ -3,7 +3,9 @@ import { mockServer } from './mock-server';
 
 const mockValue = process.env.VITE_USE_MOCK_STORAGE;
 export const isMockMode = mockValue === 'true' || mockValue === 'remote';
-console.log(`[TestMode] isMockMode: ${isMockMode}`);
+if (process.env.DEBUG_MOCK === 'true') {
+    console.log(`[TestMode] isMockMode: ${isMockMode}`);
+}
 
 const SETTINGS_FILE_NAME = "quozen-settings.json";
 const DRIVE_API_URL = "https://www.googleapis.com/drive/v3";

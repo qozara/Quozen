@@ -1,6 +1,6 @@
-import { AiSdkAdapter } from './types';
-import { GoogleProvider } from './google';
-import { OllamaProvider } from './ollama';
+import { AiSdkAdapter } from './types.js';
+import { GoogleProvider } from './google.js';
+import { OllamaProvider } from './ollama.js';
 
 const providers: Record<string, AiSdkAdapter> = {
     google: new GoogleProvider(),

@@ -50,9 +50,16 @@ export const useAgent = () => {
                 await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
                 await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId, "analytics"] });
             } else {
+                let errorDescription = result.message;
+                if (result.message === 'QUOTA_EXCEEDED') {
+                    errorDescription = t('agent.quotaExceeded');
+                } else if (result.message === 'RATE_LIMIT_EXCEEDED') {
+                    errorDescription = t('agent.rateLimitExceeded');
+                }
+
                 toast({
                     title: t('agent.errorTitle'),
-                    description: result.message,
+                    description: errorDescription,
                     variant: "destructive"
                 });
             }

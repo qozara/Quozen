@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAiFeature } from "@/features/agent/AiFeatureContext";
 import { agentClient } from "@/lib/agent";
 import { AiProviderFactory } from "@quozen/core";
+import { getAuthToken } from "@/lib/tokenStore";
 
 const POPULAR_CURRENCIES = [
   "USD", "EUR", "GBP", "JPY", "CAD", "AUD", "INR", "CNY", "BRL", "MXN", "ARS", "CHF"
@@ -59,11 +60,25 @@ export default function Profile() {
   const { user, logout } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { settings, updateSettings } = useSettings();
+  const { settings, updateSettings, updateSettingsAsync } = useSettings();
   const { groups } = useGroups();
   const { t } = useTranslation();
   const { status: aiStatus } = useAiFeature();
   const [apiKey, setApiKey] = React.useState("");
+  const [draftProvider, setDraftProvider] = React.useState(settings?.preferences?.aiProvider || "auto");
+  const [draftOllamaUrl, setDraftOllamaUrl] = React.useState(settings?.preferences?.ollamaBaseUrl || "");
+  const [draftOllamaModel, setDraftOllamaModel] = React.useState(settings?.preferences?.ollamaModel || "");
+  const [draftByokProvider, setDraftByokProvider] = React.useState(settings?.preferences?.byokProvider || "google");
+  const [isVerifying, setIsVerifying] = React.useState(false);
+
+  React.useEffect(() => {
+    if (settings) {
+      setDraftProvider(prev => prev === "auto" ? (settings.preferences.aiProvider || "auto") : prev);
+      setDraftOllamaUrl(prev => prev === "" ? (settings.preferences.ollamaBaseUrl || "") : prev);
+      setDraftOllamaModel(prev => prev === "" ? (settings.preferences.ollamaModel || "") : prev);
+      setDraftByokProvider(prev => prev === "google" ? (settings.preferences.byokProvider || "google") : prev);
+    }
+  }, [settings?.preferences.aiProvider, settings?.preferences.ollamaBaseUrl, settings?.preferences.ollamaModel, settings?.preferences.byokProvider]);
 
   const reconcileMutation = useMutation({
     mutationFn: async () => {
@@ -119,47 +134,68 @@ export default function Profile() {
     logout();
   };
 
-  const handleAiProviderChange = (provider: string) => {
-    if (settings) {
-      updateSettings({
+  const handleSaveAiSettings = async () => {
+    if (!settings) return;
+    setIsVerifying(true);
+
+    let finalEncryptedKey = settings.encryptedApiKey;
+
+    try {
+      if (draftProvider === 'byok' && apiKey.trim()) {
+        finalEncryptedKey = await agentClient.encryptApiKey(apiKey);
+      }
+
+      const config = {
+        providerPreference: draftProvider as any,
+        encryptedApiKey: finalEncryptedKey,
+        baseUrl: draftOllamaUrl || import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
+        proxyUrl: import.meta.env.VITE_AI_PROXY_URL,
+        ollamaModel: draftOllamaModel || import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
+        byokProvider: draftByokProvider || 'google'
+      };
+
+      const tempProvider = await AiProviderFactory.createProvider(config, getAuthToken as any);
+      const isAvailable = await tempProvider.checkAvailability();
+
+      const newSettings = {
         ...settings,
+        encryptedApiKey: finalEncryptedKey,
         preferences: {
           ...settings.preferences,
-          aiProvider: provider as any
+          aiProvider: draftProvider as any,
+          ollamaBaseUrl: draftOllamaUrl,
+          ollamaModel: draftOllamaModel,
+          byokProvider: draftByokProvider
         }
-      });
-      toast({ title: t("common.save") });
-    }
-  };
+      };
 
-  const [isEncrypting, setIsEncrypting] = React.useState(false);
+      await updateSettingsAsync(newSettings);
 
-  const handleSaveApiKey = async () => {
-    if (!apiKey.trim() || !settings) return;
+      if (draftProvider === 'byok' && apiKey.trim()) {
+        setApiKey("");
+      }
 
-    setIsEncrypting(true);
-    try {
-      const ciphertext = await agentClient.encryptApiKey(apiKey);
-
-      updateSettings({
-        ...settings,
-        encryptedApiKey: ciphertext
-      });
-
-      setApiKey("");
-      toast({
-        title: t("common.success"),
-        description: "API Key encrypted and saved securely.",
-      });
+      if (isAvailable) {
+        toast({
+          title: t("common.success"),
+          description: "Connection Successful & Settings Saved",
+        });
+      } else {
+        toast({
+          title: t("common.error"),
+          description: "Settings saved, but provider is unreachable.",
+          variant: "destructive"
+        });
+      }
     } catch (error: any) {
       console.error(error);
       toast({
         title: t("common.error"),
-        description: error.message || "Could not encrypt API Key. Check your connection.",
+        description: error.message || "Failed to save settings.",
         variant: "destructive"
       });
     } finally {
-      setIsEncrypting(false);
+      setIsVerifying(false);
     }
   };
 
@@ -330,48 +366,58 @@ export default function Profile() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {aiStatus === 'checking' ? (
-            <div className="space-y-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-            </div>
-          ) : aiStatus === 'unavailable' ? (
-            <p className="text-sm text-muted-foreground italic">
-              {t("profile.aiNotAvailable")}
-            </p>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <Bot className="w-4 h-4 text-muted-foreground" />
-                  {t("profile.aiProvider")}
-                </Label>
-                <Select
-                  value={settings?.preferences?.aiProvider || "auto"}
-                  onValueChange={handleAiProviderChange}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">{t("profile.aiAuto")}</SelectItem>
-                    <SelectItem value="byok">{t("profile.aiByok")}</SelectItem>
-                    <SelectItem value="local">{t("profile.aiLocal")}</SelectItem>
-                    <SelectItem value="disabled">{t("profile.aiDisabled")}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t("profile.aiProviderDesc")}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Bot className="w-4 h-4 text-muted-foreground" />
+                {t("profile.aiProvider")}
+              </Label>
+              <Select
+                value={draftProvider}
+                onValueChange={(value) => setDraftProvider(value as any)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">{t("profile.aiAuto")}</SelectItem>
+                  <SelectItem value="byok">{t("profile.aiByok")}</SelectItem>
+                  <SelectItem value="local-browser">{t("profile.aiLocal")}</SelectItem>
+                  <SelectItem value="local">Local Ollama</SelectItem>
+                  <SelectItem value="disabled">{t("profile.aiDisabled")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t("profile.aiProviderDesc")}
+              </p>
+              {AiProviderFactory.getSetupMessage(draftProvider, { ollamaModel: draftOllamaModel || import.meta.env.VITE_OLLAMA_MODEL || "qwen2.5:0.5b" }) && (
+                <p className="text-xs font-medium text-amber-600 mt-2 bg-amber-50 p-2 rounded border border-amber-100 italic">
+                  {AiProviderFactory.getSetupMessage(draftProvider, { ollamaModel: draftOllamaModel || import.meta.env.VITE_OLLAMA_MODEL || "qwen2.5:0.5b" })}
                 </p>
-                {AiProviderFactory.getSetupMessage(settings?.preferences?.aiProvider || 'auto') && (
-                  <p className="text-xs font-medium text-amber-600 mt-2 bg-amber-50 p-2 rounded border border-amber-100 italic">
-                    {AiProviderFactory.getSetupMessage(settings?.preferences?.aiProvider || 'auto')}
-                  </p>
-                )}
-              </div>
+              )}
+            </div>
 
-              {settings?.preferences?.aiProvider === 'byok' && (
-                <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+            {draftProvider === 'byok' && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-top-1">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <Bot className="w-4 h-4 text-muted-foreground" />
+                    AI Provider Service
+                  </Label>
+                  <Select
+                    value={draftByokProvider}
+                    onValueChange={setDraftByokProvider}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="google">Google (Gemini)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
                   <Label className="flex items-center gap-2">
                     <Key className="w-4 h-4 text-muted-foreground" />
                     {t("profile.apiKey")}
@@ -384,18 +430,39 @@ export default function Profile() {
                       onChange={(e) => setApiKey(e.target.value)}
                       className="flex-1"
                     />
-                    <Button
-                      size="sm"
-                      onClick={handleSaveApiKey}
-                      disabled={isEncrypting || !apiKey.trim()}
-                    >
-                      {isEncrypting ? <RefreshCw className="w-4 h-4 animate-spin" /> : t("profile.saveKey")}
-                    </Button>
                   </div>
                 </div>
-              )}
-            </>
-          )}
+              </div>
+            )}
+
+            {draftProvider === 'local' && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-top-1">
+                <div className="space-y-2">
+                  <Label>Ollama Base URL</Label>
+                  <Input
+                    type="text"
+                    placeholder={import.meta.env.VITE_OLLAMA_URL || "http://localhost:11434/api"}
+                    value={draftOllamaUrl}
+                    onChange={(e) => setDraftOllamaUrl(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Ollama Model</Label>
+                  <Input
+                    type="text"
+                    placeholder={import.meta.env.VITE_OLLAMA_MODEL || "qwen2.5:0.5b"}
+                    value={draftOllamaModel}
+                    onChange={(e) => setDraftOllamaModel(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            <Button className="w-full" onClick={handleSaveAiSettings} disabled={isVerifying}>
+              {isVerifying ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : null}
+              {t("common.save")} AI Settings
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -408,6 +475,7 @@ export default function Profile() {
               variant="ghost"
               className="w-full justify-start"
               data-testid="button-help"
+              onClick={() => window.location.href = `mailto:${import.meta.env.VITE_SUPPORT_EMAIL || "support@qozara.org"}`}
             >
               <HelpCircle className="w-4 h-4 mr-3" />
               {t("profile.help")}
@@ -416,6 +484,7 @@ export default function Profile() {
               variant="ghost"
               className="w-full justify-start"
               data-testid="button-contact"
+              onClick={() => window.location.href = `mailto:${import.meta.env.VITE_SUPPORT_EMAIL || "support@qozara.org"}`}
             >
               <Mail className="w-4 h-4 mr-3" />
               {t("profile.contact")}

@@ -72,7 +72,10 @@ export interface UserSettings {
         defaultCurrency: string;
         theme?: "light" | "dark" | "system";
         locale?: "en" | "es" | "system";
-        aiProvider?: "auto" | "byok" | "local" | "cloud" | "disabled";
+        aiProvider?: "auto" | "byok" | "local" | "local-browser" | "cloud" | "disabled";
+        ollamaBaseUrl?: string;
+        ollamaModel?: string;
+        byokProvider?: string;
     };
     encryptedApiKey?: string;
     lastUpdated: string;

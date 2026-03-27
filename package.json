@@ -21,9 +21,9 @@
     "test:core:smoke-test": "npm run test:ai:live-smoke-test --workspace=@quozen/core",
     "test:web:e2e": "npm run test:e2e --workspace=@quozen/webapp",
     "test:web:watch": "npm run test:watch --workspace=@quozen/webapp",
-    "test:all:non-interactive": "npm run test && npm run test:core:all:non-interactive && npm run test:web:e2e",
-    "test:all": "npm run test:all:non-interactive && npm run test:core:smoke-test",
-    "predeploy": "npm run check && npm run test:all:non-interactive && npm run build",
+    "test:all:non-interactive": "node scripts/run-all-tests.js --non-interactive",
+    "test:all": "node scripts/run-all-tests.js",
+    "predeploy": "npm run test:all:non-interactive && npm run build",
     "deploy:api:vercel": "npm run build --workspaces --if-present && vercel deploy",
     "deploy:api:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/api",
     "deploy:ai:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/ai-proxy"

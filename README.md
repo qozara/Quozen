@@ -90,20 +90,48 @@ To function, Quozen requests these specific permissions:
 
 ## 🧪 Testing
 
-Quozen maintains high confidence through a multi-layered testing strategy:
+Quozen maintains high confidence through a multi-layered testing strategy. Tests are categorized into isolated offline tests and live infrastructure tests.
 
-- **Core Logic Tests**: Independent, fast unit tests for financial math and storage logic.
-  ```bash
-  npm run test --workspace=@quozen/core
-  ```
-- **App Unit Tests**: Component and hook testing within the React application.
+### 1. Non-Interactive Tests (No Login Required)
+These tests run completely offline or against local mocked services (like the in-memory storage adapter). **No Google authentication is required.**
+
+- **Unit & Integration Tests**: Fast, isolated tests for core logic, API endpoints, and React components.
   ```bash
   npm run test
   ```
-- **E2E Tests**: Full user flow verification using Playwright (Mocked Storage).
+- **E2E Tests**: Full user flow verification using Playwright against a simulated mock storage layer.
   ```bash
-  npm run test:e2e
+  npm run test:web:e2e
   ```
+- **Run All Non-Interactive**: Runs all unit tests, mocked E2E tests, and local LLM behavior tests (requires local Ollama running).
+  ```bash
+  npm run test:all:non-interactive
+  ```
+
+### 2. Live Infrastructure Tests (Google Login Required)
+These tests verify the actual integration with the real Google Drive API and the Edge AI Proxy (e.g., `infrastructure-smoke.test.ts`).
+
+- **Precondition**: You **must** authenticate locally via the CLI to generate a valid `credentials.json` token before running this suite.
+  ```bash
+  npm run cli -- login
+  ```
+- **Run All Tests (Includes Live Smoke Test)**: Runs the non-interactive suite *plus* the live E2E infrastructure smoke test.
+  ```bash
+  npm run test:all
+  ```
+
+### 3. Debugging Tests
+By default, mock server requests and browser console logs during E2E tests are suppressed to keep the output clean. If you need to trace HTTP calls or browser errors during a failing test, run the suite with the DEBUG_MOCK flag:
+
+```bash
+# Mac/Linux
+DEBUG_MOCK=true npm run test:all:non-interactive
+```
+
+```powershell
+# Windows
+$env:DEBUG_MOCK="true"; npm run test:all:non-interactive
+```
 
 ---
 
@@ -169,3 +197,6 @@ To use On-Device AI:
 2.  Start with external origins allowed: `OLLAMA_ORIGINS="*" ollama serve`.
 3.  Pull a model: `ollama pull qwen2.5:0.5b`.
 4.  Update your `.env` with `VITE_OLLAMA_URL=http://localhost:11434/api` and `VITE_OLLAMA_MODEL=qwen2.5:0.5b`.
+
+
+Quozen is a research project by the Qozara Lab.

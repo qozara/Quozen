@@ -14,6 +14,7 @@ import Login from "@/pages/login";
 import JoinPage from "@/pages/join";
 import BottomNavigation from "@/components/bottom-navigation";
 import Header from "@/components/header";
+import SiteFooter from "@/components/site-footer";
 import { AppContext } from "@/context/app-context";
 import { AuthProvider, useAuth } from "@/context/auth-provider";
 import { useSettings } from "@/hooks/use-settings";
@@ -63,6 +64,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
           {children}
         </PullToRefresh>
       </main>
+      <SiteFooter />
       <BottomNavigation />
       <AddExpenseDrawer />
     </div>
