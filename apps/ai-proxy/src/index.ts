@@ -159,11 +159,12 @@ app.post('/api/v1/agent/chat', async (c) => {
         });
 
         if (result.toolCalls && result.toolCalls.length > 0) {
-            const call = result.toolCalls[0];
+            const call = result.toolCalls[0] as any;
             return c.json({
                 type: 'tool_call',
                 tool: call.toolName,
-                arguments: call.args
+                // Fallback supports both v6 (input) and legacy (args)
+                arguments: call.input || call.args
             });
         }
 
