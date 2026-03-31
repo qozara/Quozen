@@ -18,8 +18,9 @@ interface MockSheet {
 
 export class InMemoryAdapter implements IStorageLayer {
     private sheets: Map<string, MockSheet> = new Map();
-    private globalSheetData = new Map<string, Record<string, any[][]>>();
-    private globalSheetIds = new Map<string, Record<string, number>>();
+    // Refactored to Maps to prevent prototype pollution
+    private globalSheetData = new Map<string, Map<string, any[][]>>();
+    private globalSheetIds = new Map<string, Map<string, number>>();
 
     constructor() {
         console.log("[MemoryAdapter] Initialized.");
@@ -157,12 +158,14 @@ export class InMemoryAdapter implements IStorageLayer {
 
     async createSpreadsheet(title: string, sheetTitles: string[], properties?: Record<string, string>): Promise<string> {
         const id = await this.createFile(title, sheetTitles, properties);
-        const sData: Record<string, any[][]> = {};
-        const sIds: Record<string, number> = {};
+        const sData = new Map<string, any[][]>();
+        const sIds = new Map<string, number>();
+
         sheetTitles.forEach((t, i) => {
-            sData[t] = [];
-            sIds[t] = i + 1;
+            sData.set(t, []);
+            sIds.set(t, i + 1);
         });
+
         this.globalSheetData.set(id, sData);
         this.globalSheetIds.set(id, sIds);
         return id;
@@ -171,13 +174,15 @@ export class InMemoryAdapter implements IStorageLayer {
     async getSpreadsheet(spreadsheetId: string, fields?: string): Promise<any> {
         const sheet = this.sheets.get(spreadsheetId);
         if (!sheet) throw new Error("File not found");
-        const sIds = this.globalSheetIds.get(spreadsheetId) || {};
-        const sheetNames = sheet.sheetNames || Object.keys(sIds);
+
+        const sIds = this.globalSheetIds.get(spreadsheetId) || new Map<string, number>();
+        const sheetNames = sheet.sheetNames?.length ? sheet.sheetNames : Array.from(sIds.keys());
+
         return {
             spreadsheetId,
             properties: { title: sheet.name },
             sheets: sheetNames.map(title => ({
-                properties: { title, sheetId: sIds[title] || 0 }
+                properties: { title, sheetId: sIds.get(title) || 0 }
             }))
         };
     }
@@ -185,9 +190,10 @@ export class InMemoryAdapter implements IStorageLayer {
     async batchGetValues(spreadsheetId: string, ranges: string[]): Promise<any[]> {
         const sData = this.globalSheetData.get(spreadsheetId);
         if (!sData) return [];
+
         return ranges.map(range => {
             const [sheetName, cellRange] = range.split('!');
-            const rows = sData[sheetName] || [];
+            const rows = sData.get(sheetName) || [];
             let startIndex = 0;
             if (cellRange) {
                 const match = cellRange.match(/\d+/);
@@ -200,16 +206,20 @@ export class InMemoryAdapter implements IStorageLayer {
     async batchUpdateValues(spreadsheetId: string, data: { range: string; values: any[][] }[]): Promise<void> {
         const sData = this.globalSheetData.get(spreadsheetId);
         if (!sData) return;
+
         data.forEach(d => {
             const [sheetName, cellRange] = d.range.split('!');
-            if (!sData[sheetName]) sData[sheetName] = [];
+            if (!sData.has(sheetName)) sData.set(sheetName, []);
+
+            const targetSheet = sData.get(sheetName)!;
             let startIndex = 0;
             if (cellRange) {
                 const match = cellRange.match(/\d+/);
                 if (match) startIndex = parseInt(match[0]) - 1;
             }
+
             d.values.forEach((row, i) => {
-                sData[sheetName][startIndex + i] = row;
+                targetSheet[startIndex + i] = row;
             });
         });
         this.getAndTouch(spreadsheetId);
@@ -219,8 +229,10 @@ export class InMemoryAdapter implements IStorageLayer {
         const sheetName = range.split('!')[0];
         const sData = this.globalSheetData.get(spreadsheetId);
         if (!sData) return;
-        if (!sData[sheetName]) sData[sheetName] = [];
-        sData[sheetName].push(...values);
+
+        if (!sData.has(sheetName)) sData.set(sheetName, []);
+        sData.get(sheetName)!.push(...values);
+
         this.getAndTouch(spreadsheetId);
     }
 
@@ -228,16 +240,22 @@ export class InMemoryAdapter implements IStorageLayer {
         const sheetName = range.split('!')[0];
         const cellRange = range.split('!')[1];
         let startIndex = 0;
+
         if (cellRange) {
             const match = cellRange.match(/\d+/);
             if (match) startIndex = parseInt(match[0]) - 1;
         }
+
         const sData = this.globalSheetData.get(spreadsheetId);
         if (!sData) return;
-        if (!sData[sheetName]) sData[sheetName] = [];
+
+        if (!sData.has(sheetName)) sData.set(sheetName, []);
+        const targetSheet = sData.get(sheetName)!;
+
         values.forEach((row, i) => {
-            sData[sheetName][startIndex + i] = row;
+            targetSheet[startIndex + i] = row;
         });
+
         this.getAndTouch(spreadsheetId);
     }
 
@@ -245,14 +263,23 @@ export class InMemoryAdapter implements IStorageLayer {
         const sData = this.globalSheetData.get(spreadsheetId);
         const sIds = this.globalSheetIds.get(spreadsheetId);
         if (!sData || !sIds) return;
+
         requests.forEach(req => {
             if (req.deleteDimension) {
                 const sheetId = req.deleteDimension.range.sheetId;
                 const startIndex = req.deleteDimension.range.startIndex;
                 const endIndex = req.deleteDimension.range.endIndex;
-                const sheetName = Object.keys(sIds).find(k => sIds[k] === sheetId);
-                if (sheetName && sData[sheetName]) {
-                    sData[sheetName].splice(startIndex, endIndex - startIndex);
+
+                let targetSheetName: string | undefined;
+                for (const [name, id] of sIds.entries()) {
+                    if (id === sheetId) {
+                        targetSheetName = name;
+                        break;
+                    }
+                }
+
+                if (targetSheetName && sData.has(targetSheetName)) {
+                    sData.get(targetSheetName)!.splice(startIndex, endIndex - startIndex);
                 }
             }
         });
