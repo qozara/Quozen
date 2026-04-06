@@ -2,17 +2,10 @@ import { defineConfig } from '@playwright/test';
 import baseConfig from './playwright.config';
 
 /**
- * Config for running E2E tests against the REAL Google Drive API.
- * This requires manual user interaction for login (or a cached token).
+ * Config for running E2E tests against the REAL Google Drive API headless.
  */
 export default defineConfig({
   ...baseConfig,
-
-  // Force headed mode for interactive login
-  use: {
-    ...baseConfig.use,
-    headless: false,
-  },
 
   projects: [
     {

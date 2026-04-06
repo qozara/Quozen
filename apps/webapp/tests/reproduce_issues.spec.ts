@@ -28,15 +28,8 @@ test.describe.serial('Google Drive Persistence Reproduction', () => {
 
         await setupAuth(page); // Injects mock token if mock mode
 
-        if (!isMockMode) {
-            console.log("Real Mode: Launching browser for manual login...");
-            await page.goto('/');
-            console.log("Waiting for user to log in manually (timeout: 5 minutes)...");
-            await expect(page.getByRole('button', { name: /New Group/i })).toBeVisible({ timeout: 300_000 });
-        } else {
-            // Need to visit page to init localStorage
-            await page.goto('/');
-        }
+        // Need to visit page to init localStorage
+        await page.goto('/');
 
         accessToken = await getAccessToken(page);
         userProfile = await page.evaluate(() => localStorage.getItem("quozen_user_profile") || "");

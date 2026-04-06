@@ -1,5 +1,8 @@
 import { Page, BrowserContext, APIRequestContext, expect } from '@playwright/test';
 import { MockServer } from './mock-server';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 const mockValue = process.env.VITE_USE_MOCK_STORAGE;
 export const isMockMode = mockValue === 'true' || mockValue === 'remote';
@@ -13,6 +16,7 @@ const MOCK_API_BASE = "/_test/storage";
 
 /**
  * Sets up authentication based on the current mode.
+ * Throws a clear error if running cloud tests without local credentials.
  */
 export async function setupAuth(page: Page) {
     if (isMockMode) {
@@ -26,6 +30,62 @@ export async function setupAuth(page: Page) {
                 picture: "https://via.placeholder.com/150"
             }));
         });
+    } else {
+        const credsPath = path.join(os.homedir(), '.quozen', 'credentials.json');
+
+        // 🚨 SANITY CHECK: Ensure credentials exist before running real cloud tests
+        if (!fs.existsSync(credsPath)) {
+            throw new Error(`
+❌ CRITICAL ERROR: Local Google credentials not found!
+You are attempting to run tests against the real Google Drive API, but you are not logged in.
+
+Please open a terminal and run the following command to authenticate:
+👉 npm run cli -- login
+
+Once complete, run the tests again.
+            `);
+        }
+
+        let creds;
+        try {
+            creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+            if (!creds.access_token || !creds.refresh_token) throw new Error("Invalid format");
+        } catch (e) {
+            throw new Error(`❌ CRITICAL ERROR: credentials.json is corrupted. Please run 'npm run cli -- login' again.`);
+        }
+
+        if (Date.now() >= creds.expiry_date - 60000) {
+            console.log("Refreshing Google OAuth token...");
+            const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+            const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+            if (!clientId || !clientSecret) throw new Error("Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET for token refresh");
+
+            const response = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    refresh_token: creds.refresh_token,
+                    grant_type: 'refresh_token'
+                })
+            });
+
+            if (!response.ok) throw new Error(`❌ Failed to refresh token. Please run 'npm run cli -- login' again.`);
+            const tokens = await response.json();
+            creds.access_token = tokens.access_token;
+            if (tokens.refresh_token) creds.refresh_token = tokens.refresh_token;
+            creds.expiry_date = Date.now() + tokens.expires_in * 1000;
+            fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+        }
+
+        const token = creds.access_token;
+        const profile = JSON.stringify(creds.user);
+
+        await page.addInitScript(({ token, profile }) => {
+            localStorage.setItem("quozen_access_token", token);
+            localStorage.setItem("quozen_user_profile", profile);
+        }, { token, profile });
     }
 }
 
@@ -33,7 +93,7 @@ export async function setupAuth(page: Page) {
  * Initializes the test environment.
  * In Mock Mode: Intercepts network requests to the mock storage API.
  */
-export async function setupTestEnvironment(context: BrowserContext, mockServerInstance: MockServer) {
+export async function setupTestEnvironment(context: BrowserContext, mockServerInstance?: MockServer) {
     if (isMockMode && mockServerInstance) {
         await context.route(`${MOCK_API_BASE}/**`, async (route) => {
             await mockServerInstance.handle(route);
@@ -42,30 +102,22 @@ export async function setupTestEnvironment(context: BrowserContext, mockServerIn
 }
 
 /**
- * Waits for the user to be logged in (Real Mode only).
+ * Waits for the user to be logged in.
  * Call this after navigating to the app.
  */
 export async function ensureLoggedIn(page: Page) {
-    if (!isMockMode) {
-        console.log("Real Mode: Waiting for user to log in manually (timeout: 5 minutes)...");
-        // Wait for a sign that we are logged in, e.g., the 'New Group' button on dashboard
-        await expect(page.getByRole('button', { name: 'New Group' })).toBeVisible({ timeout: 300_000 });
-        console.log("Real Mode: User logged in.");
-    } else {
-        // Mock Mode: Wait for app to hydrate and show main layout (Bottom Navigation is a good indicator)
-        await expect(page.getByTestId('bottom-navigation')).toBeVisible();
-    }
+    // Wait for app to hydrate and show main layout (Bottom Navigation is a good indicator)
+    await expect(page.getByTestId('bottom-navigation')).toBeVisible();
 }
 
 /**
  * Gets the access token. 
  * In Mock Mode, returns a static token.
- * In Real Mode, scrapes it from the page (requires manual login).
+ * In Real Mode, scrapes it from the page.
  */
 export async function getAccessToken(page: Page): Promise<string> {
     if (isMockMode) return "mock-token-123";
 
-    // In Real Mode, we wait for it to appear
     const token = await page.evaluate(() => localStorage.getItem("quozen_access_token"));
     if (!token) throw new Error("No access token found in localStorage");
     return token;
