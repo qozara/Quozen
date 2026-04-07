@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('homepage redirects to login and has correct title', async ({ page }) => {
   // Go to the root URL

@@ -80,7 +80,7 @@ export default function GroupDialog({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>{mode === 'create' ? t("groups.create") : t("groups.edit")}</DrawerTitle>
+          <DrawerTitle data-testid="drawer-title-group">{mode === 'create' ? t("groups.create") : t("groups.edit")}</DrawerTitle>
           <DrawerDescription>
             {mode === 'create' ? t("groups.new") : t("groups.update")}
           </DrawerDescription>
@@ -97,6 +97,7 @@ export default function GroupDialog({
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
                 required
+                data-testid="input-group-name"
               />
             </div>
 
@@ -114,6 +115,7 @@ export default function GroupDialog({
                       handleAddMember();
                     }
                   }}
+                  data-testid="input-group-members"
                 />
                 <Button type="button" onClick={handleAddMember} size="icon" variant="outline">
                   <Plus className="w-4 h-4" />
@@ -160,6 +162,7 @@ export default function GroupDialog({
               form="group-form"
               className="flex-1 h-12"
               disabled={isPending}
+              data-testid="button-submit-group"
             >
               {isPending ? t("expenseForm.saving") : (mode === 'create' ? t("groups.create") : t("groups.update"))}
             </Button>

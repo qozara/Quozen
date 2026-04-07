@@ -9,7 +9,7 @@ if (!global.crypto) {
     (global as any).crypto = require('crypto');
 }
 
-class MockServer {
+export class MockServer {
     public adapter: InMemoryAdapter;
     private _latencyMs: number = 0;
     private _nextErrorStatus: number | null = null;
@@ -31,7 +31,8 @@ class MockServer {
 
     /**
      * Force the next storage request to fail with the given HTTP status,
-     * then automatically clear. Use for testing error-handling UI flows.
+     * then automatically clear.
+     * @agent_note Use this to test UI error boundaries and fallback states (like 409 Conflicts or 429 Rate Limits) without complex network mocking.
      */
     forceNextError(statusCode: number) {
         this._nextErrorStatus = statusCode;
@@ -40,8 +41,8 @@ class MockServer {
     /**
      * Directly inject an expense row into the InMemoryAdapter for a given
      * spreadsheetId (groupId), simulating a background write by another user.
-     * 
-     * Row format matches SheetDataMapper.mapFromExpense:
+     * @agent_note Use this to simulate background OCC concurrency and trigger Auto-Sync behaviors in E2E tests.
+     * * Row format matches SheetDataMapper.mapFromExpense:
      * [id, date, description, amount, paidByUserId, category, splitsJSON, metaJSON]
      */
     async injectExpense(spreadsheetId: string, expense: {
@@ -285,5 +286,3 @@ class MockServer {
         }
     }
 }
-
-export const mockServer = new MockServer();

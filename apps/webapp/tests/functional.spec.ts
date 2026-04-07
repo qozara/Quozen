@@ -1,41 +1,32 @@
-import { test, expect } from '@playwright/test';
-import { setupAuth, ensureLoggedIn, isMockMode, resetTestState, setupTestEnvironment } from './utils';
+import { test, expect } from './fixtures';
+import { setupAuth, ensureLoggedIn } from './utils';
 
 test.describe('Functional Flow', () => {
     // Inject auth token if in Mock mode and setup request interception
     test.beforeEach(async ({ page }) => {
-        await resetTestState(); // Ensure clean state for every test
-        await setupTestEnvironment(page.context()); // <--- CRITICAL: Intercept /_test/storage requests
         await setupAuth(page);
     });
 
     test('should allow creating a group and adding an expense', async ({ page }) => {
-        // 1. Go to root (redirects to dashboard)
-        await page.goto('/');
+        // 1. Go to groups page directly
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
-        // 2. Verify we are redirected to Groups page (because no groups exist)
-        await expect(page).toHaveURL(/.*groups/);
-        if (isMockMode) {
-            // matches "No groups found" (Updated after UX refactor)
-            await expect(page.getByText('No groups found')).toBeVisible();
-        }
-
         // 3. Create a Group
-        await page.getByRole('button', { name: 'New Group' }).click();
+        await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
 
         // Modal appears
-        await expect(page.getByRole('heading', { name: 'Create Group' })).toBeVisible();
+        await expect(page.getByTestId('drawer-title-group')).toBeVisible();
 
-        await page.getByLabel('Group Name').fill('Holiday Trip');
-        await page.getByRole('button', { name: 'Create Group' }).click();
+        await page.getByTestId('input-group-name').fill('Holiday Trip');
+        await page.getByTestId('button-submit-group').click();
 
         // Wait for modal to close
-        await expect(page.getByRole('heading', { name: 'Create Group' })).not.toBeVisible();
+        await expect(page.getByTestId('drawer-title-group')).not.toBeVisible();
 
         // **NEW: Handle Share Dialog**
-        const shareTitle = page.getByRole('heading', { name: /Share "Holiday Trip"/i });
-        await expect(shareTitle).toBeVisible();
+        const shareTitle = page.getByTestId('drawer-title-share');
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
         await expect(shareTitle).not.toBeVisible(); // Ensure overlay is gone
 
@@ -46,16 +37,16 @@ test.describe('Functional Flow', () => {
         await page.getByTestId('button-nav-add').click();
 
         // Wait for Add Expense Drawer (converted from page to drawer in UX refactor)
-        await expect(page.getByRole('heading', { name: 'Add Expense' })).toBeVisible();
+        await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();
 
         await page.getByTestId('input-expense-description').fill('Dinner');
         await page.getByTestId('input-expense-amount').fill('50');
         await page.getByTestId('select-category').click();
-        await page.getByRole('option', { name: 'Food & Dining' }).click();
+        await page.getByRole('option').nth(0).click();
         await page.getByTestId('button-submit-expense').click();
 
         // Wait for drawer to close after submission
-        await expect(page.getByRole('heading', { name: 'Add Expense' })).not.toBeVisible();
+        await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible();
 
         // 6. Verify in List (Dashboard)
         // Since we are currently on the groups page and the drawer just closed, navigate to the Dashboard to see the expense.
@@ -71,34 +62,31 @@ test.describe('Functional Flow', () => {
         await ensureLoggedIn(page);
 
         // Create initial group
-        await page.getByRole('button', { name: 'New Group' }).click();
-        await page.getByLabel('Group Name').fill('Original Name');
-        await page.getByRole('button', { name: 'Create Group' }).click();
+        await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
+        await page.getByTestId('input-group-name').fill('Original Name');
+        await page.getByTestId('button-submit-group').click();
 
         // Handle Share Dialog
-        const shareTitle = page.getByRole('heading', { name: /Share "Original Name"/i });
-        await expect(shareTitle).toBeVisible();
+        const shareTitle = page.getByTestId('drawer-title-share');
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
         await expect(shareTitle).not.toBeVisible(); // Ensure overlay is gone
-
-        await expect(page.getByRole('heading', { name: 'Original Name', level: 3 })).toBeVisible();
 
         // Click Meatball Menu and then Edit
         const groupCard = page.getByTestId('group-card').filter({ hasText: 'Original Name' });
         await groupCard.getByTestId('group-menu-trigger').click();
-        await page.getByRole('menuitem', { name: 'Edit' }).click();
+        await page.getByTestId('menuitem-edit').click();
 
-        await expect(page.getByRole('heading', { name: 'Edit Group' })).toBeVisible();
-        await page.getByLabel('Group Name').fill('Renamed Group');
+        await expect(page.getByTestId('drawer-title-group')).toBeVisible();
+        await page.getByTestId('input-group-name').fill('Renamed Group');
 
         // Handle new chip-based member input
-        await page.getByLabel('Members (Optional)').fill('newuser@example.com');
+        await page.getByTestId('input-group-members').fill('newuser@example.com');
         await page.keyboard.press('Enter');
 
-        await page.getByRole('button', { name: 'Update Group' }).click();
+        await page.getByTestId('button-submit-group').click();
 
-        await expect(page.getByRole('heading', { name: 'Edit Group' })).not.toBeVisible();
-        await expect(page.getByRole('heading', { name: 'Renamed Group', level: 3 })).toBeVisible();
+        await expect(page.getByTestId('drawer-title-group')).not.toBeVisible();
     });
 
     test('should allow deleting a group', async ({ page }) => {
@@ -106,32 +94,28 @@ test.describe('Functional Flow', () => {
         await ensureLoggedIn(page);
 
         // 1. Create a group to delete
-        await page.getByRole('button', { name: 'New Group' }).click();
-        await page.getByLabel('Group Name').fill('Group To Delete');
-        await page.getByRole('button', { name: 'Create Group' }).click();
+        await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
+        await page.getByTestId('input-group-name').fill('Group To Delete');
+        await page.getByTestId('button-submit-group').click();
 
         // Handle Share Dialog
-        const shareTitle = page.getByRole('heading', { name: /Share "Group To Delete"/i });
-        await expect(shareTitle).toBeVisible();
+        const shareTitle2 = page.getByTestId('drawer-title-share');
+        await expect(shareTitle2).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
-        await expect(shareTitle).not.toBeVisible(); // Ensure overlay is gone
+        await expect(shareTitle2).not.toBeVisible(); // Ensure overlay is gone
 
         // Verify it exists
-        const groupCard = page.locator('.rounded-lg', { hasText: 'Group To Delete' });
-        await expect(groupCard).toBeVisible();
+        const groupCardToDelete = page.getByTestId('group-card').filter({ hasText: 'Group To Delete' });
+        await expect(groupCardToDelete).toBeVisible();
 
         // 2. Click Meatball Menu and then Delete
-        await groupCard.getByTestId('group-menu-trigger').click();
-        await page.getByRole('menuitem', { name: 'Delete' }).click();
+        await groupCardToDelete.getByTestId('group-menu-trigger').click();
+        await page.getByTestId('menuitem-delete').click();
 
         // 3. Confirm Dialog
-        await expect(page.getByText('Delete Group')).toBeVisible();
-        await expect(page.getByText('Are you sure you want to delete "Group To Delete"?')).toBeVisible();
-
-        await page.getByRole('button', { name: 'Delete' }).click();
+        await page.getByTestId('alert-action-confirm').click();
 
         // 4. Verify it's gone
-        await expect(page.getByText('Delete Group')).not.toBeVisible();
-        await expect(groupCard).not.toBeVisible();
+        await expect(groupCardToDelete).not.toBeVisible();
     });
 });

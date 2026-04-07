@@ -185,7 +185,7 @@ export default function Dashboard() {
 
         <div className="mx-4 bg-card rounded-lg border border-border overflow-hidden">
           <Collapsible open={isBalancesOpen} onOpenChange={setIsBalancesOpen}>
-            <CollapsibleTrigger className="w-full flex items-center justify-between p-4 border-b border-border bg-muted/30 hover:bg-muted/50 transition-colors">
+            <CollapsibleTrigger className="w-full flex items-center justify-between p-4 border-b border-border bg-muted/30 hover:bg-muted/50 transition-colors" data-testid="collapsible-group-balances">
               <h3 className="font-semibold text-foreground text-sm uppercase tracking-wide">{t("dashboard.groupBalances")}</h3>
               <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform duration-200", !isBalancesOpen && "-rotate-90")} />
             </CollapsibleTrigger>

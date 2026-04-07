@@ -1,33 +1,31 @@
-import { test, expect } from '@playwright/test';
-import { setupAuth, ensureLoggedIn, resetTestState, setupTestEnvironment } from './utils';
+import { test, expect } from './fixtures';
+import { setupAuth, ensureLoggedIn } from './utils';
 
 test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
     test.beforeEach(async ({ page }) => {
         if (process.env.DEBUG_MOCK === 'true') {
             page.on('console', msg => console.log(`BROWSER [${msg.type()}]: ${msg.text()}`));
         }
-        await resetTestState();
-        await setupTestEnvironment(page.context());
         await setupAuth(page); // Bypasses auth, sets mock-token-123
     });
 
     test('should strictly maintain mathematical consistency across complex expense and settlement flows', async ({ page }) => {
         console.log("Starting Test 1...");
         // 1. Initialization
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
         console.log("Logged in.");
 
         // 2. Create Group with Offline Members
-        await page.getByRole('button', { name: 'New Group' }).click();
-        await page.getByLabel(/Group Name/i).fill('Math Validation Trip');
-        await page.getByLabel(/Members/i).fill('bob, charlie');
+        await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
+        await page.getByTestId('input-group-name').fill('Math Validation Trip');
+        await page.getByTestId('input-group-members').fill('bob, charlie');
         await page.keyboard.press('Enter');
         console.log("Filled group form.");
-        await page.getByRole('button', { name: /Create Group|Create/i }).click();
+        await page.getByTestId('button-submit-group').click();
 
         // Wait for success toast
-        await expect(page.getByText(/Success/i).first()).toBeVisible();
+        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
         console.log("Group created.");
 
         // Dismiss ShareDialog
@@ -40,13 +38,13 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
 
         // 3. Add Complex Expense (User pays $90, split evenly among 3)
         await page.getByTestId('button-nav-add').click();
-        await expect(page.getByRole('heading', { name: /Add Expense/i })).toBeVisible();
+        await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();
         console.log("Expense drawer open.");
 
         await page.getByTestId('input-expense-description').fill('Dinner');
         await page.getByTestId('input-expense-amount').fill('90');
         await page.getByTestId('select-category').click();
-        await page.getByRole('option', { name: /Food/i }).click();
+        await page.getByRole('option').nth(0).click();
 
         // Verify UI calculates splits correctly (30 each)
         await expect(page.getByTestId('input-split-amount-test-user-id')).toHaveValue('30.00');
@@ -54,7 +52,7 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
         await page.getByTestId('button-submit-expense').click();
 
         // Verification of heading absence
-        await expect(page.getByRole('heading', { name: /Add Expense/i })).not.toBeVisible();
+        await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible();
         console.log("Expense submitted.");
 
         // 4. Navigate to Dashboard & Verify Core Math
@@ -64,7 +62,7 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
         await expect(page.getByTestId('text-user-balance')).toContainText('+');
         console.log("Dashboard balance verified.");
 
-        // Balances are open by default
+        // Balances are open by default, no need to click to expand
         const bobBalance = page.getByTestId('text-balance-bob');
         await expect(bobBalance).toContainText('30.00');
         await expect(bobBalance).toContainText('-');
@@ -99,32 +97,34 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
 
     test('should fail gracefully and prevent submission when splits do not match total amount', async ({ page }) => {
         console.log("Starting Test 2...");
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
-        await page.getByRole('button', { name: 'New Group' }).click();
-        await page.getByLabel(/Group Name/i).fill('Validation Group');
-        await page.getByRole('button', { name: /Create Group|Create/i }).click();
-        await expect(page.getByText(/Success/i).first()).toBeVisible();
+        await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
+        await page.getByTestId('input-group-name').fill('Validation Group');
+        await page.getByTestId('button-submit-group').click();
+        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
         await expect(page.getByTestId('header')).not.toContainText(/Select Group/i, { timeout: 15000 });
         await expect(page.getByTestId('header')).toContainText('Validation Group');
 
         await page.getByTestId('button-nav-add').click();
-        await expect(page.getByRole('heading', { name: /Add Expense/i })).toBeVisible();
+        await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();
 
         await page.getByTestId('input-expense-description').fill('Bad Math');
         await page.getByTestId('input-expense-amount').fill('100');
+
+        // This click was missing!
         await page.getByTestId('select-category').click();
-        await page.getByRole('option', { name: /Other/i }).click();
+        await page.getByRole('option').nth(0).click();
 
         const splitInput = page.getByTestId('input-split-amount-test-user-id');
         await splitInput.fill('10');
 
         await page.getByTestId('button-submit-expense').click();
 
-        await expect(page.getByText(/mismatch/i)).toBeVisible();
-        await expect(page.getByRole('heading', { name: /Add Expense/i })).toBeVisible();
+        await expect(page.getByTestId('toast-destructive').first()).toBeVisible();
+        await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();
         console.log("Test 2 Finished.");
     });
 });

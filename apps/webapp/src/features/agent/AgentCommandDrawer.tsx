@@ -60,7 +60,7 @@ export const AgentCommandDrawer: React.FC = () => {
             <Drawer open={isOpen} onOpenChange={setIsOpen}>
                 <DrawerContent>
                     <DrawerHeader>
-                        <DrawerTitle className="flex items-center gap-2">
+                        <DrawerTitle className="flex items-center gap-2" data-testid="drawer-title-ai">
                             <Sparkles className="w-5 h-5 text-primary" />
                             {t('agent.title')}
                         </DrawerTitle>

@@ -67,7 +67,7 @@ export default function AddExpenseDrawer() {
                 }}
             >
                 <DrawerHeader>
-                    <DrawerTitle>{t("expenseForm.addTitle")}</DrawerTitle>
+                    <DrawerTitle data-testid="drawer-title-add-expense">{t("expenseForm.addTitle")}</DrawerTitle>
                     <DrawerDescription>
                         {t("expenseForm.missingInfoDesc")}
                     </DrawerDescription>

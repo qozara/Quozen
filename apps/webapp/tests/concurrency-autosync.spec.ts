@@ -1,20 +1,20 @@
-import { test, expect } from '@playwright/test';
-import { setupAuth, ensureLoggedIn, resetTestState, setupTestEnvironment } from './utils';
-import { mockServer } from './mock-server';
+import { test, expect } from './fixtures';
+import { setupAuth, ensureLoggedIn } from './utils';
+import { MockServer } from './mock-server';
 
-async function createGroup(page: any, name: string, members: string[] = []): Promise<string> {
-    await page.getByRole('button', { name: /new group/i }).click();
-    await page.getByLabel('Group Name').fill(name);
+async function createGroup(page: any, mockServer: MockServer, name: string, members: string[] = []): Promise<string> {
+    await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
+    await page.getByTestId('input-group-name').fill(name);
 
     for (const member of members) {
-        await page.getByLabel('Members (Optional)').fill(member);
+        await page.getByTestId('input-group-members').fill(member);
         await page.keyboard.press('Enter');
     }
 
-    await page.getByRole('button', { name: /create group/i }).click();
+    await page.getByTestId('button-submit-group').click();
 
-    const shareTitle = page.getByRole('heading', { name: new RegExp(`Share "${name}"`, 'i') });
-    await expect(shareTitle).toBeVisible({ timeout: 10_000 });
+    const shareTitle = page.getByTestId('drawer-title-share');
+    await expect(shareTitle).toBeVisible({ timeout: 15000 });
     await page.keyboard.press('Escape');
     await expect(shareTitle).not.toBeVisible({ timeout: 5_000 });
 
@@ -25,18 +25,16 @@ async function createGroup(page: any, name: string, members: string[] = []): Pro
 
 test.describe('T4: Concurrency & Auto-Sync', () => {
     test.beforeEach(async ({ page }) => {
-        await resetTestState();
-        await setupTestEnvironment(page.context());
         await setupAuth(page);
     });
 
-    test('T4a: Auto-Sync detects background write and updates the UI without reload', async ({ page }) => {
-        await page.goto('/');
+    test('T4a: Auto-Sync detects background write and updates the UI without reload', async ({ page, mockServer }) => {
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
         // Capture group ID at creation time — adapter is fresh from resetTestState
-        const activeGroupId = await createGroup(page, 'Sync Test Group', ['bob']);
-        await expect(page.getByTestId('header').getByText('Sync Test Group')).toBeVisible();
+        const activeGroupId = await createGroup(page, mockServer, 'Sync Test Group', ['bob']);
+        await expect(page.getByTestId('header').getByText('Sync Test Group')).toBeVisible({ timeout: 15000 });
 
         await page.getByTestId('button-nav-home').click();
         await expect(page).toHaveURL(/dashboard/);
@@ -58,44 +56,35 @@ test.describe('T4: Concurrency & Auto-Sync', () => {
         if (await refreshBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
             await refreshBtn.click();
         } else {
-            // Force immediate sync by toggling visibility (simulating tab switch)
-            await page.evaluate(() => {
-                Object.defineProperty(document, "hidden", { value: true, configurable: true });
-                document.dispatchEvent(new Event("visibilitychange"));
-            });
-            await page.waitForTimeout(100);
-            await page.evaluate(() => {
-                Object.defineProperty(document, "hidden", { value: false, configurable: true });
-                document.dispatchEvent(new Event("visibilitychange"));
-            });
-            await page.waitForTimeout(2000); // Give it time to fetch
+            // Use deterministic E2E trigger instead of flaky visibility hacks
+            await page.evaluate(() => window.__triggerAutoSync?.());
         }
 
         await expect(page.getByTestId('text-user-balance')).not.toContainText('$0.00', { timeout: 10_000 });
     });
 
-    test('T4b: UI surfaces conflict dialog when expense is modified by another user', async ({ page }) => {
-        await page.goto('/');
+    test('T4b: UI surfaces conflict dialog when expense is modified by another user', async ({ page, mockServer }) => {
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
-        const activeGroupId = await createGroup(page, 'Conflict Group');
-        await expect(page.getByTestId('header').getByText('Conflict Group')).toBeVisible();
+        const activeGroupId = await createGroup(page, mockServer, 'Conflict Group');
+        await expect(page.getByTestId('header').getByText('Conflict Group')).toBeVisible({ timeout: 15000 });
 
         await page.getByTestId('button-nav-add').click();
-        await expect(page.getByRole('heading', { name: /add expense/i })).toBeVisible();
+        await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();
 
         await page.getByTestId('input-expense-description').fill('Initial Dinner');
         await page.getByTestId('input-expense-amount').fill('30');
         await page.getByTestId('select-category').click();
-        await page.getByRole('option', { name: 'Other' }).click();
+        await page.getByRole('option').nth(0).click();
         await page.getByTestId('button-submit-expense').click();
-        await expect(page.getByRole('heading', { name: /add expense/i })).not.toBeVisible({ timeout: 5_000 });
+        await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible({ timeout: 5_000 });
 
         // Navigate to the expense and open edit form — this loads expense.updatedAt into the form
         await page.getByTestId('button-nav-expenses').click();
         await page.getByText('Initial Dinner').click();
         await expect(page).toHaveURL(/edit-expense/);
-        await expect(page.getByRole('heading', { name: /edit expense/i })).toBeVisible();
+        await expect(page.getByTestId('drawer-title-edit-expense')).toBeVisible();
 
         // Get the expense ID from the URL
         const expenseId = page.url().split('/edit-expense/')[1];
@@ -109,6 +98,6 @@ test.describe('T4: Concurrency & Auto-Sync', () => {
 
         await page.getByTestId('button-submit-expense').click();
 
-        await expect(page.getByText('Data Conflict')).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByTestId('alert-conflict-title')).toBeVisible({ timeout: 5_000 });
     });
 });

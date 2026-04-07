@@ -118,7 +118,7 @@ export default function EditExpense() {
       <Drawer open={true} onOpenChange={(open) => !open && handleBack()}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
-            <DrawerTitle>{t("expenseForm.editTitle")}</DrawerTitle>
+            <DrawerTitle data-testid="drawer-title-edit-expense">{t("expenseForm.editTitle")}</DrawerTitle>
             <DrawerDescription className="sr-only">Edit expense form</DrawerDescription>
           </DrawerHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-0">
@@ -138,7 +138,7 @@ export default function EditExpense() {
       <AlertDialog open={!!conflictError}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("expenseForm.conflictTitle")}</AlertDialogTitle>
+            <AlertDialogTitle data-testid="alert-conflict-title">{t("expenseForm.conflictTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {conflictError}
               <br /><br />

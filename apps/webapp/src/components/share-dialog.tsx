@@ -92,7 +92,7 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
                 }}
             >
                 <DrawerHeader>
-                    <DrawerTitle>{t("share.title", { name: groupName })}</DrawerTitle>
+                    <DrawerTitle data-testid="drawer-title-share">{t("share.title", { name: groupName })}</DrawerTitle>
                     <DrawerDescription>
                         {t("share.description")}
                     </DrawerDescription>

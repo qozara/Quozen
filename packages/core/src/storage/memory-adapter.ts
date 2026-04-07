@@ -16,6 +16,12 @@ interface MockSheet {
     sheetIds?: Record<string, number>;
 }
 
+/**
+ * In-memory implementation of IStorageLayer used primarily for Tier 1 (Unit)
+ * and Tier 3a (Mocked E2E) testing. It provides a blazing-fast, state-isolated
+ * environment that perfectly mimics the behavior of the GoogleDriveStorageLayer
+ * without requiring real network calls or OAuth tokens.
+ */
 export class InMemoryAdapter implements IStorageLayer {
     private sheets: Map<string, MockSheet> = new Map();
     // Refactored to Maps to prevent prototype pollution

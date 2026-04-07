@@ -166,7 +166,7 @@ export default function Groups() {
     <div className="mx-4 mt-4 pb-20">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold">{t("groups.title")}</h2>
-        <Button onClick={openCreateDialog}>
+        <Button onClick={openCreateDialog} data-testid="button-new-group">
           <Plus className="w-4 h-4 mr-2" />{t("groups.new")}
         </Button>
       </div>
@@ -201,7 +201,7 @@ export default function Groups() {
               {t("groups.empty.magicLinkHint")}
             </p>
             <div className="w-full max-w-xs space-y-3">
-              <Button onClick={openCreateDialog} className="w-full h-12 shadow-md">
+              <Button onClick={openCreateDialog} className="w-full h-12 shadow-md" data-testid="button-empty-create-group">
                 <Plus className="w-4 h-4 mr-2" />
                 {t("groups.empty.create")}
               </Button>
@@ -269,12 +269,12 @@ export default function Groups() {
                                 <DropdownMenuItem onClick={(e) => handleShareClick(e, group)}>
                                   <Share2 className="w-4 h-4 mr-2" /> {t("common.share")}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={(e) => handleEditClick(e, group)}>
+                                <DropdownMenuItem onClick={(e) => handleEditClick(e, group)} data-testid="menuitem-edit">
                                   <Pencil className="w-4 h-4 mr-2" /> {t("common.edit")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-destructive focus:text-destructive"
-                                  onClick={(e) => handleDeleteClick(e, group)}
+                                  onClick={(e) => handleDeleteClick(e, group)} data-testid="menuitem-delete"
                                 >
                                   <Trash2 className="w-4 h-4 mr-2" /> {t("common.delete")}
                                 </DropdownMenuItem>
@@ -327,7 +327,7 @@ export default function Groups() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
+            <AlertDialogAction data-testid="alert-action-confirm" onClick={() => {
               if (!alertState.group) return;
               alertState.type === 'delete' ? deleteGroupMutation.mutate(alertState.group.id) : leaveGroupMutation.mutate(alertState.group.id);
             }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{alertState.type === 'delete' ? t("groups.deleteAction") : t("groups.leaveAction")}</AlertDialogAction>

@@ -21,6 +21,7 @@ const DEFAULT_POLLING_INTERVAL = Number(import.meta.env.VITE_POLLING_INTERVAL ||
 declare global {
     interface Window {
         __QUOZEN_POLLING_OVERRIDE?: number;
+        __triggerAutoSync?: () => Promise<void>;
     }
 }
 
@@ -97,6 +98,14 @@ export function AutoSyncProvider({
     // Keep the ref updated with the latest callback
     useEffect(() => {
         checkUpdatesRef.current = checkUpdates;
+    }, [checkUpdates]);
+
+    // Expose explicit trigger for E2E tests to enable deterministic syncing
+    useEffect(() => {
+        window.__triggerAutoSync = checkUpdates;
+        return () => {
+            delete window.__triggerAutoSync;
+        };
     }, [checkUpdates]);
 
     // 3. Polling Loop

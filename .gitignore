@@ -18,3 +18,4 @@ vite.config.ts.*
 changes.patch
 repomix-output.xml
 test-results/.last-run.json
+quozen.code-workspace
