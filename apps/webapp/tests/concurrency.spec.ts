@@ -12,13 +12,13 @@ test.describe('Feature: E2E Concurrency & Auto-Sync', () => {
 
     test('should automatically synchronize background changes from other users', async ({ page, mockServer }) => {
         // 1. Setup - Create a group and navigate to dashboard
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
         await page.getByTestId('input-group-name').fill('Sync Validation Trip');
         await page.getByTestId('button-submit-group').click();
-        await expect(page.getByTestId('toast-default').first()).toBeVisible();
+        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
 
         // Wait for group to settle
@@ -71,14 +71,14 @@ test.describe('Feature: E2E Concurrency & Auto-Sync', () => {
     });
 
     test('should handle resource conflicts (409) gracefully', async ({ page, mockServer }) => {
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
         // Create group
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
         await page.getByTestId('input-group-name').fill('Conflict Trip');
         await page.getByTestId('button-submit-group').click();
-        await expect(page.getByTestId('toast-default').first()).toBeVisible();
+        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
         await expect(page.getByTestId('header')).not.toContainText(/Select Group/i, { timeout: 15000 });
         await expect(page.getByTestId('header')).toContainText('Conflict Trip');

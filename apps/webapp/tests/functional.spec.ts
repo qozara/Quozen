@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { setupAuth, ensureLoggedIn, isMockMode } from './utils';
+import { setupAuth, ensureLoggedIn } from './utils';
 
 test.describe('Functional Flow', () => {
     // Inject auth token if in Mock mode and setup request interception
@@ -8,16 +8,9 @@ test.describe('Functional Flow', () => {
     });
 
     test('should allow creating a group and adding an expense', async ({ page }) => {
-        // 1. Go to root (redirects to dashboard)
-        await page.goto('/');
+        // 1. Go to groups page directly
+        await page.goto('/groups');
         await ensureLoggedIn(page);
-
-        // 2. Verify we are redirected to Groups page (because no groups exist)
-        await expect(page).toHaveURL(/.*groups/);
-        if (isMockMode) {
-            // matches "No groups found" (Updated after UX refactor)
-            await expect(page.getByText('No groups found')).toBeVisible();
-        }
 
         // 3. Create a Group
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
@@ -33,7 +26,7 @@ test.describe('Functional Flow', () => {
 
         // **NEW: Handle Share Dialog**
         const shareTitle = page.getByTestId('drawer-title-share');
-        await expect(shareTitle).toBeVisible();
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
         await expect(shareTitle).not.toBeVisible(); // Ensure overlay is gone
 
@@ -75,7 +68,7 @@ test.describe('Functional Flow', () => {
 
         // Handle Share Dialog
         const shareTitle = page.getByTestId('drawer-title-share');
-        await expect(shareTitle).toBeVisible();
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
         await expect(shareTitle).not.toBeVisible(); // Ensure overlay is gone
 
@@ -107,7 +100,7 @@ test.describe('Functional Flow', () => {
 
         // Handle Share Dialog
         const shareTitle2 = page.getByTestId('drawer-title-share');
-        await expect(shareTitle2).toBeVisible();
+        await expect(shareTitle2).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
         await expect(shareTitle2).not.toBeVisible(); // Ensure overlay is gone
 

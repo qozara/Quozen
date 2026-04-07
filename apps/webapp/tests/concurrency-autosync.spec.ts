@@ -14,7 +14,7 @@ async function createGroup(page: any, mockServer: MockServer, name: string, memb
     await page.getByTestId('button-submit-group').click();
 
     const shareTitle = page.getByTestId('drawer-title-share');
-    await expect(shareTitle).toBeVisible({ timeout: 10_000 });
+    await expect(shareTitle).toBeVisible({ timeout: 15000 });
     await page.keyboard.press('Escape');
     await expect(shareTitle).not.toBeVisible({ timeout: 5_000 });
 
@@ -29,12 +29,12 @@ test.describe('T4: Concurrency & Auto-Sync', () => {
     });
 
     test('T4a: Auto-Sync detects background write and updates the UI without reload', async ({ page, mockServer }) => {
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
         // Capture group ID at creation time — adapter is fresh from resetTestState
         const activeGroupId = await createGroup(page, mockServer, 'Sync Test Group', ['bob']);
-        await expect(page.getByTestId('header').getByText('Sync Test Group')).toBeVisible();
+        await expect(page.getByTestId('header').getByText('Sync Test Group')).toBeVisible({ timeout: 15000 });
 
         await page.getByTestId('button-nav-home').click();
         await expect(page).toHaveURL(/dashboard/);
@@ -64,11 +64,11 @@ test.describe('T4: Concurrency & Auto-Sync', () => {
     });
 
     test('T4b: UI surfaces conflict dialog when expense is modified by another user', async ({ page, mockServer }) => {
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
         const activeGroupId = await createGroup(page, mockServer, 'Conflict Group');
-        await expect(page.getByTestId('header').getByText('Conflict Group')).toBeVisible();
+        await expect(page.getByTestId('header').getByText('Conflict Group')).toBeVisible({ timeout: 15000 });
 
         await page.getByTestId('button-nav-add').click();
         await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();

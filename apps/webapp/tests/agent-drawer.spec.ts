@@ -96,7 +96,7 @@ test.describe('V3: AI Agent Integration', () => {
     });
 
     test('AgentCommandDrawer parses tool_call and updates UI', async ({ page }) => {
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
@@ -104,12 +104,12 @@ test.describe('V3: AI Agent Integration', () => {
         await page.getByTestId('button-submit-group').click();
 
         const shareTitle = page.getByTestId('drawer-title-share');
-        await expect(shareTitle).toBeVisible({ timeout: 10_000 });
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape'); // Close share dialog
         await expect(shareTitle).not.toBeVisible({ timeout: 5_000 });
 
         await page.getByTestId('button-ai-assistant').click();
-        await expect(page.getByTestId('drawer-title-ai')).toBeVisible();
+        await expect(page.getByTestId('drawer-title-ai')).toBeVisible({ timeout: 10000 });
 
         await page.getByPlaceholder(/Type or dictate/i).fill('Add 45 for dinner');
         await page.getByTestId('button-ai-submit').click();

@@ -7,6 +7,15 @@ import baseConfig from './playwright.config';
 export default defineConfig({
   ...baseConfig,
 
+  // CRITICAL: Cloud tests MUST run sequentially.
+  // Hitting the real Google Drive API with 4 parallel workers concurrently mutating
+  // the same quozen-settings.json file causes massive race conditions and 429 Rate Limits.
+  fullyParallel: false,
+  workers: 1,
+
+  // ONLY run the tests specifically designed to hit real Google Drive APIs
+  testMatch: ['**/reproduce_issues.spec.ts'],
+
   projects: [
     {
       name: 'chromium',

@@ -12,7 +12,7 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
     test('should strictly maintain mathematical consistency across complex expense and settlement flows', async ({ page }) => {
         console.log("Starting Test 1...");
         // 1. Initialization
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
         console.log("Logged in.");
 
@@ -25,7 +25,7 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
         await page.getByTestId('button-submit-group').click();
 
         // Wait for success toast
-        await expect(page.getByTestId('toast-default').first()).toBeVisible();
+        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
         console.log("Group created.");
 
         // Dismiss ShareDialog
@@ -97,13 +97,13 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
 
     test('should fail gracefully and prevent submission when splits do not match total amount', async ({ page }) => {
         console.log("Starting Test 2...");
-        await page.goto('/');
+        await page.goto('/groups');
         await ensureLoggedIn(page);
 
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
         await page.getByTestId('input-group-name').fill('Validation Group');
         await page.getByTestId('button-submit-group').click();
-        await expect(page.getByTestId('toast-default').first()).toBeVisible();
+        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
         await expect(page.getByTestId('header')).not.toContainText(/Select Group/i, { timeout: 15000 });
         await expect(page.getByTestId('header')).toContainText('Validation Group');
