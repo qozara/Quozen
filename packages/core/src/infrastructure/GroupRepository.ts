@@ -227,6 +227,9 @@ export class GroupRepository {
             };
             const row = SheetDataMapper.mapFromMember(newMember);
             await this.storage.appendValues(spreadsheetId, "Members!A1", [row]);
+        } else if (existingMember.userId !== this.user.id) {
+            const ledgerRepo = new LedgerRepository(this.storage, spreadsheetId);
+            await ledgerRepo.migrateUser(existingMember.userId, this.user.id, this.user.name);
         }
 
         return await this.importGroup(spreadsheetId);

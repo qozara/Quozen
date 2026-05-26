@@ -147,4 +147,60 @@ export class LedgerRepository {
         ]);
         await this.touchGroup();
     }
+
+    async migrateUser(oldUserId: string, newUserId: string, newName?: string): Promise<void> {
+        // 1. Members
+        const members = await this.getMembers();
+        const member = members.find(m => m.userId === oldUserId);
+        if (member) {
+            member.userId = newUserId;
+            if (newName) member.name = newName;
+            
+            const rowIndex = this.memberRowMap.get(oldUserId);
+            if (rowIndex) {
+                const row = SheetDataMapper.mapFromMember(member);
+                await this.storage.updateValues(this.groupId, `Members!A${rowIndex}:Z${rowIndex}`, [row]);
+                this.memberRowMap.delete(oldUserId);
+                this.memberRowMap.set(newUserId, rowIndex);
+            }
+        }
+
+        // 2. Expenses
+        const expenses = await this.getExpenses();
+        for (const expense of expenses) {
+            let changed = false;
+            if (expense.paidByUserId === oldUserId) {
+                expense.paidByUserId = newUserId;
+                changed = true;
+            }
+            if (expense.splits) {
+                for (const split of expense.splits) {
+                    if (split.userId === oldUserId) {
+                        split.userId = newUserId;
+                        changed = true;
+                    }
+                }
+            }
+            if (changed) {
+                await this.updateExpense(expense);
+            }
+        }
+
+        // 3. Settlements
+        const settlements = await this.getSettlements();
+        for (const settlement of settlements) {
+            let changed = false;
+            if (settlement.fromUserId === oldUserId) {
+                settlement.fromUserId = newUserId;
+                changed = true;
+            }
+            if (settlement.toUserId === oldUserId) {
+                settlement.toUserId = newUserId;
+                changed = true;
+            }
+            if (changed) {
+                await this.updateSettlement(settlement);
+            }
+        }
+    }
 }
