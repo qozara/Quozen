@@ -128,6 +128,24 @@ export class LedgerService {
         const settlements = await this.repo.getSettlements();
         const members = await this.repo.getMembers();
 
+        const currentUserMember = members.find(m => m.email === this.user.email || m.userId === this.user.id);
+        if (currentUserMember && currentUserMember.userId !== this.user.id) {
+            await this.repo.migrateUser(currentUserMember.userId, this.user.id, this.user.name);
+            
+            // Apply migration to the loaded in-memory data
+            expenses.forEach(e => {
+                if (e.paidByUserId === currentUserMember.userId) e.paidByUserId = this.user.id;
+                e.splits?.forEach(s => {
+                    if (s.userId === currentUserMember.userId) s.userId = this.user.id;
+                });
+            });
+            settlements.forEach(s => {
+                if (s.fromUserId === currentUserMember.userId) s.fromUserId = this.user.id;
+                if (s.toUserId === currentUserMember.userId) s.toUserId = this.user.id;
+            });
+            currentUserMember.userId = this.user.id;
+        }
+
         return new Ledger({ expenses, settlements, members });
     }
 }
