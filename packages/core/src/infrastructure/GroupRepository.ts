@@ -179,6 +179,11 @@ export class GroupRepository {
         if (validation.members) {
             const member = validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
             if (member?.role === "owner") role = "owner";
+            
+            if (member && member.userId !== this.user.id) {
+                const ledgerRepo = new LedgerRepository(this.storage, spreadsheetId);
+                await ledgerRepo.migrateUser(member.userId, this.user.id, this.user.name);
+            }
         }
 
         const settings = await this.getSettings();
