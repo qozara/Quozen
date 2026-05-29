@@ -14,7 +14,7 @@
         "@hono/swagger-ui": "^0.5.0",
         "@hono/zod-openapi": "^0.18.4",
         "@quozen/core": "*",
-        "hono": "^4.6.19",
+        "hono": "^4.12.23",
         "zod": "^3.24.2"
     },
     "devDependencies": {
