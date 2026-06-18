@@ -10,9 +10,11 @@ export interface QuozenConfig {
     user: User;
     enableCache?: boolean;
     cacheTtlMs?: number;
+    getToken?: () => string | null;
 }
 
 export class QuozenClient {
+    public static readonly version: string = "1.0.0";
     public groups: GroupRepository;
     private storage: IStorageLayer;
 
@@ -21,7 +23,7 @@ export class QuozenClient {
             ? new StorageCacheProxy(config.storage, config.cacheTtlMs)
             : config.storage;
 
-        this.groups = new GroupRepository(this.storage, config.user);
+        this.groups = new GroupRepository(this.storage, config.user, config.getToken);
     }
 
     public get user(): User {
@@ -35,5 +37,13 @@ export class QuozenClient {
 
     public async getLastModified(fileId: string): Promise<string> {
         return this.storage.getLastModified(fileId);
+    }
+
+    public async getFileMetadata(fileId: string): Promise<any> {
+        return this.storage.getFile(fileId, { fields: "*" });
+    }
+
+    public get internalStorage(): IStorageLayer {
+        return this.storage;
     }
 }

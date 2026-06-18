@@ -3,9 +3,10 @@ import { Group, User, Member } from "../domain/models";
 import { UserSettings, CachedGroup, QUOZEN_PREFIX, SETTINGS_FILE_NAME, REQUIRED_SHEETS, MemberInput } from "../types";
 import { SheetDataMapper } from "./SheetDataMapper";
 import { LedgerRepository } from "./LedgerRepository";
+import { ValidationService, ValidationStatus } from "../schema/ValidationService";
 
 export class GroupRepository {
-    constructor(private storage: IStorageLayer, private user: User) { }
+    constructor(private storage: IStorageLayer, private user: User, private getToken?: () => string | null) { }
 
     async getSettings(): Promise<UserSettings> {
         const files = await this.storage.listFiles(`name = '${SETTINGS_FILE_NAME}' and trashed = false`);
@@ -144,23 +145,37 @@ export class GroupRepository {
         }
     }
 
-    async validateQuozenSpreadsheet(spreadsheetId: string): Promise<{ valid: boolean; error?: string; name?: string; members?: Member[] }> {
+    async validateQuozenSpreadsheet(spreadsheetId: string): Promise<{ valid: boolean; status?: ValidationStatus; error?: string; name?: string; members?: Member[] }> {
         try {
             const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
             const sheetMeta = await this.storage.getSpreadsheet(spreadsheetId, "properties.title,sheets.properties.title");
 
             const titles = sheetMeta.sheets?.map((s: any) => s.properties.title) || [];
             if (!REQUIRED_SHEETS.every((t: string) => titles.includes(t))) {
-                return { valid: false, error: "Missing tabs" };
+                return { valid: false, status: ValidationStatus.OUT_OF_SYNC, error: "Missing tabs" };
+            }
+
+            let status = ValidationStatus.UP_TO_DATE;
+            if (this.getToken) {
+                try {
+                    const validationSvc = new ValidationService(this.getToken);
+                    status = await validationSvc.inspectFile(spreadsheetId);
+                } catch (e) {
+                    console.warn("ValidationService check failed", e);
+                }
+            }
+
+            if (status === ValidationStatus.OUT_OF_SYNC) {
+                 return { valid: false, status, error: "Schema out of sync" };
             }
 
             const res = await this.storage.batchGetValues(spreadsheetId, ["Members!A2:Z"]);
             const memberRows = res[0]?.values || [];
             const members = memberRows.map((r: any[], i: number) => SheetDataMapper.mapToMember(r, i + 2).entity);
 
-            return { valid: true, name: meta.name || sheetMeta.properties?.title, members };
+            return { valid: true, status, name: meta.name || sheetMeta.properties?.title, members };
         } catch (e: any) {
-            return { valid: false, error: e.message };
+            return { valid: false, status: ValidationStatus.OUT_OF_SYNC, error: e.message };
         }
     }
 
@@ -173,7 +188,23 @@ export class GroupRepository {
         }
 
         const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
-        if (!validation.valid) throw new Error(validation.error || "Invalid group file");
+        if (!validation.valid && validation.status === ValidationStatus.OUT_OF_SYNC) {
+            throw new Error(validation.error || "Invalid group file: Out of sync");
+        }
+        
+        // If it's updatable or missing migrations tab (but tabs matched), we try to auto-initialize or let user know
+        if (validation.valid && this.getToken) {
+             const validationSvc = new ValidationService(this.getToken);
+             const inspectStatus = await validationSvc.inspectFile(spreadsheetId);
+             if (inspectStatus === ValidationStatus.OUT_OF_SYNC) {
+                 // Try initialize if the user is owner/writer
+                 try {
+                     await validationSvc.initializeFile(spreadsheetId);
+                 } catch (e) {
+                     console.warn("Failed to initialize legacy file schema", e);
+                 }
+             }
+        }
 
         let role: "owner" | "member" = "member";
         if (validation.members) {
@@ -303,5 +334,17 @@ export class GroupRepository {
 
         await ledgerRepo.deleteMember(member.userId);
         await this.deleteGroup(groupId); // In the member context, removing from cache operates identically
+    }
+
+    async repairGroup(groupId: string): Promise<void> {
+        if (!this.getToken) throw new Error("Requires authentication to repair");
+        const validationSvc = new ValidationService(this.getToken);
+        await validationSvc.repairFile(groupId);
+    }
+
+    async migrateGroup(groupId: string): Promise<void> {
+        if (!this.getToken) throw new Error("Requires authentication to migrate");
+        const validationSvc = new ValidationService(this.getToken);
+        await validationSvc.migrateFile(groupId);
     }
 }
