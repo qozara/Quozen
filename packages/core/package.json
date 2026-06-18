@@ -27,6 +27,6 @@
         "typescript": "^5.0.0"
     },
     "dependencies": {
-        "@qozara/gdocs-schema": "file:../../../gdocs-schema/packages/core"
+        "@qozara/gdocs-schema": "file:../../external/gdocs-schema/packages/core"
     }
 }

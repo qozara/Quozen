@@ -51,6 +51,7 @@ export const getQuozenSchemaHash = async (): Promise<string> => {
                 .join("");
         } else {
             // Fallback for Node.js using crypto module
+            // @ts-ignore: node crypto fallback
             const nodeCrypto = await import("crypto");
             return nodeCrypto.createHash("sha256").update(data).digest("hex");
         }
