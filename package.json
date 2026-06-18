@@ -11,7 +11,7 @@
     "dev": "npm run dev --workspace=@quozen/webapp",
     "dev:api": "npm run dev --workspace=@quozen/api",
     "dev:ai": "npm run dev --workspace=@quozen/ai-proxy",
-    "postinstall": "cd external/gdocs-schema && npm install && npm run build",
+    "postinstall": "cd external/gdocs-schema && npm install && npm run build --workspace=@qozara/gdocs-schema && npm run build --workspace=@qozara/gdocs-schema-cli",
     "build": "npm run build --workspaces --if-present",
     "cli": "npm run start --workspace=@quozen/cli",
     "preview": "npm run preview --workspace=@quozen/webapp",
