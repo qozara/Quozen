@@ -1,3 +1,0 @@
-[submodule "external/gdocs-schema"]
-	path = external/gdocs-schema
-	url = https://github.com/qozara/gdocs-schema.git
