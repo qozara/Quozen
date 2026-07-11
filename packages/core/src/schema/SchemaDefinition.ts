@@ -7,12 +7,12 @@ export const QuozenSchema: SchemaDefinition = {
             name: "Expenses",
             columns: [
                 { name: "id", type: "string", required: true },
-                { name: "date", type: "string" },
-                { name: "description", type: "string" },
-                { name: "amount", type: "number" },
-                { name: "paidBy", type: "string" },
-                { name: "category", type: "string" },
-                { name: "splits", type: "string" }, // Stored as stringified JSON in the sheet
+                { name: "date", type: "string", required: true },
+                { name: "description", type: "string", required: true },
+                { name: "amount", type: "number", required: true },
+                { name: "paidBy", type: "string", required: true },
+                { name: "category", type: "string", required: true },
+                { name: "splits", type: "string", required: true }, // Stored as stringified JSON in the sheet
                 { name: "meta", type: "string" }    // Optional metadata
             ]
         },
@@ -20,22 +20,22 @@ export const QuozenSchema: SchemaDefinition = {
             name: "Settlements",
             columns: [
                 { name: "id", type: "string", required: true },
-                { name: "date", type: "string" },
-                { name: "fromUserId", type: "string" },
-                { name: "toUserId", type: "string" },
-                { name: "amount", type: "number" },
-                { name: "method", type: "string" },
-                { name: "notes", type: "string" }
+                { name: "date", type: "string", required: true },
+                { name: "fromUserId", type: "string", required: true },
+                { name: "toUserId", type: "string", required: true },
+                { name: "amount", type: "number", required: true },
+                { name: "method", type: "string", required: true },
+                { name: "notes", type: "string" } // Optional
             ]
         },
         {
             name: "Members",
             columns: [
                 { name: "userId", type: "string", required: true },
-                { name: "email", type: "string" },
-                { name: "name", type: "string" },
-                { name: "role", type: "string" },
-                { name: "joinedAt", type: "string" }
+                { name: "email", type: "string" }, // Some users might not have email, though we map it
+                { name: "name", type: "string", required: true },
+                { name: "role", type: "string", required: true },
+                { name: "joinedAt", type: "string", required: true }
             ]
         }
     ]
