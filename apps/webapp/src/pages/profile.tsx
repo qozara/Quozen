@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import React from "react";
 import { useAiFeature } from "@/features/agent/AiFeatureContext";
 import { agentClient } from "@/lib/agent";
-import { AiProviderFactory, QuozenClient } from "@quozen/core";
+import { AiProviderFactory } from "@quozen/core";
 import { getAuthToken } from "@/lib/tokenStore";
 
 const POPULAR_CURRENCIES = [
@@ -508,7 +508,7 @@ export default function Profile() {
       </Card>
 
       <div className="text-center text-xs text-muted-foreground py-4">
-        <p>Quozen version ({QuozenClient.version})</p>
+        <p>Quozen version ({__COMMIT_HASH__})</p>
         <p>Decentralized Expense Sharing</p>
       </div>
     </div>
