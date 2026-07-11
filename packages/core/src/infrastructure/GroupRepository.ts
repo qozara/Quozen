@@ -72,9 +72,18 @@ export class GroupRepository {
     async updateActiveGroup(groupId: string): Promise<void> {
         const settings = await this.getSettings();
         if (settings.activeGroupId === groupId) return;
+        
+        const validation = await this.validateQuozenSpreadsheet(groupId);
+        if (validation.status === ValidationStatus.OUT_OF_SYNC) {
+             throw new Error("Cannot activate an out-of-sync group. Please repair it first.");
+        }
+
         settings.activeGroupId = groupId;
         const cached = settings.groupCache.find(g => g.id === groupId);
-        if (cached) cached.lastAccessed = new Date().toISOString();
+        if (cached) {
+            cached.lastAccessed = new Date().toISOString();
+            cached.validationStatus = validation.status;
+        }
         await this.saveSettings(settings);
     }
 
@@ -166,14 +175,14 @@ export class GroupRepository {
             }
 
             if (status === ValidationStatus.OUT_OF_SYNC) {
-                 return { valid: false, status, error: "Schema out of sync" };
+                 // Do not return early so we can try to extract members
             }
 
             const res = await this.storage.batchGetValues(spreadsheetId, ["Members!A2:Z"]);
             const memberRows = res[0]?.values || [];
             const members = memberRows.map((r: any[], i: number) => SheetDataMapper.mapToMember(r, i + 2).entity);
 
-            return { valid: true, status, name: meta.name || sheetMeta.properties?.title, members };
+            return { valid: status !== ValidationStatus.OUT_OF_SYNC, status, name: meta.name || sheetMeta.properties?.title, members };
         } catch (e: any) {
             return { valid: false, status: ValidationStatus.OUT_OF_SYNC, error: e.message };
         }
@@ -188,22 +197,23 @@ export class GroupRepository {
         }
 
         const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
-        if (!validation.valid && validation.status === ValidationStatus.OUT_OF_SYNC) {
-            throw new Error(validation.error || "Invalid group file: Out of sync");
-        }
-        
-        // If it's updatable or missing migrations tab (but tabs matched), we try to auto-initialize or let user know
-        if (validation.valid && this.getToken) {
-             const validationSvc = new ValidationService(this.getToken);
-             const inspectStatus = await validationSvc.inspectFile(spreadsheetId);
-             if (inspectStatus === ValidationStatus.OUT_OF_SYNC) {
-                 // Try initialize if the user is owner/writer
-                 try {
+
+        // We no longer throw an error here. We want to import it as a corrupted group.
+        // if (!validation.valid && validation.status === ValidationStatus.OUT_OF_SYNC) {
+        //     throw new Error(validation.error || "Invalid group file: Out of sync");
+        // }
+        // If it's valid but missing version info, auto-initialize
+        if (validation.valid && validation.status === ValidationStatus.UP_TO_DATE && this.getToken) {
+            try {
+                const metaForInit = await this.storage.getFile(spreadsheetId, { fields: "appProperties" });
+                const currentVersion = parseInt(metaForInit.appProperties?.quozen_schema_version || "0", 10);
+                if (currentVersion === 0) {
+                     const validationSvc = new ValidationService(this.getToken);
                      await validationSvc.initializeFile(spreadsheetId);
-                 } catch (e) {
-                     console.warn("Failed to initialize legacy file schema", e);
-                 }
-             }
+                }
+            } catch (e) {
+                console.warn("Failed to initialize legacy file schema", e);
+            }
         }
 
         let role: "owner" | "member" = "member";
@@ -223,13 +233,16 @@ export class GroupRepository {
 
         const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
         if (!cachedGroup) {
-            settings.groupCache.unshift({ id: spreadsheetId, name: cleanName, role, lastAccessed: new Date().toISOString() });
+            settings.groupCache.unshift({ id: spreadsheetId, name: cleanName, role, lastAccessed: new Date().toISOString(), validationStatus: validation.status });
         } else {
             cachedGroup.role = role;
             cachedGroup.lastAccessed = new Date().toISOString();
+            cachedGroup.validationStatus = validation.status;
         }
 
-        settings.activeGroupId = spreadsheetId;
+        if (validation.status !== ValidationStatus.OUT_OF_SYNC) {
+            settings.activeGroupId = spreadsheetId;
+        }
         await this.saveSettings(settings);
 
         return {
