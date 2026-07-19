@@ -98,6 +98,32 @@ export async function setupTestEnvironment(context: BrowserContext, mockServerIn
         await context.route(`${MOCK_API_BASE}/**`, async (route) => {
             await mockServerInstance.handle(route);
         });
+        
+        // Mock API remediation routes since backend is not running in E2E tests
+        await context.route(/.*\/api\/v1\/groups\/.*/, async (route) => {
+            const request = route.request();
+            if (process.env.DEBUG_MOCK === 'true') {
+                console.log(`[Playwright Intercept] ${request.method()} ${request.url()}`);
+            }
+            
+            const headers = {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': '*',
+            };
+            
+            if (request.method() === 'OPTIONS') {
+                await route.fulfill({ status: 204, headers });
+                return;
+            }
+
+            await route.fulfill({
+                status: 200,
+                headers,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, message: 'Mocked remediation' })
+            });
+        });
     }
 }
 

@@ -187,7 +187,8 @@ describe("Groups Page", () => {
     await waitFor(() => expect(screen.getByText(en.groups.edit)).toBeInTheDocument());
 
     // Find Bob's chip and remove it
-    const bobChip = screen.getByText("bob@example.com").closest('.flex');
+    const bobText = await screen.findByText("bob@example.com");
+    const bobChip = bobText.closest('.flex');
     const removeBtn = bobChip?.querySelector('button');
     expect(removeBtn).toBeInTheDocument();
     fireEvent.click(removeBtn!);

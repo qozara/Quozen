@@ -6,6 +6,8 @@ export interface AppState {
   currentUserId: string;
   isAddExpenseOpen: boolean;
   setIsAddExpenseOpen: (isOpen: boolean) => void;
+  schemaErrorStatus: 'CORRUPTED' | 'UPGRADE_REQUIRED' | null;
+  setSchemaErrorStatus: (status: 'CORRUPTED' | 'UPGRADE_REQUIRED' | null) => void;
 }
 
 export const AppContext = createContext<AppState | undefined>(undefined);

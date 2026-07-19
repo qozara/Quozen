@@ -37,6 +37,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   return {
     ...actual,
     useQuery: vi.fn(),
+    useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
     // Mock useQueryClient to avoid "No QueryClient set" error
     useQueryClient: vi.fn(() => ({
       invalidateQueries: vi.fn(),

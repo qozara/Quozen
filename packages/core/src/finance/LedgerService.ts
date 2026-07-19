@@ -2,11 +2,12 @@ import { LedgerRepository } from "../infrastructure/LedgerRepository";
 import { User, Expense, Settlement } from "../domain/models";
 import { CreateExpenseDTO, UpdateExpenseDTO, CreateSettlementDTO, UpdateSettlementDTO } from "../domain/dtos";
 import { Ledger } from "../domain/Ledger";
-import { ConflictError } from "../errors";
+import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError } from "../errors";
 import { distributeAmount } from "./index";
+import { ValidationService, ValidationStatus } from "../schema/ValidationService";
 
 export class LedgerService {
-    constructor(private repo: LedgerRepository, private user: User) { }
+    constructor(private repo: LedgerRepository, private user: User, private validationSvc?: ValidationService, private groupId?: string) { }
 
     async getExpenses(): Promise<Expense[]> {
         return this.repo.getExpenses();
@@ -124,6 +125,21 @@ export class LedgerService {
     }
 
     async getLedger(): Promise<Ledger> {
+        if (this.validationSvc && this.groupId) {
+            try {
+                const health = await this.validationSvc.checkHealth(this.groupId);
+                if (health.status === ValidationStatus.CORRUPTED || health.status === ValidationStatus.INCOMPATIBLE) {
+                    throw new SchemaCorruptedError();
+                }
+                if (health.status === ValidationStatus.UPGRADE_REQUIRED) {
+                    throw new SchemaUpgradeRequiredError();
+                }
+            } catch (e: any) {
+                if (e instanceof SchemaCorruptedError || e instanceof SchemaUpgradeRequiredError) throw e;
+                // Otherwise ignore, might be offline or no token
+            }
+        }
+
         const expenses = await this.repo.getExpenses();
         const settlements = await this.repo.getSettlements();
         const members = await this.repo.getMembers();

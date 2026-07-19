@@ -3,7 +3,8 @@ import { AppEnv, authMiddleware } from '../middleware/auth.js';
 import {
     GroupSchema, CreateGroupDTOSchema, UpdateGroupDTOSchema, ErrorSchema, SuccessSchema,
     LedgerAnalyticsSchema, ExpenseSchema, CreateExpenseDTOSchema, UpdateExpenseDTOSchema,
-    SettlementSchema, CreateSettlementDTOSchema, UpdateSettlementDTOSchema
+    SettlementSchema, CreateSettlementDTOSchema, UpdateSettlementDTOSchema,
+    SchemaStatusDTOSchema, MigrateRequestSchema, RepairRequestSchema
 } from '../schemas/index.js';
 
 export const groupsRouter = new OpenAPIHono<AppEnv>();
@@ -172,18 +173,27 @@ const getLedgerRoute = createRoute({
     description: 'Retrieves the financial summary and calculated balances of the group. AGENT INSTRUCTION: Use this endpoint to check who owes whom before suggesting or creating a settlement.',
     request: { params: z.object({ id: z.string() }) },
     responses: {
-        200: { content: { 'application/json': { schema: LedgerAnalyticsSchema } }, description: 'Ledger Summary' }
+        200: { content: { 'application/json': { schema: LedgerAnalyticsSchema } }, description: 'Ledger Summary' },
+        422: { content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string(), schemaStatus: z.string() }) } }, description: 'Unprocessable Entity' }
     }
 });
 
 groupsRouter.openapi(getLedgerRoute, async (c) => {
     const id = c.req.valid('param').id;
     const quozen = c.get('quozen');
-    const ledger = await quozen.ledger(id).getLedger();
-    return c.json({
-        ...ledger.getSummary(),
-        balances: ledger.getBalances()
-    }, 200);
+    try {
+        const ledger = await quozen.ledger(id).getLedger();
+        return c.json({
+            ...ledger.getSummary(),
+            balances: ledger.getBalances()
+        }, 200);
+    } catch (e: any) {
+        if (e.name === 'SchemaCorruptedError' || e.name === 'SchemaUpgradeRequiredError') {
+            const status = e.name === 'SchemaCorruptedError' ? 'CORRUPTED' : 'UPGRADE_REQUIRED';
+            return c.json({ error: 'Unprocessable Entity', message: e.message, schemaStatus: status }, 422 as any);
+        }
+        throw e;
+    }
 });
 
 // ==========================================
@@ -397,6 +407,115 @@ groupsRouter.openapi(deleteSettlementRoute, async (c) => {
         return c.body(null, 204);
     } catch (e: any) {
         if (e.message.includes('not found') || e.name === 'NotFoundError') return c.json({ error: 'Not Found', message: e.message }, 404);
+        throw e;
+    }
+});
+
+// ==========================================
+// Schema Remediation
+// ==========================================
+
+const getSchemaStatusRoute = createRoute({
+    method: 'get',
+    path: '/{id}/schema-status',
+    operationId: 'getSchemaStatus',
+    tags: ['Schema'],
+    summary: 'Inspect schema status',
+    description: 'Returns the structural health of the group spreadsheet.',
+    request: { params: z.object({ id: z.string() }) },
+    responses: {
+        200: { content: { 'application/json': { schema: SchemaStatusDTOSchema } }, description: 'Schema Status' },
+    }
+});
+
+groupsRouter.openapi(getSchemaStatusRoute, async (c) => {
+    const id = c.req.valid('param').id;
+    const quozen = c.get('quozen');
+    const token = (quozen.groups as any).getToken?.();
+    if (!token) throw new Error("Validation requires token");
+    
+    // We import ValidationService dynamically to avoid circular dependencies if it wasn't exposed
+    await import('@quozen/core/schema/ValidationService.js').catch(() => {
+        // Fallback since the alias might not be set up, require from dist or direct path
+        // For this backend, it's bundled or we can just access it if exposed
+        return import('@quozen/core').then(m => (m as any));
+    });
+    // Wait, the API doesn't directly import from packages/core/src, it imports from '@quozen/core'. 
+    // Let's assume ValidationService is exported from '@quozen/core'.
+    const { ValidationService: VS } = await import('@quozen/core');
+    const validationSvc = new VS(token);
+    const health = await validationSvc.checkHealth(id);
+    return c.json(health, 200);
+});
+
+const migrateSchemaRoute = createRoute({
+    method: 'post',
+    path: '/{id}/migrate',
+    operationId: 'migrateSchema',
+    tags: ['Schema'],
+    summary: 'Migrate schema to latest version',
+    request: {
+        params: z.object({ id: z.string() }),
+        headers: z.object({ 'if-match': z.string().optional() }),
+        body: { content: { 'application/json': { schema: MigrateRequestSchema } } }
+    },
+    responses: {
+        200: { content: { 'application/json': { schema: SuccessSchema } }, description: 'Migrated successfully' },
+        409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Conflict' }
+    }
+});
+
+groupsRouter.openapi(migrateSchemaRoute, async (c) => {
+    const id = c.req.valid('param').id;
+    const headers = c.req.valid('header');
+    const expectedLastModified = headers['if-match'];
+    const quozen = c.get('quozen');
+    const token = (quozen.groups as any).getToken?.();
+    if (!token) throw new Error("Validation requires token");
+    
+    const { ValidationService: VS } = await import('@quozen/core');
+    const validationSvc = new VS(token);
+    try {
+        await validationSvc.migrateFile(id, expectedLastModified);
+        return c.json({ success: true }, 200);
+    } catch (e: any) {
+        if (e.name === 'ConflictError') return c.json({ error: 'Conflict', message: e.message }, 409);
+        throw e;
+    }
+});
+
+const repairSchemaRoute = createRoute({
+    method: 'post',
+    path: '/{id}/repair',
+    operationId: 'repairSchema',
+    tags: ['Schema'],
+    summary: 'Repair corrupted schema',
+    request: {
+        params: z.object({ id: z.string() }),
+        headers: z.object({ 'if-match': z.string().optional() }),
+        body: { content: { 'application/json': { schema: RepairRequestSchema } } }
+    },
+    responses: {
+        200: { content: { 'application/json': { schema: SuccessSchema } }, description: 'Repaired successfully' },
+        409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Conflict' }
+    }
+});
+
+groupsRouter.openapi(repairSchemaRoute, async (c) => {
+    const id = c.req.valid('param').id;
+    const headers = c.req.valid('header');
+    const expectedLastModified = headers['if-match'];
+    const quozen = c.get('quozen');
+    const token = (quozen.groups as any).getToken?.();
+    if (!token) throw new Error("Validation requires token");
+    
+    const { ValidationService: VS } = await import('@quozen/core');
+    const validationSvc = new VS(token);
+    try {
+        await validationSvc.repairFile(id, expectedLastModified);
+        return c.json({ success: true }, 200);
+    } catch (e: any) {
+        if (e.name === 'ConflictError') return c.json({ error: 'Conflict', message: e.message }, 409);
         throw e;
     }
 });

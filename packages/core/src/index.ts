@@ -25,3 +25,5 @@ export * from "./errors";
 // 5. Agent
 export * from "./agent";
 
+// 6. Schema
+export * from "./schema/ValidationService";

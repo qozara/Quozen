@@ -294,5 +294,17 @@
         "localAiInvalidJson": "Local AI failed to generate valid JSON",
         "quotaExceeded": "Quozen Team API quota is exhausted. Please try again later, or switch to Local AI or Bring Your Own Key in your Profile settings.",
         "rateLimitExceeded": "You have exceeded your daily AI request limit. Please try again tomorrow."
+    },
+    "schemaRemediation": {
+        "upgradeRequiredTitle": "Format Upgrade Required",
+        "corruptedTitle": "Group File Corrupted",
+        "upgradeRequiredDesc": "This group uses an older data format and needs to be upgraded before you can continue.",
+        "corruptedDesc": "We detected that required tabs or columns are missing from the group's Google Sheet. We can attempt to repair it.",
+        "working": "Working...",
+        "upgradeNow": "Upgrade Now",
+        "attemptRepair": "Attempt Repair",
+        "dismiss": "Dismiss",
+        "successDesc": "Group schema updated successfully.",
+        "errorDesc": "Failed to fix schema."
     }
 }
