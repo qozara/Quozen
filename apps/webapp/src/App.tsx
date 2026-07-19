@@ -24,6 +24,7 @@ import { useTranslation } from "react-i18next";
 import PullToRefresh from "@/components/pull-to-refresh";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import AddExpenseDrawer from "@/components/add-expense-drawer";
+import SchemaRemediationModal from "@/components/schema-remediation-modal";
 import { AiFeatureProvider } from "@/features/agent/AiFeatureProvider";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -67,6 +68,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
       <SiteFooter />
       <BottomNavigation />
       <AddExpenseDrawer />
+      <SchemaRemediationModal />
     </div>
   );
 };
@@ -74,6 +76,8 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
 export function AuthenticatedApp() {
   const [activeGroupId, setActiveGroupIdState] = useState("");
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [schemaErrorStatus, setSchemaErrorStatus] = useState<'CORRUPTED' | 'UPGRADE_REQUIRED' | null>(null);
+
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -96,6 +100,14 @@ export function AuthenticatedApp() {
       }
     }
   }, [settingsError, logout, navigate]);
+
+  useEffect(() => {
+    const handleSchemaError = (e: any) => {
+      setSchemaErrorStatus(e.detail);
+    };
+    window.addEventListener('schema-error', handleSchemaError);
+    return () => window.removeEventListener('schema-error', handleSchemaError);
+  }, []);
 
   const handleSetActiveGroupId = (groupId: string) => {
     setActiveGroupIdState(groupId);
@@ -159,7 +171,9 @@ export function AuthenticatedApp() {
       setActiveGroupId: handleSetActiveGroupId,
       currentUserId: user?.id || "",
       isAddExpenseOpen,
-      setIsAddExpenseOpen
+      setIsAddExpenseOpen,
+      schemaErrorStatus,
+      setSchemaErrorStatus
     }}>
       <AutoSyncProvider>
         <AiFeatureProvider>

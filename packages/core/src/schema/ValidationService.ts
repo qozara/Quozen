@@ -5,11 +5,24 @@ import {
 } from "@qozara/gdocs-schema";
 import { QuozenSchema } from "./SchemaDefinition";
 import { migrations } from "./migrations/index";
+import { ConflictError } from "../errors";
 
 export enum ValidationStatus {
-    UP_TO_DATE = "UP_TO_DATE",
-    UPDATABLE = "UPDATABLE",
-    OUT_OF_SYNC = "OUT_OF_SYNC",
+    READY = "READY",
+    UPGRADE_REQUIRED = "UPGRADE_REQUIRED",
+    CORRUPTED = "CORRUPTED",
+    INCOMPATIBLE = "INCOMPATIBLE",
+}
+
+export interface SchemaStatusDTO {
+    spreadsheetId: string;
+    currentVersion: number;
+    latestVersion: number;
+    status: ValidationStatus;
+    missingTabs: string[];
+    missingColumns: Record<string, string[]>;
+    canAutoMigrate: boolean;
+    lastModifiedTime: string;
 }
 
 export class ValidationService {
@@ -26,26 +39,43 @@ export class ValidationService {
         this.migrationManager = new MigrationManager(this.client);
     }
 
-    public async inspectFile(spreadsheetId: string): Promise<ValidationStatus> {
-        const result = await this.validator.validateStructure(spreadsheetId, QuozenSchema);
-        if (result.valid) {
-            return ValidationStatus.UP_TO_DATE;
-        }
+    public async checkHealth(spreadsheetId: string): Promise<SchemaStatusDTO> {
+        let currentVersion = 0;
+        let lastModifiedTime = new Date().toISOString();
+        let appProps: any = null;
 
-        // If not valid, check if it has a known version we can migrate from.
         try {
-            const { appProperties } = await this.client.getFileAppProperties(spreadsheetId);
-            const currentVersion = parseInt(appProperties?.quozen_schema_version || "0", 10);
-            
-            // If it has a known version less than our target schema, it's updatable.
-            if (currentVersion > 0 && currentVersion < QuozenSchema.version) {
-                return ValidationStatus.UPDATABLE;
-            }
+            const res = await this.client.getFileAppProperties(spreadsheetId) as any;
+            appProps = res.appProperties;
+            if (res.modifiedTime) lastModifiedTime = res.modifiedTime;
+            currentVersion = parseInt(appProps?.quozen_schema_version || "0", 10);
         } catch (e) {
             // Ignore error
         }
 
-        return ValidationStatus.OUT_OF_SYNC;
+        const result = await this.validator.validateStructure(spreadsheetId, QuozenSchema);
+        let status = ValidationStatus.READY;
+        let canAutoMigrate = false;
+
+        if (!result.valid) {
+            if (currentVersion > 0 && currentVersion < QuozenSchema.version) {
+                status = ValidationStatus.UPGRADE_REQUIRED;
+                canAutoMigrate = true;
+            } else {
+                status = ValidationStatus.CORRUPTED;
+            }
+        }
+
+        return {
+            spreadsheetId,
+            currentVersion,
+            latestVersion: QuozenSchema.version,
+            status,
+            missingTabs: (result as any).missingTabs || [],
+            missingColumns: (result as any).missingColumns || {},
+            canAutoMigrate,
+            lastModifiedTime
+        };
     }
 
     public async initializeFile(spreadsheetId: string): Promise<void> {
@@ -93,10 +123,19 @@ export class ValidationService {
         } catch (e: any) {
              // Ignore if it already exists or if adding fails because it exists
         }
-        await this.updateFileMetadata(spreadsheetId, ValidationStatus.UP_TO_DATE);
+        await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
     }
 
-    public async repairFile(spreadsheetId: string): Promise<void> {
+    public async repairFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
+        if (expectedLastModified) {
+            const res = await this.client.getFileAppProperties(spreadsheetId) as any;
+            const currentModified = res.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
+            const expectedModified = new Date(expectedLastModified).getTime();
+            if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
+                throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
+            }
+        }
+
         const metadata = await this.client.getSpreadsheet(spreadsheetId);
         const sheets = metadata.sheets || [];
 
@@ -156,12 +195,21 @@ export class ValidationService {
             await this.client.batchUpdate(spreadsheetId, requests);
         }
 
-        await this.updateFileMetadata(spreadsheetId, ValidationStatus.UP_TO_DATE);
+        await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
     }
 
-    public async migrateFile(spreadsheetId: string): Promise<void> {
+    public async migrateFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
+        if (expectedLastModified) {
+            const res = await this.client.getFileAppProperties(spreadsheetId) as any;
+            const currentModified = res.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
+            const expectedModified = new Date(expectedLastModified).getTime();
+            if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
+                throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
+            }
+        }
+
         await this.migrationManager.runMigrations(spreadsheetId, migrations);
-        await this.updateFileMetadata(spreadsheetId, ValidationStatus.UP_TO_DATE);
+        await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
     }
 
     public async updateFileMetadata(spreadsheetId: string, status: ValidationStatus): Promise<void> {

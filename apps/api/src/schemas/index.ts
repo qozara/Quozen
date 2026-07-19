@@ -93,3 +93,23 @@ export const LedgerAnalyticsSchema = z.object({
     memberCount: z.number().describe('The number of members in the group'),
     isBalanced: z.boolean().describe('Whether the sum of all balances is zero (should always be true)'),
 }).openapi('LedgerAnalytics');
+
+export const SchemaStatusDTOSchema = z.object({
+    spreadsheetId: z.string(),
+    currentVersion: z.number(),
+    latestVersion: z.number(),
+    status: z.enum(['READY', 'UPGRADE_REQUIRED', 'CORRUPTED', 'INCOMPATIBLE']),
+    missingTabs: z.array(z.string()),
+    missingColumns: z.record(z.array(z.string())),
+    canAutoMigrate: z.boolean(),
+    lastModifiedTime: z.string(),
+}).openapi('SchemaStatusDTO');
+
+export const MigrateRequestSchema = z.object({
+    targetVersion: z.number().optional(),
+}).openapi('MigrateRequest');
+
+export const RepairRequestSchema = z.object({
+    reconstructTabs: z.boolean().optional(),
+}).openapi('RepairRequest');
+

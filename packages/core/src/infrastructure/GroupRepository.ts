@@ -74,8 +74,8 @@ export class GroupRepository {
         if (settings.activeGroupId === groupId) return;
         
         const validation = await this.validateQuozenSpreadsheet(groupId);
-        if (validation.status === ValidationStatus.OUT_OF_SYNC) {
-             throw new Error("Cannot activate an out-of-sync group. Please repair it first.");
+        if (validation.status === ValidationStatus.CORRUPTED || validation.status === ValidationStatus.INCOMPATIBLE) {
+             throw new Error("Cannot activate a corrupted group. Please repair it first.");
         }
 
         settings.activeGroupId = groupId;
@@ -161,20 +161,21 @@ export class GroupRepository {
 
             const titles = sheetMeta.sheets?.map((s: any) => s.properties.title) || [];
             if (!REQUIRED_SHEETS.every((t: string) => titles.includes(t))) {
-                return { valid: false, status: ValidationStatus.OUT_OF_SYNC, error: "Missing tabs" };
+                return { valid: false, status: ValidationStatus.CORRUPTED, error: "Missing tabs" };
             }
 
-            let status = ValidationStatus.UP_TO_DATE;
+            let status = ValidationStatus.READY;
             if (this.getToken) {
                 try {
                     const validationSvc = new ValidationService(this.getToken);
-                    status = await validationSvc.inspectFile(spreadsheetId);
+                    const health = await validationSvc.checkHealth(spreadsheetId);
+                    status = health.status;
                 } catch (e) {
                     console.warn("ValidationService check failed", e);
                 }
             }
 
-            if (status === ValidationStatus.OUT_OF_SYNC) {
+            if (status === ValidationStatus.CORRUPTED || status === ValidationStatus.INCOMPATIBLE) {
                  // Do not return early so we can try to extract members
             }
 
@@ -182,9 +183,9 @@ export class GroupRepository {
             const memberRows = res[0]?.values || [];
             const members = memberRows.map((r: any[], i: number) => SheetDataMapper.mapToMember(r, i + 2).entity);
 
-            return { valid: status !== ValidationStatus.OUT_OF_SYNC, status, name: meta.name || sheetMeta.properties?.title, members };
+            return { valid: status !== ValidationStatus.CORRUPTED && status !== ValidationStatus.INCOMPATIBLE, status, name: meta.name || sheetMeta.properties?.title, members };
         } catch (e: any) {
-            return { valid: false, status: ValidationStatus.OUT_OF_SYNC, error: e.message };
+            return { valid: false, status: ValidationStatus.CORRUPTED, error: e.message };
         }
     }
 
@@ -203,7 +204,7 @@ export class GroupRepository {
         //     throw new Error(validation.error || "Invalid group file: Out of sync");
         // }
         // If it's valid but missing version info, auto-initialize
-        if (validation.valid && validation.status === ValidationStatus.UP_TO_DATE && this.getToken) {
+        if (validation.valid && validation.status === ValidationStatus.READY && this.getToken) {
             try {
                 const metaForInit = await this.storage.getFile(spreadsheetId, { fields: "appProperties" });
                 const currentVersion = parseInt(metaForInit.appProperties?.quozen_schema_version || "0", 10);
@@ -240,7 +241,7 @@ export class GroupRepository {
             cachedGroup.validationStatus = validation.status;
         }
 
-        if (validation.status !== ValidationStatus.OUT_OF_SYNC) {
+        if (validation.status !== ValidationStatus.CORRUPTED && validation.status !== ValidationStatus.INCOMPATIBLE) {
             settings.activeGroupId = spreadsheetId;
         }
         await this.saveSettings(settings);

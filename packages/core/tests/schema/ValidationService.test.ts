@@ -50,21 +50,16 @@ describe("ValidationService", () => {
         expect(() => new ValidationService(() => null)).toThrow("requires a valid Google access token");
     });
 
-    it("returns UP_TO_DATE if the validator passes", async () => {
+    it("returns READY if the validator passes", async () => {
         mockValidator.validateStructure.mockResolvedValue({ valid: true });
 
-        const status = await service.inspectFile("file123");
-        expect(status).toBe(ValidationStatus.UP_TO_DATE);
+        const result = await service.checkHealth("file123");
+        expect(result.status).toBe(ValidationStatus.READY);
         expect(mockValidator.validateStructure).toHaveBeenCalledWith("file123", QuozenSchema);
     });
 
-    it("returns UPDATABLE if the validator fails but version is known and older", async () => {
+    it("returns UPGRADE_REQUIRED if the validator fails but version is known and older", async () => {
         mockValidator.validateStructure.mockResolvedValue({ valid: false });
-        mockClient.getFileAppProperties.mockResolvedValue({
-            appProperties: {
-                quozen_schema_version: "0" // Assuming current version is 1, so 0 is older? Wait, our code says `currentVersion > 0 && currentVersion < QuozenSchema.version`. Let's mock "0" meaning OUT_OF_SYNC, and let's say schema version is 2.
-            }
-        });
         
         // Temporarily override QuozenSchema.version to test the logic
         const originalVersion = QuozenSchema.version;
@@ -74,26 +69,26 @@ describe("ValidationService", () => {
             appProperties: { quozen_schema_version: "1" }
         });
 
-        const status = await service.inspectFile("file123");
-        expect(status).toBe(ValidationStatus.UPDATABLE);
+        const result = await service.checkHealth("file123");
+        expect(result.status).toBe(ValidationStatus.UPGRADE_REQUIRED);
 
         // Restore
         (QuozenSchema as any).version = originalVersion;
     });
 
-    it("returns OUT_OF_SYNC if validator fails and version is unknown or empty", async () => {
+    it("returns CORRUPTED if validator fails and version is unknown or empty", async () => {
         mockValidator.validateStructure.mockResolvedValue({ valid: false });
         mockClient.getFileAppProperties.mockRejectedValue(new Error("No properties"));
 
-        const status = await service.inspectFile("file123");
-        expect(status).toBe(ValidationStatus.OUT_OF_SYNC);
+        const result = await service.checkHealth("file123");
+        expect(result.status).toBe(ValidationStatus.CORRUPTED);
     });
 
     it("initializes file and updates metadata", async () => {
         await service.initializeFile("file123");
         expect(mockClient.batchUpdate).toHaveBeenCalled();
         expect(mockClient.updateFileAppProperties).toHaveBeenCalledWith("file123", expect.objectContaining({
-            quozen_validation_status: ValidationStatus.UP_TO_DATE,
+            quozen_validation_status: ValidationStatus.READY,
             quozen_schema_version: QuozenSchema.version.toString()
         }));
     });

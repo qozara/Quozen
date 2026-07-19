@@ -11,3 +11,17 @@ export class NotFoundError extends Error {
         this.name = "NotFoundError";
     }
 }
+
+export class SchemaCorruptedError extends Error {
+    constructor(message = "The underlying spreadsheet schema is missing required structure.") {
+        super(message);
+        this.name = "SchemaCorruptedError";
+    }
+}
+
+export class SchemaUpgradeRequiredError extends Error {
+    constructor(message = "The underlying spreadsheet schema must be upgraded to continue.") {
+        super(message);
+        this.name = "SchemaUpgradeRequiredError";
+    }
+}

@@ -50,7 +50,16 @@ describe("Migrations & Schema Edge Cases", () => {
             return { name: "Group File", properties: { quozen_type: "group" } };
         });
 
-        vi.spyOn(ValidationService.prototype, "inspectFile").mockResolvedValue(ValidationStatus.UP_TO_DATE);
+        vi.spyOn(ValidationService.prototype, "checkHealth").mockResolvedValue({
+            spreadsheetId: 'file123',
+            currentVersion: 1,
+            latestVersion: 1,
+            status: ValidationStatus.READY,
+            missingTabs: [],
+            missingColumns: {},
+            canAutoMigrate: false,
+            lastModifiedTime: ''
+        });
         vi.spyOn(ValidationService.prototype, "initializeFile").mockResolvedValue();
     });
 
@@ -77,10 +86,10 @@ describe("Migrations & Schema Edge Cases", () => {
         const settings = await repo.getSettings();
         expect(settings.activeGroupId).toBe("legacy123");
         expect(settings.groupCache[0].id).toBe("legacy123");
-        expect(settings.groupCache[0].validationStatus).toBe(ValidationStatus.UP_TO_DATE);
+        expect(settings.groupCache[0].validationStatus).toBe(ValidationStatus.READY);
     });
 
-    it("should not activate an OUT_OF_SYNC group when importing", async () => {
+    it("should not activate a CORRUPTED group when importing", async () => {
         mockStorage.getSpreadsheet.mockResolvedValue({
             properties: { title: "Corrupted Group" },
             sheets: [
@@ -88,7 +97,16 @@ describe("Migrations & Schema Edge Cases", () => {
             ]
         });
 
-        vi.spyOn(ValidationService.prototype, "inspectFile").mockResolvedValue(ValidationStatus.OUT_OF_SYNC);
+        vi.spyOn(ValidationService.prototype, "checkHealth").mockResolvedValue({
+            spreadsheetId: 'corrupted123',
+            currentVersion: 1,
+            latestVersion: 1,
+            status: ValidationStatus.CORRUPTED,
+            missingTabs: ['Members', 'Settlements'],
+            missingColumns: {},
+            canAutoMigrate: false,
+            lastModifiedTime: ''
+        });
 
         const repo = new GroupRepository(mockStorage, mockUser, () => "fake-token");
         
@@ -97,15 +115,26 @@ describe("Migrations & Schema Edge Cases", () => {
         const settings = await repo.getSettings();
         expect(settings.activeGroupId).toBeNull();
         expect(settings.groupCache[0].id).toBe("corrupted123");
-        expect(settings.groupCache[0].validationStatus).toBe(ValidationStatus.OUT_OF_SYNC);
+        expect(settings.groupCache[0].validationStatus).toBe(ValidationStatus.CORRUPTED);
     });
 
-    it("should prevent updating active group to an OUT_OF_SYNC group", async () => {
+    it("should prevent updating active group to a CORRUPTED group", async () => {
         mockStorage.getSpreadsheet.mockResolvedValue({
             properties: { title: "Corrupted Group" },
             sheets: [{ properties: { title: "Expenses" } }]
         });
         
+        vi.spyOn(ValidationService.prototype, "checkHealth").mockResolvedValue({
+            spreadsheetId: 'corrupted123',
+            currentVersion: 1,
+            latestVersion: 1,
+            status: ValidationStatus.CORRUPTED,
+            missingTabs: ['Members', 'Settlements'],
+            missingColumns: {},
+            canAutoMigrate: false,
+            lastModifiedTime: ''
+        });
+
         const repo = new GroupRepository(mockStorage, mockUser, () => "fake-token");
         
         fakeSettings = {
@@ -116,6 +145,6 @@ describe("Migrations & Schema Edge Cases", () => {
             lastUpdated: ""
         };
 
-        await expect(repo.updateActiveGroup("corrupted123")).rejects.toThrow("Cannot activate an out-of-sync group. Please repair it first.");
+        await expect(repo.updateActiveGroup("corrupted123")).rejects.toThrow("Cannot activate a corrupted group. Please repair it first.");
     });
 });

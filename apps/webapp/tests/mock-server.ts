@@ -13,6 +13,7 @@ export class MockServer {
     public adapter: InMemoryAdapter;
     private _latencyMs: number = 0;
     private _nextErrorStatus: number | null = null;
+    private _forceMalformed: boolean = false;
 
     constructor() {
         this.adapter = new InMemoryAdapter();
@@ -22,6 +23,7 @@ export class MockServer {
         this.adapter = new InMemoryAdapter();
         this._latencyMs = 0;
         this._nextErrorStatus = null;
+        this._forceMalformed = false;
     }
 
     /** Add artificial delay to every response (ms). Pass 0 to disable. */
@@ -36,6 +38,14 @@ export class MockServer {
      */
     forceNextError(statusCode: number) {
         this._nextErrorStatus = statusCode;
+    }
+
+    /**
+     * Force the next getSpreadsheet request to simulate a corrupted sheet 
+     * by omitting the Expenses tab.
+     */
+    forceMalformedSheet() {
+        this._forceMalformed = true;
     }
 
     /**
@@ -152,6 +162,10 @@ export class MockServer {
         if (path === '/_test/ai-proxy') {
             return { status: 200, body: { status: 'ok' } };
         }
+        if (path === '/_test/force-malformed') {
+            this.forceMalformedSheet();
+            return { status: 200, body: { success: true } };
+        }
         if (path === '/_test/ai-proxy/api/v1/agent/chat') {
             const prompt = body.messages?.[body.messages.length - 1]?.content || "";
             if (prompt.toLowerCase().includes("uber")) {
@@ -238,7 +252,12 @@ export class MockServer {
             const id = path.split('/')[2];
             if (method === 'GET') {
                 const fields = url.searchParams.get('fields');
-                result = await this.adapter.getSpreadsheet(id, fields || undefined);
+                const spreadsheet = await this.adapter.getSpreadsheet(id, fields || undefined);
+                if (this._forceMalformed && spreadsheet.sheets) {
+                    this._forceMalformed = false;
+                    spreadsheet.sheets = spreadsheet.sheets.filter((s: any) => s.properties.title !== 'Expenses');
+                }
+                result = spreadsheet;
             }
         }
         else if (path.match(/\/spreadsheets\/[^\/]+\/values:batchGet$/)) {

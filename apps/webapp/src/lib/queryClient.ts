@@ -24,6 +24,16 @@ axiosInstance.interceptors.request.use((config: any) => {
   return config;
 });
 
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 422 && error.response?.data?.schemaStatus) {
+      window.dispatchEvent(new CustomEvent('schema-error', { detail: error.response.data.schemaStatus }));
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Default query function for react-query using Axios
 const axiosQueryFn = async <T>({ queryKey }: QueryFunctionContext): Promise<T> => {
   // queryKey is an array, join with / for REST endpoints
