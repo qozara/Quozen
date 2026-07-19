@@ -294,5 +294,17 @@
         "localAiInvalidJson": "La AI local no pudo generar un JSON válido",
         "quotaExceeded": "La cuota de la API del equipo de Quozen se ha agotado. Inténtalo más tarde, o cambia a AI Local o usa tu propia llave en tu Perfil.",
         "rateLimitExceeded": "Has excedido tu límite diario de solicitudes de AI. Por favor, inténtalo de nuevo mañana."
+    },
+    "schemaRemediation": {
+        "upgradeRequiredTitle": "Actualización de Formato Requerida",
+        "corruptedTitle": "Archivo del Grupo Corrupto",
+        "upgradeRequiredDesc": "Este grupo usa un formato de datos más antiguo y necesita ser actualizado antes de continuar.",
+        "corruptedDesc": "Detectamos que faltan pestañas o columnas requeridas en la hoja de cálculo del grupo. Podemos intentar repararlo.",
+        "working": "Trabajando...",
+        "upgradeNow": "Actualizar Ahora",
+        "attemptRepair": "Intentar Reparar",
+        "dismiss": "Descartar",
+        "successDesc": "Esquema del grupo actualizado exitosamente.",
+        "errorDesc": "Error al reparar el esquema."
     }
 }

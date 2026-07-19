@@ -5,12 +5,14 @@ import { useAppContext } from "@/context/app-context";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useTranslation } from "react-i18next";
 
 export default function SchemaRemediationModal() {
   const { activeGroupId, schemaErrorStatus, setSchemaErrorStatus } = useAppContext();
   const [isOpen, setIsOpen] = useState(!!schemaErrorStatus);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   // Sync internal state when context changes
   if (!!schemaErrorStatus && !isOpen) {
@@ -28,12 +30,12 @@ export default function SchemaRemediationModal() {
       }
     },
     onSuccess: () => {
-      toast({ title: "Success", description: "Group schema updated successfully." });
+      toast({ title: t("common.success"), description: t("schemaRemediation.successDesc") });
       setSchemaErrorStatus(null);
       queryClient.invalidateQueries();
     },
     onError: (err: any) => {
-      toast({ variant: "destructive", title: "Error", description: err.message || "Failed to fix schema." });
+      toast({ variant: "destructive", title: t("common.error"), description: err.message || t("schemaRemediation.errorDesc") });
     }
   });
 
@@ -46,19 +48,19 @@ export default function SchemaRemediationModal() {
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>
-            {schemaErrorStatus === 'UPGRADE_REQUIRED' ? 'Format Upgrade Required' : 'Group File Corrupted'}
+            {schemaErrorStatus === 'UPGRADE_REQUIRED' ? t("schemaRemediation.upgradeRequiredTitle") : t("schemaRemediation.corruptedTitle")}
           </DrawerTitle>
           <DrawerDescription>
             {schemaErrorStatus === 'UPGRADE_REQUIRED' 
-              ? 'This group uses an older data format and needs to be upgraded before you can continue.'
-              : 'We detected that required tabs or columns are missing from the group\'s Google Sheet. We can attempt to repair it.'}
+              ? t("schemaRemediation.upgradeRequiredDesc")
+              : t("schemaRemediation.corruptedDesc")}
           </DrawerDescription>
         </DrawerHeader>
         <DrawerFooter>
           <Button onClick={() => repair()} disabled={isRepairing}>
-            {isRepairing ? "Working..." : (schemaErrorStatus === 'UPGRADE_REQUIRED' ? "Upgrade Now" : "Attempt Repair")}
+            {isRepairing ? t("schemaRemediation.working") : (schemaErrorStatus === 'UPGRADE_REQUIRED' ? t("schemaRemediation.upgradeNow") : t("schemaRemediation.attemptRepair"))}
           </Button>
-          <Button variant="outline" onClick={() => setSchemaErrorStatus(null)}>Dismiss</Button>
+          <Button variant="outline" onClick={() => setSchemaErrorStatus(null)}>{t("schemaRemediation.dismiss")}</Button>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
