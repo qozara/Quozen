@@ -1,4 +1,4 @@
-import { QueryClient, QueryFunctionContext } from "@tanstack/react-query";
+import { QueryClient, QueryFunctionContext, QueryCache } from "@tanstack/react-query";
 import axios from "axios";
 // 1. IMPORT FROM YOUR NEW FILE, NOT from auth-provider
 import { getAuthToken } from "./tokenStore"; 
@@ -63,6 +63,15 @@ export async function apiRequest<T = any>(
 }
 
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error: any) => {
+      if (error.name === 'SchemaCorruptedError') {
+        window.dispatchEvent(new CustomEvent('schema-error', { detail: 'CORRUPTED' }));
+      } else if (error.name === 'SchemaUpgradeRequiredError') {
+        window.dispatchEvent(new CustomEvent('schema-error', { detail: 'UPGRADE_REQUIRED' }));
+      }
+    }
+  }),
   defaultOptions: {
     queries: {
       queryFn: axiosQueryFn,
