@@ -26,14 +26,20 @@ interface ISyncBackend {
 ```
 The core app's replication engine will use this interface to push/pull JSON changes. It will not know anything about Spreadsheets, rows, columns, or Drive permissions.
 
-### 1.3 Backend Implementations & Encapsulation
-The logic for dealing with Google Sheets, including mapping and remote migrations, will be strictly encapsulated within its specific backend adapter.
+### 1.3 Unified Migration Strategy
+A key goal is to unify migrations while retaining the Google Sheets format. We cannot entirely "get rid" of Quozen's ad-hoc Google Sheets validation, because modifying a local JSON object (RxDB) does not automatically add a column to a remote Google Sheet. However, we can unify the process into a single, cohesive workflow:
+
+1. **Local Data Transformation (RxDB):** RxDB strictly enforces local migrations. When the app schema updates (e.g., adding a new `currency` field), RxDB executes a pure JSON-to-JSON migration function locally. This guarantees that offline users can immediately continue working with the new schema.
+2. **Remote Structural Transformation (`ValidationService`):** The `GoogleDriveSyncBackend` adapter will utilize the existing `ValidationService.repairFile()` declaratively. Before pushing new RxDB data to Google Drive, the adapter verifies if the remote sheet has all the necessary columns defined in the new schema. If a column is missing, `repairFile()` automatically appends it via the Sheets API.
+3. **Deprecation of Imperative Scripts:** By combining RxDB's local data transformation with `ValidationService`'s declarative auto-repair, we can deprecate the need for imperative, ad-hoc remote migration scripts (e.g., manually writing `up`/`down` scripts in `migrations/index.ts`). 
+
+### 1.4 Backend Implementations & Encapsulation
+The logic for dealing with Google Sheets, including mapping and the aforementioned remote structural migrations, will be strictly encapsulated within its specific backend adapter.
 
 **The Google Drive Backend (`GoogleDriveSyncBackend`)**
 This class implements `ISyncBackend`. 
 - **Mapping:** It internally uses `SheetDataMapper` to convert the JSON documents received from `pushChanges()` into `batchUpdate` requests for Google Sheets.
-- **Remote Migrations:** The `ValidationService` and `@qozara/gdocs-schema` are **not** made generic. They remain specifically tailored for Google Sheets. They will be invoked internally by the `GoogleDriveSyncBackend` during the `pullChanges()` or `pushChanges()` lifecycle to ensure the Google Sheet has the correct columns and tabs to store the JSON data.
-- By isolating `ValidationService` here, we prevent Google-specific logic from leaking into the core application.
+- **Encapsulation:** By isolating `ValidationService` here, we prevent Google-specific logic from leaking into the core application.
 
 **Custom REST Backend (`CustomRestSyncBackend`)**
 A user bringing their own backend simply implements `ISyncBackend` and POSTs/GETs the JSON documents directly to their server. They are responsible for their own server-side database migrations.
