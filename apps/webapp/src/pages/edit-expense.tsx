@@ -55,7 +55,6 @@ export default function EditExpense() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
       navigator.vibrate?.(50);
-      toast({ title: t("common.success") });
       navigate("/expenses");
     },
     onError: (error) => {

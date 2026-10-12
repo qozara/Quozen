@@ -11,6 +11,7 @@ import {
     docToMember
 } from "../db/schemas";
 import { map, type Observable, of } from "rxjs";
+import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
 
 export class LedgerRepository {
     private expenseRowMap = new Map<string, number>();
@@ -21,33 +22,51 @@ export class LedgerRepository {
     private settlementHeaderMap: HeaderMap = DEFAULT_SETTLEMENT_MAP;
     private memberHeaderMap: HeaderMap = DEFAULT_MEMBER_MAP;
 
-    private static hydratedGroups = new WeakMap<object, Set<string>>();
+    private static hydrationPromises = new WeakMap<object, Map<string, Promise<void>>>();
 
     constructor(
         private storage?: IStorageLayer,
         private groupId: string = "",
-        private db?: QuozenDatabase
+        private db?: QuozenDatabase,
+        private onMutation?: () => void
     ) {}
 
-    private isGroupHydrated(): boolean {
-        if (!this.db) return false;
-        const set = LedgerRepository.hydratedGroups.get(this.db);
-        return Boolean(set?.has(this.groupId));
+    public hasLocalDb(): boolean {
+        return Boolean(this.db);
     }
 
-    private markGroupHydrated(): void {
-        if (!this.db) return;
-        let set = LedgerRepository.hydratedGroups.get(this.db);
-        if (!set) {
-            set = new Set<string>();
-            LedgerRepository.hydratedGroups.set(this.db, set);
+    private notifyMutation(): void {
+        if (this.onMutation) {
+            try {
+                this.onMutation();
+            } catch {
+                // Ignore background sync trigger errors
+            }
         }
-        set.add(this.groupId);
     }
 
     private async hydrateFromStorageIfNeeded(): Promise<void> {
-        if (!this.db || !this.storage || !this.groupId || this.isGroupHydrated()) return;
-        this.markGroupHydrated();
+        if (!this.db || !this.storage || !this.groupId) return;
+
+        let groupMap = LedgerRepository.hydrationPromises.get(this.db);
+        if (!groupMap) {
+            groupMap = new Map<string, Promise<void>>();
+            LedgerRepository.hydrationPromises.set(this.db, groupMap);
+        }
+
+        const existingPromise = groupMap.get(this.groupId);
+        if (existingPromise) {
+            await existingPromise;
+            return;
+        }
+
+        const promise = this.performHydration();
+        groupMap.set(this.groupId, promise);
+        await promise;
+    }
+
+    private async performHydration(): Promise<void> {
+        if (!this.db || !this.storage || !this.groupId) return;
 
         try {
             const [existingMembers, existingExpenses, existingSettlements] = await Promise.all([
@@ -63,31 +82,55 @@ export class LedgerRepository {
                     "Settlements!A1:Z"
                 ]);
 
+                const nonEmptyRow = (r: any[]) =>
+                    Array.isArray(r) && r.some(cell => String(cell ?? "").trim() !== "");
+
                 const memberRows = res[0]?.values || [];
                 if (memberRows.length > 1) {
                     const mHeaders = SheetDataMapper.buildHeaderMap(memberRows[0]);
-                    const mDocs = memberRows.slice(1).map((r: any[], i: number) =>
-                        memberToDoc(SheetDataMapper.mapToMember(r, i + 2, mHeaders).entity, this.groupId)
-                    );
-                    if (mDocs.length > 0) await this.db.members.bulkUpsert(mDocs);
+                    const mDocs = memberRows
+                        .slice(1)
+                        .filter(nonEmptyRow)
+                        .map((r: any[], i: number) =>
+                            memberToDoc(SheetDataMapper.mapToMember(r, i + 2, mHeaders).entity, this.groupId)
+                        )
+                        .filter((d: any) => Boolean(d.userId));
+                    if (mDocs.length > 0) {
+                        await this.db.members.bulkUpsert(mDocs);
+                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, mDocs);
+                    }
                 }
 
                 const expenseRows = res[1]?.values || [];
                 if (expenseRows.length > 1) {
                     const eHeaders = SheetDataMapper.buildHeaderMap(expenseRows[0]);
-                    const eDocs = expenseRows.slice(1).map((r: any[], i: number) =>
-                        expenseToDoc(SheetDataMapper.mapToExpense(r, i + 2, eHeaders).entity, this.groupId)
-                    );
-                    if (eDocs.length > 0) await this.db.expenses.bulkUpsert(eDocs);
+                    const eDocs = expenseRows
+                        .slice(1)
+                        .filter(nonEmptyRow)
+                        .map((r: any[], i: number) =>
+                            expenseToDoc(SheetDataMapper.mapToExpense(r, i + 2, eHeaders).entity, this.groupId)
+                        )
+                        .filter((d: any) => Boolean(d.id));
+                    if (eDocs.length > 0) {
+                        await this.db.expenses.bulkUpsert(eDocs);
+                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, eDocs);
+                    }
                 }
 
                 const settlementRows = res[2]?.values || [];
                 if (settlementRows.length > 1) {
                     const sHeaders = SheetDataMapper.buildHeaderMap(settlementRows[0]);
-                    const sDocs = settlementRows.slice(1).map((r: any[], i: number) =>
-                        settlementToDoc(SheetDataMapper.mapToSettlement(r, i + 2, sHeaders).entity, this.groupId)
-                    );
-                    if (sDocs.length > 0) await this.db.settlements.bulkUpsert(sDocs);
+                    const sDocs = settlementRows
+                        .slice(1)
+                        .filter(nonEmptyRow)
+                        .map((r: any[], i: number) =>
+                            settlementToDoc(SheetDataMapper.mapToSettlement(r, i + 2, sHeaders).entity, this.groupId)
+                        )
+                        .filter((d: any) => Boolean(d.id));
+                    if (sDocs.length > 0) {
+                        await this.db.settlements.bulkUpsert(sDocs);
+                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, sDocs);
+                    }
                 }
             }
         } catch {
@@ -219,7 +262,9 @@ export class LedgerRepository {
 
     async addExpense(expense: Expense): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             await this.db.expenses.upsert(expenseToDoc(expense, this.groupId));
+            this.notifyMutation();
             return;
         }
 
@@ -232,9 +277,11 @@ export class LedgerRepository {
 
     async updateExpense(expense: Expense, _expectedLastModified?: Date): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.expenses.findOne(expense.id).exec();
             if (!existing || existing.deletedAt) throw new Error("Expense not found");
             await this.db.expenses.upsert(expenseToDoc(expense, this.groupId));
+            this.notifyMutation();
             return;
         }
 
@@ -252,10 +299,12 @@ export class LedgerRepository {
 
     async deleteExpense(expenseId: string): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.expenses.findOne(expenseId).exec();
             if (!existing || existing.deletedAt) throw new Error("Expense not found");
             const nowIso = new Date().toISOString();
             await existing.patch({ deletedAt: nowIso, updatedAt: nowIso });
+            this.notifyMutation();
             return;
         }
 
@@ -278,7 +327,9 @@ export class LedgerRepository {
 
     async addSettlement(settlement: Settlement): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             await this.db.settlements.upsert(settlementToDoc(settlement, this.groupId));
+            this.notifyMutation();
             return;
         }
 
@@ -291,9 +342,11 @@ export class LedgerRepository {
 
     async updateSettlement(settlement: Settlement): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.settlements.findOne(settlement.id).exec();
             if (!existing || existing.deletedAt) throw new Error("Settlement not found");
             await this.db.settlements.upsert(settlementToDoc({ ...settlement, updatedAt: new Date() }, this.groupId));
+            this.notifyMutation();
             return;
         }
 
@@ -311,10 +364,12 @@ export class LedgerRepository {
 
     async deleteSettlement(settlementId: string): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.settlements.findOne(settlementId).exec();
             if (!existing || existing.deletedAt) throw new Error("Settlement not found");
             const nowIso = new Date().toISOString();
             await existing.patch({ deletedAt: nowIso, updatedAt: nowIso });
+            this.notifyMutation();
             return;
         }
 
@@ -337,7 +392,9 @@ export class LedgerRepository {
 
     async addMember(member: Member): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             await this.db.members.upsert(memberToDoc(member, this.groupId));
+            this.notifyMutation();
             return;
         }
 
@@ -350,10 +407,12 @@ export class LedgerRepository {
 
     async updateMember(member: Member): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             const docId = `${this.groupId}_${member.userId}`;
             const existing = await this.db.members.findOne(docId).exec();
             if (!existing || existing.deletedAt) throw new Error("Member not found");
             await this.db.members.upsert(memberToDoc({ ...member, updatedAt: new Date() }, this.groupId));
+            this.notifyMutation();
             return;
         }
 
@@ -371,11 +430,13 @@ export class LedgerRepository {
 
     async deleteMember(userId: string): Promise<void> {
         if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
             const docId = `${this.groupId}_${userId}`;
             const existing = await this.db.members.findOne(docId).exec();
             if (!existing || existing.deletedAt) throw new Error("Member not found");
             const nowIso = new Date().toISOString();
             await existing.patch({ deletedAt: nowIso, updatedAt: nowIso });
+            this.notifyMutation();
             return;
         }
 

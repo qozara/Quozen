@@ -54,11 +54,14 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
             if (values.length <= 1) return [];
             const sheetHeaders = (values[0] || []).map(h => String(h).trim());
             this.validateHeaders(tabName, sheetHeaders);
-            return values.slice(1).map(row => ({
-                id: String(row[0] || ""),
-                headers: sheetHeaders,
-                values: row
-            }));
+            return values
+                .slice(1)
+                .filter(row => Array.isArray(row) && row.some(cell => String(cell ?? "").trim() !== ""))
+                .map(row => ({
+                    id: String(row[0] || ""),
+                    headers: sheetHeaders,
+                    values: row
+                }));
         }
 
         const headers = this.getAuthHeaders();
@@ -73,15 +76,21 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
         const sheetHeaders: string[] = (values[0] || []).map(h => String(h).trim());
         this.validateHeaders(tabName, sheetHeaders);
 
-        return values.slice(1).map(row => ({
-            id: String(row[0] || ""),
-            headers: sheetHeaders,
-            values: row
-        }));
+        return values
+            .slice(1)
+            .filter(row => Array.isArray(row) && row.some(cell => String(cell ?? "").trim() !== ""))
+            .map(row => ({
+                id: String(row[0] || ""),
+                headers: sheetHeaders,
+                values: row
+            }));
     }
 
     private validateHeaders(tabName: string, sheetHeaders: string[]): void {
         const headerSet = new Set(sheetHeaders.map(h => h.toLowerCase()));
+        if (headerSet.has("paidbyuserid")) {
+            headerSet.add("paidby");
+        }
         const tabDef = QuozenSchema.tabs.find(t => t.name === tabName);
         if (tabDef) {
             const missingRequired = tabDef.columns

@@ -186,20 +186,36 @@ export const memberSchema: RxJsonSchema<MemberDocType> = {
 
 // --- Domain <-> RxDB Document Mappers ---
 
+function safeIsoString(val: unknown, fallbackIso?: string): string {
+    if (val instanceof Date && !isNaN(val.getTime())) {
+        return val.toISOString();
+    }
+    if (typeof val === "string" || typeof val === "number") {
+        const d = new Date(val);
+        if (!isNaN(d.getTime())) {
+            return d.toISOString();
+        }
+    }
+    return fallbackIso ?? new Date().toISOString();
+}
+
 export function expenseToDoc(expense: Expense, groupId: string): ExpenseDocType {
     const nowIso = new Date().toISOString();
+    const dateIso = safeIsoString(expense.date, nowIso);
+    const createdIso = expense.createdAt ? safeIsoString(expense.createdAt, dateIso) : nowIso;
+    const updatedIso = expense.updatedAt ? safeIsoString(expense.updatedAt, createdIso) : nowIso;
     return {
         id: expense.id,
         groupId,
-        description: expense.description,
-        amount: expense.amount,
-        category: expense.category,
-        date: expense.date instanceof Date ? expense.date.toISOString() : new Date(expense.date).toISOString(),
-        paidByUserId: expense.paidByUserId,
-        splits: expense.splits.map(s => ({ userId: s.userId, amount: s.amount })),
-        createdAt: expense.createdAt instanceof Date ? expense.createdAt.toISOString() : new Date(expense.createdAt || nowIso).toISOString(),
-        updatedAt: expense.updatedAt instanceof Date ? expense.updatedAt.toISOString() : new Date(expense.updatedAt || nowIso).toISOString(),
-        deletedAt: expense.deletedAt ? (expense.deletedAt instanceof Date ? expense.deletedAt.toISOString() : new Date(expense.deletedAt).toISOString()) : null
+        description: expense.description || "",
+        amount: Number(expense.amount) || 0,
+        category: expense.category || "",
+        date: dateIso,
+        paidByUserId: expense.paidByUserId || "",
+        splits: (expense.splits || []).map(s => ({ userId: s.userId, amount: Number(s.amount) || 0 })),
+        createdAt: createdIso,
+        updatedAt: updatedIso,
+        deletedAt: expense.deletedAt ? safeIsoString(expense.deletedAt, updatedIso) : null
     };
 }
 
@@ -222,21 +238,21 @@ export function docToExpense(doc: ExpenseDocType | DeepReadonlyObject<ExpenseDoc
 }
 
 export function settlementToDoc(settlement: Settlement, groupId: string): SettlementDocType {
-    const dateIso = settlement.date instanceof Date ? settlement.date.toISOString() : new Date(settlement.date).toISOString();
+    const dateIso = safeIsoString(settlement.date);
     const updatedIso = settlement.updatedAt
-        ? (settlement.updatedAt instanceof Date ? settlement.updatedAt.toISOString() : new Date(settlement.updatedAt).toISOString())
+        ? safeIsoString(settlement.updatedAt, dateIso)
         : dateIso;
     return {
         id: settlement.id,
         groupId,
         date: dateIso,
-        fromUserId: settlement.fromUserId,
-        toUserId: settlement.toUserId,
-        amount: settlement.amount,
+        fromUserId: settlement.fromUserId || "",
+        toUserId: settlement.toUserId || "",
+        amount: Number(settlement.amount) || 0,
         method: settlement.method || "cash",
         notes: settlement.notes || "",
         updatedAt: updatedIso,
-        deletedAt: settlement.deletedAt ? (settlement.deletedAt instanceof Date ? settlement.deletedAt.toISOString() : new Date(settlement.deletedAt).toISOString()) : null
+        deletedAt: settlement.deletedAt ? safeIsoString(settlement.deletedAt, updatedIso) : null
     };
 }
 
@@ -258,20 +274,20 @@ export function docToSettlement(doc: SettlementDocType | DeepReadonlyObject<Sett
 }
 
 export function memberToDoc(member: Member, groupId: string): MemberDocType {
-    const joinedIso = member.joinedAt instanceof Date ? member.joinedAt.toISOString() : new Date(member.joinedAt).toISOString();
+    const joinedIso = safeIsoString(member.joinedAt);
     const updatedIso = member.updatedAt
-        ? (member.updatedAt instanceof Date ? member.updatedAt.toISOString() : new Date(member.updatedAt).toISOString())
+        ? safeIsoString(member.updatedAt, joinedIso)
         : joinedIso;
     return {
         id: `${groupId}_${member.userId}`,
         groupId,
         userId: member.userId,
         email: member.email || "",
-        name: member.name,
+        name: member.name || "",
         role: member.role,
         joinedAt: joinedIso,
         updatedAt: updatedIso,
-        deletedAt: member.deletedAt ? (member.deletedAt instanceof Date ? member.deletedAt.toISOString() : new Date(member.deletedAt).toISOString()) : null
+        deletedAt: member.deletedAt ? safeIsoString(member.deletedAt, updatedIso) : null
     };
 }
 

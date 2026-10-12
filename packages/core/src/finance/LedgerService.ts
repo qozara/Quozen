@@ -10,6 +10,7 @@ export class LedgerService {
     constructor(private repo: LedgerRepository, private user: User, private validationSvc?: ValidationService, private groupId?: string) { }
 
     private async ensureSchemaHealth(): Promise<void> {
+        if (typeof this.repo.hasLocalDb === "function" && this.repo.hasLocalDb()) return;
         if (!this.validationSvc || !this.groupId) return;
         
         // Skip background schema health checks during E2E tests to prevent flaky network mocks
@@ -55,7 +56,13 @@ export class LedgerService {
 
     async addExpense(payload: CreateExpenseDTO): Promise<Expense> {
         const members = await this.repo.getMembers();
-        const isMember = members.some(m => m.userId === this.user.id || m.email === this.user.email);
+        const userEmail = (this.user.email || "").trim().toLowerCase();
+        const isMember = members.some(
+            m =>
+                m.userId === this.user.id ||
+                (userEmail && (m.email || "").trim().toLowerCase() === userEmail) ||
+                (userEmail && (m.userId || "").trim().toLowerCase() === userEmail)
+        );
         if (!isMember) throw new Error("Forbidden: User is not a member of this group");
 
         let splits = payload.splits || [];
@@ -125,14 +132,16 @@ export class LedgerService {
     }
 
     async addSettlement(payload: CreateSettlementDTO): Promise<Settlement> {
+        const now = new Date();
         const settlement: Settlement = {
             id: (typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString()),
-            date: payload.date || new Date(),
+            date: payload.date || now,
             fromUserId: payload.fromUserId,
             toUserId: payload.toUserId,
             amount: payload.amount,
             method: payload.method || 'cash',
-            notes: payload.notes
+            notes: payload.notes,
+            updatedAt: now
         };
         await this.repo.addSettlement(settlement);
         return settlement;
@@ -150,7 +159,8 @@ export class LedgerService {
             toUserId: payload.toUserId ?? current.toUserId,
             amount: payload.amount ?? current.amount,
             method: payload.method ?? current.method,
-            notes: payload.notes ?? current.notes
+            notes: payload.notes ?? current.notes,
+            updatedAt: new Date()
         };
 
         await this.repo.updateSettlement(updated);

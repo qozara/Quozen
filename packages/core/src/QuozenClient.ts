@@ -44,8 +44,18 @@ export class QuozenClient {
             config.user,
             config.getToken,
             this.db,
-            config.blobDriver
+            config.blobDriver,
+            (groupId?: string) => this.triggerBackgroundSync(groupId)
         );
+    }
+
+    private triggerBackgroundSync(groupId?: string): void {
+        if (this.syncProvider && this.replication && this.syncProvider.isInitialized()) {
+            if (groupId && typeof (this.syncProvider as any).setActiveGroupId === "function") {
+                (this.syncProvider as any).setActiveGroupId(groupId);
+            }
+            void this.replication.sync(groupId).catch(() => {});
+        }
     }
 
     public get user(): User {
@@ -53,8 +63,20 @@ export class QuozenClient {
     }
 
     public ledger(groupId: string): LedgerService {
-        const repo = new LedgerRepository(this.storage, groupId, this.db);
-        const validationSvc = this.config.getToken ? new ValidationService(this.config.getToken) : undefined;
+        const repo = new LedgerRepository(
+            this.storage,
+            groupId,
+            this.db,
+            () => this.triggerBackgroundSync(groupId)
+        );
+        let validationSvc: ValidationService | undefined = undefined;
+        if (this.config.getToken && this.config.getToken()) {
+            try {
+                validationSvc = new ValidationService(this.config.getToken);
+            } catch {
+                validationSvc = undefined;
+            }
+        }
         return new LedgerService(repo, this.config.user, validationSvc, groupId);
     }
 

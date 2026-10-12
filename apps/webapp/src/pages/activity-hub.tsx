@@ -129,7 +129,6 @@ export default function ActivityHub() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
-            toast({ title: t("common.success") });
             setDeletingSettlement(null);
         },
         onError: (error) => {

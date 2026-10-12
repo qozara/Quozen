@@ -30,6 +30,20 @@ function getHeaderIndex(headerMap: HeaderMap, key: string, fallbackIndex?: numbe
     return fallbackIndex;
 }
 
+function safeDate(val: unknown, fallback: Date = new Date(0)): Date {
+    if (val instanceof Date && !isNaN(val.getTime())) return val;
+    if (typeof val === "string" || typeof val === "number") {
+        const d = new Date(val);
+        if (!isNaN(d.getTime())) return d;
+    }
+    return fallback;
+}
+
+function safeIso(val: unknown, fallbackIso?: string): string {
+    const d = safeDate(val, fallbackIso ? safeDate(fallbackIso) : new Date());
+    return d.toISOString();
+}
+
 export class SheetDataMapper {
     static buildHeaderMap(headers: any[]): HeaderMap {
         return headers.reduce((acc: HeaderMap, h: any, i: number) => {
@@ -46,7 +60,7 @@ export class SheetDataMapper {
         const dateIdx = getHeaderIndex(headerMap, 'date', 1)!;
         const descIdx = getHeaderIndex(headerMap, 'description', 2)!;
         const amountIdx = getHeaderIndex(headerMap, 'amount', 3)!;
-        const paidByIdx = getHeaderIndex(headerMap, 'paidBy', 4) ?? getHeaderIndex(headerMap, 'paidByUserId', 4)!;
+        const paidByIdx = getHeaderIndex(headerMap, 'paidBy') ?? getHeaderIndex(headerMap, 'paidByUserId', 4)!;
         const catIdx = getHeaderIndex(headerMap, 'category', 5)!;
         const splitsIdx = getHeaderIndex(headerMap, 'splits', 6)!;
         const metaIdx = getHeaderIndex(headerMap, 'meta');
@@ -84,21 +98,21 @@ export class SheetDataMapper {
         }
         if (isNaN(amount)) amount = 0;
 
-        const parsedDate = date ? new Date(date) : new Date(0);
-        const createdAt = meta.createdAt ? new Date(meta.createdAt) : parsedDate;
+        const parsedDate = safeDate(date, new Date(0));
+        const createdAt = meta.createdAt ? safeDate(meta.createdAt, parsedDate) : parsedDate;
         const updatedAt = updatedAtCol
-            ? new Date(updatedAtCol)
+            ? safeDate(updatedAtCol, parsedDate)
             : meta.lastModified
-                ? new Date(meta.lastModified)
+                ? safeDate(meta.lastModified, parsedDate)
                 : parsedDate;
 
         const expense: Expense = {
-            id: id || "",
+            id: id ? String(id) : "",
             date: parsedDate,
-            description: description || "",
+            description: description ? String(description) : "",
             amount,
-            paidByUserId: paidByUserId || "",
-            category: category || "",
+            paidByUserId: paidByUserId ? String(paidByUserId) : "",
+            category: category ? String(category) : "",
             splits,
             createdAt,
             updatedAt,
@@ -106,7 +120,7 @@ export class SheetDataMapper {
 
         const rawDeleted = deletedAtCol || meta.deletedAt;
         if (rawDeleted) {
-            expense.deletedAt = new Date(rawDeleted);
+            expense.deletedAt = safeDate(rawDeleted);
         }
 
         return { entity: expense, rowIndex };
@@ -124,16 +138,17 @@ export class SheetDataMapper {
             if (idx !== undefined) row[idx] = val;
         };
 
-        const dateIso = expense.date instanceof Date ? expense.date.toISOString() : new Date(expense.date).toISOString();
-        const createdIso = expense.createdAt instanceof Date ? expense.createdAt.toISOString() : new Date(expense.createdAt || dateIso).toISOString();
-        const updatedIso = expense.updatedAt instanceof Date ? expense.updatedAt.toISOString() : new Date(expense.updatedAt || dateIso).toISOString();
-        const deletedIso = expense.deletedAt ? (expense.deletedAt instanceof Date ? expense.deletedAt.toISOString() : new Date(expense.deletedAt).toISOString()) : undefined;
+        const dateIso = safeIso(expense.date);
+        const createdIso = expense.createdAt ? safeIso(expense.createdAt, dateIso) : dateIso;
+        const updatedIso = expense.updatedAt ? safeIso(expense.updatedAt, dateIso) : dateIso;
+        const deletedIso = expense.deletedAt ? safeIso(expense.deletedAt, updatedIso) : undefined;
 
         setCol('id', expense.id);
         setCol('date', dateIso);
         setCol('description', expense.description);
         setCol('amount', expense.amount);
         setCol('paidBy', expense.paidByUserId);
+        setCol('paidByUserId', expense.paidByUserId);
         setCol('category', expense.category);
         setCol('splits', JSON.stringify(expense.splits));
         setCol('meta', JSON.stringify({
@@ -166,22 +181,22 @@ export class SheetDataMapper {
         }
         if (isNaN(amount)) amount = 0;
 
-        const parsedDate = date ? new Date(date) : new Date(0);
-        const updatedAt = updatedAtCol ? new Date(updatedAtCol) : parsedDate;
+        const parsedDate = safeDate(date, new Date(0));
+        const updatedAt = updatedAtCol ? safeDate(updatedAtCol, parsedDate) : parsedDate;
 
         const settlement: Settlement = {
-            id: id || "",
+            id: id ? String(id) : "",
             date: parsedDate,
-            fromUserId: fromUserId || "",
-            toUserId: toUserId || "",
+            fromUserId: fromUserId ? String(fromUserId) : "",
+            toUserId: toUserId ? String(toUserId) : "",
             amount,
-            method: method || "cash",
-            notes: notes || "",
+            method: method ? String(method) : "cash",
+            notes: notes ? String(notes) : "",
             updatedAt
         };
 
         if (deletedAtCol) {
-            settlement.deletedAt = new Date(deletedAtCol);
+            settlement.deletedAt = safeDate(deletedAtCol);
         }
 
         return { entity: settlement, rowIndex };
@@ -199,9 +214,9 @@ export class SheetDataMapper {
             if (idx !== undefined) row[idx] = val;
         };
 
-        const dateIso = settlement.date instanceof Date ? settlement.date.toISOString() : new Date(settlement.date).toISOString();
+        const dateIso = safeIso(settlement.date);
         const updatedIso = settlement.updatedAt
-            ? (settlement.updatedAt instanceof Date ? settlement.updatedAt.toISOString() : new Date(settlement.updatedAt).toISOString())
+            ? safeIso(settlement.updatedAt, dateIso)
             : dateIso;
 
         setCol('id', settlement.id);
@@ -213,7 +228,7 @@ export class SheetDataMapper {
         setCol('notes', settlement.notes || "");
         setCol('updatedAt', updatedIso);
         if (settlement.deletedAt) {
-            setCol('deletedAt', settlement.deletedAt instanceof Date ? settlement.deletedAt.toISOString() : new Date(settlement.deletedAt).toISOString());
+            setCol('deletedAt', safeIso(settlement.deletedAt, updatedIso));
         }
 
         return row;
@@ -230,20 +245,20 @@ export class SheetDataMapper {
         const updatedAtCol = updatedAtIdx !== undefined ? row[updatedAtIdx] : undefined;
         const deletedAtCol = deletedAtIdx !== undefined ? row[deletedAtIdx] : undefined;
 
-        const parsedJoinedAt = joinedAt ? new Date(joinedAt) : new Date(0);
-        const updatedAt = updatedAtCol ? new Date(updatedAtCol) : parsedJoinedAt;
+        const parsedJoinedAt = safeDate(joinedAt, new Date(0));
+        const updatedAt = updatedAtCol ? safeDate(updatedAtCol, parsedJoinedAt) : parsedJoinedAt;
 
         const member: Member = {
-            userId: userId || "",
-            email: email || "",
-            name: name || "",
+            userId: userId ? String(userId) : "",
+            email: email ? String(email) : "",
+            name: name ? String(name) : "",
             role: (role === "owner" || role === "member") ? role : "member",
             joinedAt: parsedJoinedAt,
             updatedAt
         };
 
         if (deletedAtCol) {
-            member.deletedAt = new Date(deletedAtCol);
+            member.deletedAt = safeDate(deletedAtCol);
         }
 
         return { entity: member, rowIndex };
@@ -261,9 +276,9 @@ export class SheetDataMapper {
             if (idx !== undefined) row[idx] = val;
         };
 
-        const joinedIso = member.joinedAt instanceof Date ? member.joinedAt.toISOString() : new Date(member.joinedAt).toISOString();
+        const joinedIso = safeIso(member.joinedAt);
         const updatedIso = member.updatedAt
-            ? (member.updatedAt instanceof Date ? member.updatedAt.toISOString() : new Date(member.updatedAt).toISOString())
+            ? safeIso(member.updatedAt, joinedIso)
             : joinedIso;
 
         setCol('userId', member.userId);
@@ -273,7 +288,7 @@ export class SheetDataMapper {
         setCol('joinedAt', joinedIso);
         setCol('updatedAt', updatedIso);
         if (member.deletedAt) {
-            setCol('deletedAt', member.deletedAt instanceof Date ? member.deletedAt.toISOString() : new Date(member.deletedAt).toISOString());
+            setCol('deletedAt', safeIso(member.deletedAt, updatedIso));
         }
 
         return row;

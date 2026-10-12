@@ -306,5 +306,34 @@
         "dismiss": "Dismiss",
         "successDesc": "Group schema updated successfully.",
         "errorDesc": "Failed to fix schema."
+    },
+    "sync": {
+        "title": "Cloud Synchronization",
+        "providerName": "Google Drive & Sheets",
+        "forceSync": "Force Sync Now",
+        "syncingNow": "Syncing...",
+        "reconnect": "Reconnect Google Account",
+        "lastSynced": "Last synced {{time}}",
+        "neverSynced": "Not synced yet",
+        "justNow": "just now",
+        "cloudSyncFailedTitle": "Cloud Sync Issue",
+        "states": {
+            "synced": "All changes saved to Google Drive",
+            "syncing": "Synchronizing with Google Drive...",
+            "offline": "Working offline — changes saved locally",
+            "warning": "Action required to resume cloud sync",
+            "hidden": "Local storage active"
+        },
+        "diagnostics": {
+            "synced": "Synchronized",
+            "syncing": "Syncing changes...",
+            "offline": "Offline (queued locally)",
+            "auth_failed": "Session expired — please reconnect",
+            "throttled": "Rate limit reached — retrying soon",
+            "corrupted": "Spreadsheet structure needs repair",
+            "upgrade_required": "Spreadsheet format upgrade required",
+            "error": "Sync failed — will retry automatically",
+            "disconnected": "Not connected"
+        }
     }
 }

@@ -11,6 +11,13 @@ export type SyncStatus =
     | "upgrade_required"
     | "error";
 
+export type UXSyncState =
+    | "synced"
+    | "syncing"
+    | "warning"
+    | "offline"
+    | "hidden";
+
 export interface SyncDeltaPayload {
     collection: string;
     groupId?: string;

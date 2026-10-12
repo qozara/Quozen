@@ -69,39 +69,41 @@ const tabularSerializers: Record<string, CollectionTabularSerializer> = {
         }
     },
     settlements: {
-        defaultHeaders: ["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"],
+        defaultHeaders: ["id", "date", "fromUserId", "toUserId", "amount", "method", "notes", "updatedAt"],
         rowToDoc(row: TabularRow, groupId: string) {
             const headerMap = row.headers ? SheetDataMapper.buildHeaderMap(row.headers) : DEFAULT_SETTLEMENT_MAP;
             const mapped = SheetDataMapper.mapToSettlement(row.values, 2, headerMap);
             return settlementToDoc(mapped.entity, groupId);
         },
         docToRow(doc: Record<string, any>, headers?: string[]): TabularRow {
-            const headerMap = headers ? SheetDataMapper.buildHeaderMap(headers) : DEFAULT_SETTLEMENT_MAP;
+            const targetHeaders = headers || this.defaultHeaders;
+            const headerMap = SheetDataMapper.buildHeaderMap(targetHeaders);
             const settlement = docToSettlement(doc as SettlementDocType);
             return {
                 id: doc.id,
                 updatedAt: doc.updatedAt,
                 deletedAt: doc.deletedAt,
-                headers: headers || this.defaultHeaders,
+                headers: targetHeaders,
                 values: SheetDataMapper.mapFromSettlement(settlement, headerMap)
             };
         }
     },
     members: {
-        defaultHeaders: ["userId", "email", "name", "role", "joinedAt"],
+        defaultHeaders: ["userId", "email", "name", "role", "joinedAt", "updatedAt"],
         rowToDoc(row: TabularRow, groupId: string) {
             const headerMap = row.headers ? SheetDataMapper.buildHeaderMap(row.headers) : DEFAULT_MEMBER_MAP;
             const mapped = SheetDataMapper.mapToMember(row.values, 2, headerMap);
             return memberToDoc(mapped.entity, groupId);
         },
         docToRow(doc: Record<string, any>, headers?: string[]): TabularRow {
-            const headerMap = headers ? SheetDataMapper.buildHeaderMap(headers) : DEFAULT_MEMBER_MAP;
+            const targetHeaders = headers || this.defaultHeaders;
+            const headerMap = SheetDataMapper.buildHeaderMap(targetHeaders);
             const member = docToMember(doc as MemberDocType);
             return {
                 id: doc.id,
                 updatedAt: doc.updatedAt,
                 deletedAt: doc.deletedAt,
-                headers: headers || this.defaultHeaders,
+                headers: targetHeaders,
                 values: SheetDataMapper.mapFromMember(member, headerMap)
             };
         }
@@ -245,7 +247,9 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                     const serializer = tabularSerializers[collection];
                     if (serializer) {
                         const rows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
-                        const documents = rows.map(r => serializer.rowToDoc(r, targetGroupId));
+                        const documents = rows
+                            .map(r => serializer.rowToDoc(r, targetGroupId))
+                            .filter(d => Boolean(d.id) && (collection !== "members" || Boolean(d.userId)));
                         results.push({ collection, groupId: targetGroupId, documents });
                     }
                 }
@@ -301,8 +305,17 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                 }
 
                 const existingRows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
-                const existingHeaders = existingRows[0]?.headers || serializer.defaultHeaders;
-                const existingDocs = existingRows.map(r => serializer.rowToDoc(r, targetGroupId));
+                const rawHeaders = existingRows[0]?.headers || serializer.defaultHeaders;
+                const headersToWrite = [...rawHeaders];
+                if (
+                    (payload.collection === "settlements" || payload.collection === "members") &&
+                    !headersToWrite.some(h => h.trim().toLowerCase() === "updatedat")
+                ) {
+                    headersToWrite.push("updatedAt");
+                }
+                const existingDocs = existingRows
+                    .map(r => serializer.rowToDoc(r, targetGroupId))
+                    .filter(d => Boolean(d.id) && (payload.collection !== "members" || Boolean(d.userId)));
 
                 const docMap = new Map(existingDocs.map(d => [d.id, d]));
                 for (const doc of payload.documents) {
@@ -316,8 +329,8 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                 }
 
                 const activeDocs = Array.from(docMap.values()).filter(d => !d.deletedAt);
-                const rows = activeDocs.map(d => serializer.docToRow(d, existingHeaders));
-                await this.tabularDriver.writeTable(targetGroupId, route.tabName, existingHeaders, rows);
+                const rows = activeDocs.map(d => serializer.docToRow(d, headersToWrite));
+                await this.tabularDriver.writeTable(targetGroupId, route.tabName, headersToWrite, rows);
             }
 
             this.lastSyncedTime = new Date().toISOString();

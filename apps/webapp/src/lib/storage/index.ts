@@ -65,6 +65,9 @@ function ensureDrivers(adapter: IStorageLayer, useMock: boolean) {
             tabularDriver
         });
     }
+    if (cachedSyncProvider && !cachedSyncProvider.isInitialized() && (useMock || Boolean(getAuthToken()))) {
+        void cachedSyncProvider.initialize();
+    }
 }
 
 export const initQuozenStorage = async (): Promise<QuozenDatabase> => {

@@ -2,6 +2,7 @@ import { createContext, useContext, useState, ReactNode } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { setAuthToken, getAuthToken as getTokenFromStore } from '../lib/tokenStore';
+import { quozen } from '../lib/storage';
 import { User } from '@quozen/core';
 
 const USER_STORAGE_KEY = "quozen_user_profile";
@@ -67,6 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: userInfo.data.name,
           picture: userInfo.data.picture
         });
+        try {
+          if (quozen.syncProvider) {
+            await quozen.syncProvider.initialize();
+          }
+        } catch {
+          // Ignore sync provider init errors during login
+        }
       } catch (error) {
         console.error("Failed to fetch user info", error);
         logout();
@@ -97,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     </AuthContext.Provider>
   );
 }
+
+export const useOptionalAuth = () => useContext(AuthContext);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);

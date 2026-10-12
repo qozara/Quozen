@@ -288,4 +288,233 @@ describe("Phase 3 & 4: Local-First Repositories, ReplicationCoordinator & LWW Co
         await coordinatorB.sync(groupId);
         expect(await repoB.getExpenses()).toHaveLength(0);
     });
+
+    it("consolidates multi-device offline/online edits across Expenses, Settlements, and Members when switching devices", async () => {
+        const groupId = await sharedCloudStorage.createSpreadsheet(
+            "Quozen - Multi-Device Consolidation",
+            ["Expenses", "Settlements", "Members"],
+            { quozen_type: "group", version: "1.0" }
+        );
+        await sharedCloudStorage.batchUpdateValues(groupId, [
+            { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
+            { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes", "updatedAt"]] },
+            { range: "Members!A1", values: [["userId", "email", "name", "role", "joinedAt", "updatedAt"]] }
+        ]);
+
+        const providerA = new CompositeCloudSyncProvider({
+            id: "gdrive-a",
+            name: "Google Drive A",
+            blobDriver: new GoogleDriveBlobDriver({ getAccessToken: () => null, storageLayer: sharedCloudStorage }),
+            tabularDriver: new GoogleSheetsTabularDriver({ getAccessToken: () => null, storageLayer: sharedCloudStorage }),
+            activeGroupId: groupId
+        });
+        const providerB = new CompositeCloudSyncProvider({
+            id: "gdrive-b",
+            name: "Google Drive B",
+            blobDriver: new GoogleDriveBlobDriver({ getAccessToken: () => null, storageLayer: sharedCloudStorage }),
+            tabularDriver: new GoogleSheetsTabularDriver({ getAccessToken: () => null, storageLayer: sharedCloudStorage }),
+            activeGroupId: groupId
+        });
+        await providerA.initialize();
+        await providerB.initialize();
+
+        const repoA = new LedgerRepository(undefined, groupId, dbA!);
+        const repoB = new LedgerRepository(undefined, groupId, dbB!);
+
+        // Step 1: Device A seeds initial members and a shared expense online, then syncs
+        await repoA.addMember({
+            userId: "u1",
+            email: "alice@example.com",
+            name: "Alice",
+            role: "owner",
+            joinedAt: new Date("2026-06-01T09:00:00Z")
+        });
+        await repoA.addMember({
+            userId: "u2",
+            email: "bob@example.com",
+            name: "Bob",
+            role: "member",
+            joinedAt: new Date("2026-06-01T09:00:00Z")
+        });
+        await repoA.addExpense({
+            id: "exp-hotel",
+            description: "Hotel Booking (Initial)",
+            amount: 200,
+            category: "Lodging",
+            date: new Date("2026-06-01T10:00:00Z"),
+            paidByUserId: "u1",
+            splits: [
+                { userId: "u1", amount: 100 },
+                { userId: "u2", amount: 100 }
+            ],
+            createdAt: new Date("2026-06-01T10:00:00Z"),
+            updatedAt: new Date("2026-06-01T10:00:00Z")
+        });
+
+        const coordinatorA1 = new ReplicationCoordinator(dbA!, providerA);
+        await coordinatorA1.sync(groupId);
+
+        // Step 2: User on Device A loses internet connection, adds an offline expense & settlement, and closes browser
+        await repoA.addExpense({
+            id: "exp-device-a-offline",
+            description: "Airport Coffee (Offline on A)",
+            amount: 12,
+            category: "Food",
+            date: new Date("2026-06-01T11:00:00Z"),
+            paidByUserId: "u1",
+            splits: [
+                { userId: "u1", amount: 6 },
+                { userId: "u2", amount: 6 }
+            ],
+            createdAt: new Date("2026-06-01T11:00:00Z"),
+            updatedAt: new Date("2026-06-01T11:00:00Z")
+        });
+        await repoA.addSettlement({
+            id: "settle-a-offline",
+            date: new Date("2026-06-01T11:05:00Z"),
+            fromUserId: "u2",
+            toUserId: "u1",
+            amount: 50,
+            method: "cash",
+            notes: "Partial cash on A",
+            createdAt: new Date("2026-06-01T11:05:00Z"),
+            updatedAt: new Date("2026-06-01T11:05:00Z")
+        });
+
+        // Step 3: User switches to Device B (online), pulls latest cloud state, edits shared expense, adds a new expense
+        const coordinatorB = new ReplicationCoordinator(dbB!, providerB);
+        await coordinatorB.sync(groupId);
+
+        // Device B updates "exp-hotel" with a newer timestamp (12:00Z > 10:00Z)
+        await dbB!.expenses.upsert({
+            id: "exp-hotel",
+            groupId,
+            description: "Hotel Booking (Upgraded Suite on B)",
+            amount: 260,
+            category: "Lodging",
+            date: "2026-06-01T10:00:00.000Z",
+            paidByUserId: "u1",
+            splits: [
+                { userId: "u1", amount: 130 },
+                { userId: "u2", amount: 130 }
+            ],
+            createdAt: "2026-06-01T10:00:00.000Z",
+            updatedAt: "2026-06-01T12:00:00.000Z",
+            deletedAt: null
+        });
+
+        // Device B also adds a new expense online
+        await repoB.addExpense({
+            id: "exp-device-b-online",
+            description: "Museum Tickets (On B)",
+            amount: 40,
+            category: "Entertainment",
+            date: new Date("2026-06-01T12:30:00Z"),
+            paidByUserId: "u2",
+            splits: [
+                { userId: "u1", amount: 20 },
+                { userId: "u2", amount: 20 }
+            ],
+            createdAt: new Date("2026-06-01T12:30:00Z"),
+            updatedAt: new Date("2026-06-01T12:30:00Z")
+        });
+        await coordinatorB.sync(groupId);
+
+        // Step 4: Device A comes back online (new ReplicationCoordinator instance simulating browser reopen)
+        const coordinatorA2 = new ReplicationCoordinator(dbA!, providerA);
+        await coordinatorA2.sync(groupId);
+
+        // Device B syncs again to receive Device A's offline entries
+        await coordinatorB.sync(groupId);
+
+        const finalExpensesA = await repoA.getExpenses();
+        const finalExpensesB = await repoB.getExpenses();
+        const finalSettlementsA = await repoA.getSettlements();
+        const finalSettlementsB = await repoB.getSettlements();
+
+        expect(finalExpensesA).toHaveLength(3);
+        expect(finalExpensesB).toHaveLength(3);
+
+        const hotelA = finalExpensesA.find(e => e.id === "exp-hotel");
+        const hotelB = finalExpensesB.find(e => e.id === "exp-hotel");
+        expect(hotelA?.amount).toBe(260);
+        expect(hotelA?.description).toBe("Hotel Booking (Upgraded Suite on B)");
+        expect(hotelB?.amount).toBe(260);
+
+        expect(finalExpensesA.some(e => e.id === "exp-device-a-offline")).toBe(true);
+        expect(finalExpensesB.some(e => e.id === "exp-device-a-offline")).toBe(true);
+        expect(finalExpensesA.some(e => e.id === "exp-device-b-online")).toBe(true);
+        expect(finalExpensesB.some(e => e.id === "exp-device-b-online")).toBe(true);
+
+        expect(finalSettlementsA).toHaveLength(1);
+        expect(finalSettlementsB).toHaveLength(1);
+        expect(finalSettlementsB[0].id).toBe("settle-a-offline");
+    });
+
+    it("does not resurrect remotely deleted records after Device A reloads with a new ReplicationCoordinator instance", async () => {
+        const groupId = await sharedCloudStorage.createSpreadsheet(
+            "Quozen - No Resurrection After Reload",
+            ["Expenses", "Settlements", "Members"],
+            { quozen_type: "group", version: "1.0" }
+        );
+        await sharedCloudStorage.batchUpdateValues(groupId, [
+            { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
+            { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes", "updatedAt"]] },
+            { range: "Members!A1", values: [["userId", "email", "name", "role", "joinedAt", "updatedAt"]] }
+        ]);
+
+        const providerA = new CompositeCloudSyncProvider({
+            id: "gdrive-a",
+            name: "Google Drive A",
+            blobDriver: new GoogleDriveBlobDriver({ getAccessToken: () => null, storageLayer: sharedCloudStorage }),
+            tabularDriver: new GoogleSheetsTabularDriver({ getAccessToken: () => null, storageLayer: sharedCloudStorage }),
+            activeGroupId: groupId
+        });
+        const providerB = new CompositeCloudSyncProvider({
+            id: "gdrive-b",
+            name: "Google Drive B",
+            blobDriver: new GoogleDriveBlobDriver({ getAccessToken: () => null, storageLayer: sharedCloudStorage }),
+            tabularDriver: new GoogleSheetsTabularDriver({ getAccessToken: () => null, storageLayer: sharedCloudStorage }),
+            activeGroupId: groupId
+        });
+        await providerA.initialize();
+        await providerB.initialize();
+
+        const repoA = new LedgerRepository(undefined, groupId, dbA!);
+        const repoB = new LedgerRepository(undefined, groupId, dbB!);
+
+        // 1. Device A adds an expense and syncs
+        await repoA.addExpense({
+            id: "exp-reload-delete",
+            description: "To Be Deleted On B",
+            amount: 35,
+            category: "Food",
+            date: new Date("2026-07-01T10:00:00Z"),
+            paidByUserId: "u1",
+            splits: [{ userId: "u1", amount: 35 }],
+            createdAt: new Date("2026-07-01T10:00:00Z"),
+            updatedAt: new Date("2026-07-01T10:00:00Z")
+        });
+        const coordinatorA1 = new ReplicationCoordinator(dbA!, providerA);
+        await coordinatorA1.sync(groupId);
+
+        // 2. Device B pulls the expense, deletes it, and syncs deletion to Google Sheet
+        const coordinatorB = new ReplicationCoordinator(dbB!, providerB);
+        await coordinatorB.sync(groupId);
+        expect(await repoB.getExpenses()).toHaveLength(1);
+
+        await repoB.deleteExpense("exp-reload-delete");
+        await coordinatorB.sync(groupId);
+        expect(await repoB.getExpenses()).toHaveLength(0);
+
+        // 3. Device A reloads browser -> brand new ReplicationCoordinator instance over dbA
+        const coordinatorA2 = new ReplicationCoordinator(dbA!, providerA);
+        await coordinatorA2.sync(groupId);
+
+        // Expense must be soft-deleted on Device A and NOT re-pushed to remote storage
+        expect(await repoA.getExpenses()).toHaveLength(0);
+        const remoteRows = await sharedCloudStorage.batchGetValues(groupId, ["Expenses!A2:Z"]);
+        expect(remoteRows[0]?.values || []).toHaveLength(0);
+    });
 });
+
