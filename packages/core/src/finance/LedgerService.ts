@@ -120,7 +120,7 @@ export class LedgerService {
             updatedAt: new Date()
         };
 
-        await this.repo.updateExpense(updated);
+        await this.repo.updateExpense(updated, expectedLastModified);
     }
 
     async deleteExpense(expenseId: string): Promise<void> {

@@ -1,5 +1,6 @@
 import { IStorageLayer } from "./IStorageLayer";
 import { Expense, Settlement, Member } from "../domain/models";
+import { ConflictError } from "../errors";
 import { SheetDataMapper, HeaderMap, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP } from "./SheetDataMapper";
 import type { QuozenDatabase } from "../db";
 import {
@@ -275,11 +276,60 @@ export class LedgerRepository {
         await this.touchGroup();
     }
 
-    async updateExpense(expense: Expense, _expectedLastModified?: Date): Promise<void> {
+    async updateExpense(expense: Expense, expectedLastModified?: Date): Promise<void> {
         if (this.db) {
             await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.expenses.findOne(expense.id).exec();
             if (!existing || existing.deletedAt) throw new Error("Expense not found");
+
+            if (
+                expectedLastModified &&
+                new Date(existing.updatedAt).getTime() > expectedLastModified.getTime()
+            ) {
+                throw new ConflictError("Data has been modified by another user.");
+            }
+
+            if (
+                this.storage &&
+                (typeof globalThis === "undefined" || (globalThis as any).navigator?.onLine !== false)
+            ) {
+                try {
+                    const res = await this.storage.batchGetValues(this.groupId, ["Expenses!A1:Z"]);
+                    const rows = res[0]?.values || [];
+                    if (rows.length > 1) {
+                        const headers = rows[0].map((h: any) => String(h).trim());
+                        const headerMap = SheetDataMapper.buildHeaderMap(headers);
+                        for (let i = 1; i < rows.length; i++) {
+                            const mapped = SheetDataMapper.mapToExpense(rows[i], i + 1, headerMap);
+                            if (mapped.entity.id === expense.id) {
+                                if (
+                                    expectedLastModified &&
+                                    mapped.entity.updatedAt.getTime() > expectedLastModified.getTime()
+                                ) {
+                                    const remoteDoc = expenseToDoc(mapped.entity, this.groupId);
+                                    await this.db.expenses.upsert(remoteDoc);
+                                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, [remoteDoc]);
+                                    throw new ConflictError("Data has been modified by another user.");
+                                }
+                                break;
+                            }
+                        }
+                    }
+                } catch (err: any) {
+                    if (
+                        err instanceof ConflictError ||
+                        err?.name === "ConflictError" ||
+                        String(err?.message || "").includes("409") ||
+                        String(err?.message || "").toLowerCase().includes("conflict")
+                    ) {
+                        throw err instanceof ConflictError
+                            ? err
+                            : new ConflictError(err?.message || "Data has been modified by another user.");
+                    }
+                    // Ignore transient network errors when offline so local RxDB update still succeeds
+                }
+            }
+
             await this.db.expenses.upsert(expenseToDoc(expense, this.groupId));
             this.notifyMutation();
             return;

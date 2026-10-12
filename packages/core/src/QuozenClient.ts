@@ -29,7 +29,7 @@ export class QuozenClient {
     public replication?: ReplicationCoordinator;
 
     constructor(private config: QuozenConfig) {
-        this.storage = config.enableCache
+        this.storage = config.enableCache && !config.db
             ? new StorageCacheProxy(config.storage, config.cacheTtlMs)
             : config.storage;
 
