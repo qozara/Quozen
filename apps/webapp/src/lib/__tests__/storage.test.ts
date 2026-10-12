@@ -97,7 +97,8 @@ describe("WebApp Storage & RxDB Initialization", () => {
                 });
             }
         });
-        expect(defaultMutationOptions.networkMode).toBe("always");
+        expect(queryClient.getDefaultOptions().mutations?.networkMode).toBe("always");
+        expect(queryClient.getDefaultOptions().queries?.networkMode).toBe("always");
 
         const mutation = queryClient.getMutationCache().build(queryClient, defaultMutationOptions);
         await mutation.execute(45);
