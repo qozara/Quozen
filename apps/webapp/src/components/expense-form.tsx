@@ -71,7 +71,7 @@ export default function ExpenseForm({ initialData, users, currentUserId, onSubmi
           (authUser.name && u.name !== authUser.name))
     );
     if (isSharedOrOfflineAccount && u.name) {
-      return `${t("expenseForm.you")} (${u.name})`;
+      return t("expenseForm.youNamed", { name: u.name });
     }
     return t("expenseForm.you");
   };

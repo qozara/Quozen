@@ -151,6 +151,7 @@
         "invalidAmount": "Monto inválido",
         "invalidAmountDesc": "Por favor ingresa un valor numérico válido para el monto.",
         "you": "Tú",
+        "youNamed": "Tú ({{name}})",
         "addError": "No se pudo añadir el gasto. Inténtalo de nuevo.",
         "updateError": "No se pudo actualizar el gasto. Revisa tu conexión.",
         "notFoundTitle": "Gasto No Encontrado",
