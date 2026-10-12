@@ -1,5 +1,8 @@
 # Architecture Decision Record: Smart Sync / Auto Polling
 
+## Status
+Amended by [ADR 20261011: Local-First Persistence Layer with RxDB](20261011-local-first-rxdb-persistence.md) (Polling replaced by RxDB reactive replication).
+
 ## Context
 Collaborative use of Quozen led to stale data if users didn't manually hit the "Refresh" button. A mechanism was needed to automate synchronization without running into Drive API rate limits or destroying local input data when a user was typing.
 

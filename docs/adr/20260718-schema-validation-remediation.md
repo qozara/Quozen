@@ -1,5 +1,8 @@
 # ADR: Strict Schema Validation and UI Remediation
 
+## Status
+Amended by [ADR 20261011: Local-First Persistence Layer with RxDB](20261011-local-first-rxdb-persistence.md) (Local reads are non-blocking; ValidationService.repairFile is invoked declaratively during GoogleDriveSyncBackend push).
+
 ## Context
 While the core library (`@quozen/core`) and CLI were equipped for schema evolution (PR #54), the browser application (`apps/webapp`) and stateless REST API (`apps/api`) remained decoupled from these capabilities. This led to several issues:
 1. **Uncaught Schema Errors**: Outdated schemas caused silent failures or generic error boundaries instead of actionable remediation steps.
