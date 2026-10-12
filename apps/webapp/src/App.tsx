@@ -26,7 +26,6 @@ import { useAutoSync } from "@/hooks/use-auto-sync";
 import AddExpenseDrawer from "@/components/add-expense-drawer";
 import SchemaRemediationModal from "@/components/schema-remediation-modal";
 import { AiFeatureProvider } from "@/features/agent/AiFeatureProvider";
-import { SyncTrigger } from "@/components/sync/SyncTrigger";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -67,7 +66,6 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         </PullToRefresh>
       </main>
       <SiteFooter />
-      <SyncTrigger />
       <BottomNavigation />
       <AddExpenseDrawer />
       <SchemaRemediationModal />

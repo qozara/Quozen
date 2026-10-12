@@ -11,6 +11,7 @@ import { useAutoSync } from "@/hooks/use-auto-sync";
 import { Button } from "./ui/button";
 import { useAppContext } from "@/context/app-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { SyncTrigger } from "./sync/SyncTrigger";
 
 export default function Header() {
   const { activeGroupId } = useAppContext();
@@ -103,6 +104,7 @@ export default function Header() {
 
           <div className="flex items-center space-x-2">
             <div id="header-actions-slot" className="flex items-center space-x-2" />
+            <SyncTrigger />
             {!isSubPage && !isEnabled && (
               <button
                 className="w-8 h-8 rounded-full bg-muted flex items-center justify-center hover:bg-accent transition-colors disabled:opacity-50"
