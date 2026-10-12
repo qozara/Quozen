@@ -17,10 +17,13 @@ Quozen is built as a highly modular monorepo, decoupling core business logic fro
 
 ## 🚀 Features
 
-### 👥 Collaborative Groups
+### 👥 Collaborative Groups & Flexible Accounts
 - **Magic Link Sharing**: Generate a unique link to let anyone join the group instantly with automatic permissions handling.
 - **Share via Email**: Invite friends directly via their Google account.
-- **Offline Members**: Add members by username (e.g., "Bob") to track expenses for friends who don't use the app.
+- **Personal, Shared & Offline Accounts**: Decouples logged-in Google **Users** from group ledger **Accounts**:
+  - **Personal Account**: Default 1:1 account for an individual user.
+  - **Shared Account**: Multiple logged-in users (e.g., a family, a couple, or a subgroup of friends) can link to and co-manage a single consolidated account that counts as one share in group splits.
+  - **Offline Account**: Add accounts without an email (e.g., `"Bob"`) and let any logged-in user switch to or record expenses on their behalf.
 
 ### 🔄 Smart Data Sync & Resilience
 - **0ms Latency & Full Offline Reliability**: Read, write, and balance expenses instantly without waiting for network roundtrips.

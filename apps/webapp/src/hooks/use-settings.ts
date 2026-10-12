@@ -62,6 +62,24 @@ export function useSettings() {
     }
   });
 
+  const groupAccountMutation = useMutation({
+    mutationFn: ({ groupId, accountId }: { groupId: string; accountId: string }) => {
+      return quozen.groups.updateGroupAccount(groupId, accountId);
+    },
+    onSuccess: (_, { groupId, accountId }) => {
+      queryClient.setQueryData(queryKey, (old: UserSettings | undefined) => {
+        if (!old) return old;
+        return {
+          ...old,
+          groupCache: (old.groupCache || []).map(g =>
+            g.id === groupId ? { ...g, accountId, lastAccessed: new Date().toISOString() } : g
+          )
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: queryKey });
+    }
+  });
+
   return {
     settings: query.data,
     isLoading: query.isLoading,
@@ -70,5 +88,7 @@ export function useSettings() {
     updateSettingsAsync: mutation.mutateAsync,
     isUpdating: mutation.isPending,
     updateActiveGroup: activeGroupMutation.mutate,
+    updateGroupAccount: groupAccountMutation.mutate,
+    updateGroupAccountAsync: groupAccountMutation.mutateAsync,
   };
 }

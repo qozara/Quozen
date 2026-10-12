@@ -83,7 +83,7 @@ export function AuthenticatedApp() {
   const location = useLocation();
   const { t } = useTranslation();
 
-  const { settings, updateActiveGroup, isLoading: settingsLoading, error: settingsError } = useSettings();
+  const { settings, updateActiveGroup, updateGroupAccount, isLoading: settingsLoading, error: settingsError } = useSettings();
   const { groups } = useGroups();
 
   // FIX: Only consider app loading if we DON'T have settings yet. 
@@ -119,6 +119,15 @@ export function AuthenticatedApp() {
     setActiveGroupIdState(groupId);
     if (isAuthenticated) {
       updateActiveGroup(groupId);
+    }
+  };
+
+  const activeCachedGroup = settings?.groupCache?.find(g => g.id === activeGroupId);
+  const currentUserId = activeCachedGroup?.accountId || user?.id || "";
+
+  const handleSetActiveAccountId = (accountId: string) => {
+    if (activeGroupId && isAuthenticated && updateGroupAccount) {
+      updateGroupAccount({ groupId: activeGroupId, accountId });
     }
   };
 
@@ -175,7 +184,8 @@ export function AuthenticatedApp() {
     <AppContext.Provider value={{
       activeGroupId,
       setActiveGroupId: handleSetActiveGroupId,
-      currentUserId: user?.id || "",
+      currentUserId,
+      setActiveAccountId: handleSetActiveAccountId,
       isAddExpenseOpen,
       setIsAddExpenseOpen,
       schemaErrorStatus,

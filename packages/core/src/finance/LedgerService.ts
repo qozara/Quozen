@@ -7,7 +7,26 @@ import { distributeAmount } from "./index";
 import { ValidationService, ValidationStatus } from "../schema/ValidationService";
 
 export class LedgerService {
-    constructor(private repo: LedgerRepository, private user: User, private validationSvc?: ValidationService, private groupId?: string) { }
+    constructor(
+        private repo: LedgerRepository,
+        private user: User,
+        private validationSvc?: ValidationService,
+        private groupId?: string,
+        private activeAccountId?: string,
+        private getActiveAccountId?: () => Promise<string | undefined>
+    ) { }
+
+    private async resolveEffectiveAccountId(): Promise<string | undefined> {
+        if (this.activeAccountId) return this.activeAccountId;
+        if (this.getActiveAccountId) {
+            try {
+                return await this.getActiveAccountId();
+            } catch {
+                return undefined;
+            }
+        }
+        return undefined;
+    }
 
     private async ensureSchemaHealth(): Promise<void> {
         if (typeof this.repo.hasLocalDb === "function" && this.repo.hasLocalDb()) return;
@@ -57,8 +76,10 @@ export class LedgerService {
     async addExpense(payload: CreateExpenseDTO): Promise<Expense> {
         const members = await this.repo.getMembers();
         const userEmail = (this.user.email || "").trim().toLowerCase();
+        const effectiveAccountId = await this.resolveEffectiveAccountId();
         const isMember = members.some(
             m =>
+                (effectiveAccountId && m.userId === effectiveAccountId) ||
                 m.userId === this.user.id ||
                 (userEmail && (m.email || "").trim().toLowerCase() === userEmail) ||
                 (userEmail && (m.userId || "").trim().toLowerCase() === userEmail)
@@ -174,6 +195,42 @@ export class LedgerService {
         return this.repo.getMembers();
     }
 
+    async renameMember(userId: string, newName: string): Promise<void> {
+        const trimmed = newName.trim();
+        if (!trimmed) throw new Error("Account name cannot be empty");
+        const members = await this.repo.getMembers();
+        const member = members.find(m => m.userId === userId);
+        if (!member) throw new Error("Member not found");
+        await this.repo.updateMember({
+            ...member,
+            name: trimmed,
+            updatedAt: new Date()
+        });
+    }
+
+    async removeUnusedMember(userId: string): Promise<boolean> {
+        const [members, expenses, settlements] = await Promise.all([
+            this.repo.getMembers(),
+            this.repo.getExpenses(),
+            this.repo.getSettlements()
+        ]);
+        const member = members.find(m => m.userId === userId);
+        if (!member || member.role === "owner") {
+            return false;
+        }
+        const hasExpenses = expenses.some(
+            e => e.paidByUserId === userId || e.splits?.some(s => s.userId === userId && s.amount > 0)
+        );
+        const hasSettlements = settlements.some(
+            s => s.fromUserId === userId || s.toUserId === userId
+        );
+        if (hasExpenses || hasSettlements) {
+            return false;
+        }
+        await this.repo.deleteMember(userId);
+        return true;
+    }
+
     async getLedger(): Promise<Ledger> {
         await this.ensureSchemaHealth();
 
@@ -181,22 +238,31 @@ export class LedgerService {
         const settlements = await this.repo.getSettlements();
         const members = await this.repo.getMembers();
 
-        const currentUserMember = members.find(m => m.email === this.user.email || m.userId === this.user.id);
-        if (currentUserMember && currentUserMember.userId !== this.user.id) {
-            await this.repo.migrateUser(currentUserMember.userId, this.user.id, this.user.name);
-            
-            // Apply migration to the loaded in-memory data
-            expenses.forEach(e => {
-                if (e.paidByUserId === currentUserMember.userId) e.paidByUserId = this.user.id;
-                e.splits?.forEach(s => {
-                    if (s.userId === currentUserMember.userId) s.userId = this.user.id;
+        const effectiveAccountId = await this.resolveEffectiveAccountId();
+        const hasLinkedAccount = Boolean(
+            effectiveAccountId &&
+            effectiveAccountId !== this.user.id &&
+            members.some(m => m.userId === effectiveAccountId)
+        );
+
+        if (!hasLinkedAccount) {
+            const currentUserMember = members.find(m => m.email === this.user.email || m.userId === this.user.id);
+            if (currentUserMember && currentUserMember.userId !== this.user.id) {
+                await this.repo.migrateUser(currentUserMember.userId, this.user.id, this.user.name);
+                
+                // Apply migration to the loaded in-memory data
+                expenses.forEach(e => {
+                    if (e.paidByUserId === currentUserMember.userId) e.paidByUserId = this.user.id;
+                    e.splits?.forEach(s => {
+                        if (s.userId === currentUserMember.userId) s.userId = this.user.id;
+                    });
                 });
-            });
-            settlements.forEach(s => {
-                if (s.fromUserId === currentUserMember.userId) s.fromUserId = this.user.id;
-                if (s.toUserId === currentUserMember.userId) s.toUserId = this.user.id;
-            });
-            currentUserMember.userId = this.user.id;
+                settlements.forEach(s => {
+                    if (s.fromUserId === currentUserMember.userId) s.fromUserId = this.user.id;
+                    if (s.toUserId === currentUserMember.userId) s.toUserId = this.user.id;
+                });
+                currentUserMember.userId = this.user.id;
+            }
         }
 
         return new Ledger({ expenses, settlements, members });

@@ -57,6 +57,17 @@ vi.mock("@/hooks/use-google-picker", () => ({
     }
 }));
 
+const mockValidateQuozenSpreadsheet = vi.fn();
+vi.mock("@/lib/storage", () => ({
+    quozen: {
+        groups: {
+            validateQuozenSpreadsheet: (...args: any[]) => mockValidateQuozenSpreadsheet(...args),
+            joinGroup: vi.fn(),
+            importGroup: vi.fn(),
+        }
+    }
+}));
+
 describe("JoinPage", () => {
     const mockSetActiveGroup = vi.fn();
     const mockUser = { id: "u1", email: "test@example.com" };
@@ -211,4 +222,41 @@ describe("JoinPage", () => {
             expect(mockOpenPicker).toHaveBeenCalled();
         });
     });
+
+    it("allows selecting an existing account when 'Use an existing account in this group' is clicked", async () => {
+        (useAuth as any).mockReturnValue({ isAuthenticated: true, user: mockUser, isLoading: false });
+        mockValidateQuozenSpreadsheet.mockResolvedValue({
+            valid: true,
+            members: [
+                { userId: "acc-shared", name: "Garcia Family", email: "alice@example.com", role: "owner", joinedAt: new Date() },
+                { userId: "acc-2", name: "Charlie", email: "charlie@example.com", role: "member", joinedAt: new Date() }
+            ]
+        });
+
+        render(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        const useExistingBtn = screen.getByTestId("button-use-existing-account");
+        fireEvent.click(useExistingBtn);
+
+        await waitFor(() => {
+            expect(mockValidateQuozenSpreadsheet).toHaveBeenCalledWith("123");
+            expect(screen.getByTestId("join-existing-account-acc-shared")).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByTestId("join-existing-account-acc-shared"));
+
+        await waitFor(() => {
+            expect(mockMutate).toHaveBeenCalledWith({
+                accountId: "acc-shared"
+            });
+        });
+    });
 });
+
+

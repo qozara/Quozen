@@ -45,7 +45,18 @@
         "transfer": "Transferencia",
         "paid": "Pagaste",
         "notInvolved": "No participas",
-        "groupNotFound": "Grupo no encontrado."
+        "groupNotFound": "Grupo no encontrado.",
+        "activeAccount": "Cuenta Activa",
+        "renameAccount": "Renombrar cuenta...",
+        "renameAccountTitle": "Renombrar Cuenta",
+        "renameAccountDesc": "Actualiza cómo aparece esta cuenta para todos en el grupo (ej. para una cuenta compartida de familia o subgrupo).",
+        "accountNameLabel": "Nombre de la Cuenta",
+        "accountRenamed": "¡Cuenta renombrada!",
+        "accountSwitched": "Cuenta activa cambiada a \"{{name}}\".",
+        "shareAccountConfirmTitle": "¿Compartir la cuenta \"{{targetName}}\"?",
+        "shareAccountConfirmDesc": "Tu cuenta \"{{unusedName}}\" aún no tiene gastos. ¿Estás compartiendo la cuenta \"{{targetName}}\" o solo viéndola temporalmente?",
+        "shareAndRemoveUnused": "Compartir \"{{targetName}}\" (Eliminar \"{{unusedName}}\")",
+        "justSwitchView": "Solo Cambiar Vista"
     },
     "activity": {
         "title": "Actividad del Grupo",
@@ -99,9 +110,9 @@
         "switchModalTitle": "Cambiar Grupo",
         "switchModalDesc": "Selecciona un grupo para ver.",
         "nameLabel": "Nombre del Grupo",
-        "membersLabel": "Miembros (Opcional)",
-        "membersHint": "Ingresa correos o usuarios, separados por comas (ej. ana@gmail.com, beto123)",
-        "membersHint2": "Los correos recibirán una invitación de Google Drive. Los usuarios son solo para seguimiento.",
+        "membersLabel": "Miembros / Cuentas (Opcional)",
+        "membersHint": "Ingresa correos o nombres de cuenta, separados por comas (ej. ana@gmail.com, Familia García)",
+        "membersHint2": "Los correos recibirán una invitación de Google Drive. Los nombres sin correo crean cuentas sin conexión o compartidas.",
         "loadError": "Error al cargar detalles del grupo.",
         "createError": "Error al crear el grupo.",
         "deleteError": "Error al eliminar el grupo.",
@@ -270,7 +281,10 @@
         "idMismatch": "El archivo seleccionado no coincide. Por favor selecciona el archivo correcto.",
         "welcomeTitle": "¡Te han invitado!",
         "welcomeDesc": "{{inviter}} te invitó a unirte al grupo \"{{groupName}}\".",
-        "joinButton": "Unirse al Grupo"
+        "joinButton": "Unirse al Grupo",
+        "useExistingAccount": "Usar una cuenta existente en este grupo",
+        "selectExistingAccountDesc": "Selecciona una cuenta para compartirla con otros o reclamar una creada para ti.",
+        "loadingAccounts": "Cargando cuentas del grupo..."
     },
     "agent": {
         "title": "Asistente de AI",

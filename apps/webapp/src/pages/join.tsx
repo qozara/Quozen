@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
-import { UserSettings } from "@quozen/core";
+import { Member, UserSettings } from "@quozen/core";
 import { useAuth } from "@/context/auth-provider";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertCircle, CheckCircle2, ExternalLink, Search } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2, ExternalLink, Search, ChevronDown, User } from "lucide-react";
 import { useAppContext } from "@/context/app-context";
 import { useTranslation } from "react-i18next";
 import { useGooglePicker } from "@/hooks/use-google-picker";
@@ -25,17 +25,22 @@ export default function JoinPage() {
     const { t } = useTranslation();
     const [error, setError] = useState<string | null>(null);
     const [hasOpenedDrive, setHasOpenedDrive] = useState(false);
+    const [showExistingAccounts, setShowExistingAccounts] = useState(false);
+    const [existingAccounts, setExistingAccounts] = useState<Member[]>([]);
+    const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
 
     const groupName = searchParams.get("name") || "Group";
     const inviterName = searchParams.get("inviter") || "Someone";
 
     const joinMutation = useMutation({
-        mutationFn: async () => {
+        mutationFn: async (options?: { accountId?: string }) => {
             if (!id) throw new Error("Invalid Link");
             if (!user) throw new Error("Authentication required");
-            return await quozen.groups.joinGroup(id);
+            return options?.accountId
+                ? await quozen.groups.joinGroup(id, { accountId: options.accountId })
+                : await quozen.groups.joinGroup(id);
         },
-        onSuccess: (group) => {
+        onSuccess: (group, variables) => {
             // Optimistic update: Update local cache immediately so App.tsx sees the group as valid
             // before the network request for settings completes. Prevents race-condition redirects.
             if (user?.email) {
@@ -44,11 +49,16 @@ export default function JoinPage() {
 
                     const exists = old.groupCache.some(g => g.id === group.id);
                     const newCache = exists
-                        ? old.groupCache
+                        ? old.groupCache.map(g =>
+                            g.id === group.id && variables?.accountId
+                                ? { ...g, accountId: variables.accountId }
+                                : g
+                        )
                         : [{
                             id: group.id,
                             name: group.name,
                             role: (group.isOwner ? "owner" : "member") as "owner" | "member",
+                            ...(variables?.accountId ? { accountId: variables.accountId } : {}),
                             lastAccessed: new Date().toISOString()
                         }, ...old.groupCache];
 
@@ -85,6 +95,39 @@ export default function JoinPage() {
         }
     });
 
+    const handleToggleExistingAccounts = async () => {
+        if (showExistingAccounts) {
+            setShowExistingAccounts(false);
+            return;
+        }
+        setShowExistingAccounts(true);
+        if (existingAccounts.length > 0 || !id) return;
+
+        setIsLoadingAccounts(true);
+        try {
+            const res = await quozen.groups.validateQuozenSpreadsheet(id);
+            if (!res.valid) {
+                const errMsg = res.error || "";
+                if (errMsg.includes("403") || errMsg.includes("permission") || errMsg.includes("Forbidden") || errMsg.includes("404")) {
+                    setError(t("join.accessDenied"));
+                } else {
+                    setError(errMsg || t("join.genericError"));
+                }
+                return;
+            }
+            setExistingAccounts(res.members || []);
+        } catch (err: any) {
+            const errMsg = err?.message || "";
+            if (errMsg.includes("403") || errMsg.includes("permission") || errMsg.includes("Forbidden") || errMsg.includes("404")) {
+                setError(t("join.accessDenied"));
+            } else {
+                setError(errMsg || t("join.genericError"));
+            }
+        } finally {
+            setIsLoadingAccounts(false);
+        }
+    };
+
     useEffect(() => {
         if (authLoading) return;
 
@@ -105,7 +148,7 @@ export default function JoinPage() {
             if (doc.id === id) {
                 setError(null);
                 // Retry mutation now that we presumably have permission
-                joinMutation.mutate();
+                joinMutation.mutate(undefined);
             } else {
                 toast({ title: t("common.error"), description: t("join.idMismatch"), variant: "destructive" });
             }
@@ -132,10 +175,58 @@ export default function JoinPage() {
                         <Button
                             size="lg"
                             className="w-full"
-                            onClick={() => joinMutation.mutate()}
+                            onClick={() => joinMutation.mutate(undefined)}
                         >
                             {t("join.joinButton")}
                         </Button>
+
+                        <div className="w-full pt-2 border-t border-border/60">
+                            <button
+                                type="button"
+                                onClick={handleToggleExistingAccounts}
+                                data-testid="button-use-existing-account"
+                                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                                <span>{t("join.useExistingAccount")}</span>
+                                <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showExistingAccounts && "rotate-180")} />
+                            </button>
+
+                            {showExistingAccounts && (
+                                <div className="mt-3 text-left space-y-2" data-testid="existing-accounts-list">
+                                    <p className="text-xs text-muted-foreground text-center">
+                                        {t("join.selectExistingAccountDesc")}
+                                    </p>
+                                    {isLoadingAccounts ? (
+                                        <div className="flex items-center justify-center py-3 text-xs text-muted-foreground gap-2">
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            <span>{t("join.loadingAccounts")}</span>
+                                        </div>
+                                    ) : (
+                                        <div className="divide-y divide-border rounded-md border border-border overflow-hidden">
+                                            {existingAccounts.map((m) => (
+                                                <button
+                                                    key={m.userId}
+                                                    type="button"
+                                                    onClick={() => joinMutation.mutate({ accountId: m.userId })}
+                                                    data-testid={`join-existing-account-${m.userId}`}
+                                                    className="w-full p-2.5 flex items-center justify-between text-sm hover:bg-muted/60 transition-colors text-left"
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <User className="w-4 h-4 text-primary shrink-0" />
+                                                        <span className="font-medium">{m.name}</span>
+                                                    </div>
+                                                    {m.role === "owner" && (
+                                                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                                                            {t("roles.owner")}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </CardContent>
                 </Card>
             </div>

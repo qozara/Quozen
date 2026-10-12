@@ -11,6 +11,8 @@ import { isNetworkError } from "../sync/CompositeCloudSyncProvider";
 import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
 
 export class GroupRepository {
+    private accountIdCache = new Map<string, string>();
+
     constructor(
         private storage: IStorageLayer,
         private user: User,
@@ -20,11 +22,45 @@ export class GroupRepository {
         private onMutation?: (groupId?: string) => void
     ) { }
 
+    private syncAccountIdCache(settings: UserSettings): UserSettings {
+        for (const cached of settings.groupCache || []) {
+            if (cached.accountId) {
+                this.accountIdCache.set(cached.id, cached.accountId);
+            } else if (this.accountIdCache.has(cached.id)) {
+                cached.accountId = this.accountIdCache.get(cached.id);
+            }
+        }
+        return settings;
+    }
+
+    async getGroupAccountId(groupId: string): Promise<string | undefined> {
+        if (this.accountIdCache.has(groupId)) {
+            return this.accountIdCache.get(groupId);
+        }
+        try {
+            const settings = await this.getSettings();
+            return settings.groupCache.find(g => g.id === groupId)?.accountId;
+        } catch {
+            return undefined;
+        }
+    }
+
+    async updateGroupAccount(groupId: string, accountId: string): Promise<void> {
+        this.accountIdCache.set(groupId, accountId);
+        const settings = await this.getSettings();
+        const cached = settings.groupCache.find(g => g.id === groupId);
+        if (cached) {
+            cached.accountId = accountId;
+            cached.lastAccessed = new Date().toISOString();
+            await this.saveSettings(settings);
+        }
+    }
+
     async getSettings(): Promise<UserSettings> {
         if (this.db) {
             const localDoc = await this.db.user_settings.findOne("global_settings").exec();
             if (localDoc && !localDoc.deletedAt) {
-                return docToUserSettings(localDoc.toJSON());
+                return this.syncAccountIdCache(docToUserSettings(localDoc.toJSON()));
             }
             if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
                 return {
@@ -43,7 +79,7 @@ export class GroupRepository {
                 if (blobData) {
                     const raw = Array.isArray(blobData) ? blobData[0] : blobData;
                     if (raw && raw.version) {
-                        const settings = raw.id ? docToUserSettings(raw) : (raw as UserSettings);
+                        const settings = this.syncAccountIdCache(raw.id ? docToUserSettings(raw) : (raw as UserSettings));
                         if (this.db) {
                             const doc = userSettingsToDoc(settings);
                             await this.db.user_settings.upsert(doc);
@@ -71,7 +107,7 @@ export class GroupRepository {
             try {
                 const data = await this.storage.getFile(fileToUse.id, { alt: 'media' });
                 if (data && data.version) {
-                    const settings = data as UserSettings;
+                    const settings = this.syncAccountIdCache(data as UserSettings);
                     if (this.db) {
                         const doc = userSettingsToDoc(settings);
                         await this.db.user_settings.upsert(doc);
@@ -87,6 +123,7 @@ export class GroupRepository {
     }
 
     async saveSettings(settings: UserSettings): Promise<void> {
+        this.syncAccountIdCache(settings);
         settings.lastUpdated = new Date().toISOString();
         if (this.db) {
             await this.db.user_settings.upsert(userSettingsToDoc(settings));
@@ -150,6 +187,7 @@ export class GroupRepository {
             id: file.id,
             name: file.name.startsWith(QUOZEN_PREFIX) ? file.name.slice(QUOZEN_PREFIX.length) : file.name,
             role: (file.owners?.some((o: any) => o.emailAddress === this.user.email) || file.capabilities?.canDelete) ? "owner" as const : "member" as const,
+            ...(this.accountIdCache.get(file.id) ? { accountId: this.accountIdCache.get(file.id) } : {}),
             lastAccessed: file.createdTime
         })).sort((a, b) => new Date(b.lastAccessed || 0).getTime() - new Date(a.lastAccessed || 0).getTime());
 
@@ -324,7 +362,7 @@ export class GroupRepository {
         }
     }
 
-    async importGroup(spreadsheetId: string): Promise<Group> {
+    async importGroup(spreadsheetId: string, options?: { accountId?: string }): Promise<Group> {
         const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
         if (meta.properties?.quozen_type !== 'group') {
             const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
@@ -348,6 +386,13 @@ export class GroupRepository {
             }
         }
 
+        const settings = await this.getSettings();
+        const existingCachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
+        const linkedAccountId = options?.accountId || existingCachedGroup?.accountId || this.accountIdCache.get(spreadsheetId);
+        if (linkedAccountId) {
+            this.accountIdCache.set(spreadsheetId, linkedAccountId);
+        }
+
         let role: "owner" | "member" = "member";
         if (validation.members) {
             if (this.db && validation.members.length > 0) {
@@ -360,24 +405,35 @@ export class GroupRepository {
                 }
             }
 
-            const member = validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
+            const member = linkedAccountId
+                ? validation.members.find(m => m.userId === linkedAccountId)
+                : validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
             if (member?.role === "owner") role = "owner";
             
-            if (member && member.userId !== this.user.id) {
+            if (!linkedAccountId && member && member.userId !== this.user.id) {
                 const ledgerRepo = new LedgerRepository(this.storage, spreadsheetId, this.db, () => this.onMutation?.(spreadsheetId));
                 await ledgerRepo.migrateUser(member.userId, this.user.id, this.user.name);
             }
         }
 
-        const settings = await this.getSettings();
         const groupName = validation.name || "Imported Group";
         const cleanName = groupName.startsWith(QUOZEN_PREFIX) ? groupName.slice(QUOZEN_PREFIX.length) : groupName;
 
         const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
         if (!cachedGroup) {
-            settings.groupCache.unshift({ id: spreadsheetId, name: cleanName, role, lastAccessed: new Date().toISOString(), validationStatus: validation.status });
+            settings.groupCache.unshift({
+                id: spreadsheetId,
+                name: cleanName,
+                role,
+                ...(linkedAccountId ? { accountId: linkedAccountId } : {}),
+                lastAccessed: new Date().toISOString(),
+                validationStatus: validation.status
+            });
         } else {
             cachedGroup.role = role;
+            if (linkedAccountId) {
+                cachedGroup.accountId = linkedAccountId;
+            }
             cachedGroup.lastAccessed = new Date().toISOString();
             cachedGroup.validationStatus = validation.status;
         }
@@ -398,7 +454,7 @@ export class GroupRepository {
         };
     }
 
-    async joinGroup(spreadsheetId: string): Promise<Group> {
+    async joinGroup(spreadsheetId: string, options?: { accountId?: string }): Promise<Group> {
         const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
         if (meta.properties?.quozen_type !== 'group') {
             throw new Error("This file is not a valid Quozen Group.");
@@ -406,6 +462,15 @@ export class GroupRepository {
 
         const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
         if (!validation.valid) throw new Error("Could not read group data");
+
+        if (options?.accountId) {
+            const targetAccount = validation.members?.find(m => m.userId === options.accountId);
+            if (!targetAccount) {
+                throw new Error("Selected account not found in this group.");
+            }
+            this.accountIdCache.set(spreadsheetId, options.accountId);
+            return await this.importGroup(spreadsheetId, { accountId: options.accountId });
+        }
 
         const existingMember = validation.members?.find(m => m.userId === this.user.id || m.email === this.user.email);
         if (!existingMember) {
@@ -431,6 +496,7 @@ export class GroupRepository {
 
     async deleteGroup(groupId: string): Promise<void> {
         await this.storage.deleteFile(groupId);
+        this.accountIdCache.delete(groupId);
         const settings = await this.getSettings();
         settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
         if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
@@ -504,16 +570,33 @@ export class GroupRepository {
     }
 
     async leaveGroup(groupId: string): Promise<void> {
+        const settings = await this.getSettings();
+        const cachedGroup = settings.groupCache.find(g => g.id === groupId);
+        const linkedAccountId = cachedGroup?.accountId || this.accountIdCache.get(groupId);
+
         const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db, () => this.onMutation?.(groupId));
         const currentMembers = await ledgerRepo.getMembers();
         const member = currentMembers.find(m => m.userId === this.user.id || (this.user.email && m.email === this.user.email));
+
+        // If the user is sharing another account and has no personal member row in the sheet,
+        // simply remove the group from their personal groupCache without deleting the shared member row.
+        if (!member && linkedAccountId) {
+            this.accountIdCache.delete(groupId);
+            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+            if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
+            await this.saveSettings(settings);
+            return;
+        }
 
         if (!member) throw new Error("Member not found");
         if (member.role === 'owner') throw new Error("Owners cannot leave.");
         if (await this.checkMemberHasExpenses(groupId, member.userId)) throw new Error("Cannot leave with expenses.");
 
         await ledgerRepo.deleteMember(member.userId);
-        await this.deleteGroup(groupId); // In the member context, removing from cache operates identically
+        this.accountIdCache.delete(groupId);
+        settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+        if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
+        await this.saveSettings(settings);
     }
 
     async repairGroup(groupId: string): Promise<void> {
