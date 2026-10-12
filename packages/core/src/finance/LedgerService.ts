@@ -78,7 +78,7 @@ export class LedgerService {
         }
 
         const expense: Expense = {
-            id: (typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString()),
+            id: crypto.randomUUID(),
             description: payload.description,
             amount: payload.amount,
             category: payload.category,
@@ -134,7 +134,7 @@ export class LedgerService {
     async addSettlement(payload: CreateSettlementDTO): Promise<Settlement> {
         const now = new Date();
         const settlement: Settlement = {
-            id: (typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString()),
+            id: crypto.randomUUID(),
             date: payload.date || now,
             fromUserId: payload.fromUserId,
             toUserId: payload.toUserId,

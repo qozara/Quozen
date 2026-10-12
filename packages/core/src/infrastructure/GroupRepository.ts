@@ -203,7 +203,7 @@ export class GroupRepository {
 
         for (const member of members) {
             let memberName = member.username || member.email || "Unknown";
-            let memberId = member.email || member.username || `user-${(typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString())}`;
+            let memberId = member.email || member.username || `user-${crypto.randomUUID()}`;
             if (member.email) {
                 const perm = await this.storage.createPermission(fileId, "writer", "user", member.email);
                 if (perm.displayName) memberName = perm.displayName;
@@ -471,7 +471,7 @@ export class GroupRepository {
                 processedIds.add(existing.userId);
             } else {
                 let memberName = desired.username || desired.email || "Unknown";
-                let memberId = desired.username || desired.email || `user-${(typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString())}`;
+                let memberId = desired.username || desired.email || `user-${crypto.randomUUID()}`;
                 if (desired.email && !isOffline) {
                     try {
                         const perm = await this.storage.createPermission(groupId, "writer", "user", desired.email);

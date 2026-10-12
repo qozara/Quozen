@@ -35,7 +35,7 @@ export class InMemoryAdapter implements IStorageLayer {
     // --- File Operations ---
 
     async createFile(name: string, mimeTypeOrSheetNames: string | string[], properties?: Record<string, string>, content?: string): Promise<string> {
-        const id = "mock-sheet-" + (typeof crypto !== 'undefined' ? crypto.randomUUID() : Math.random().toString(36).substring(7));
+        const id = "mock-sheet-" + crypto.randomUUID();
         const sheetNames = Array.isArray(mimeTypeOrSheetNames) ? mimeTypeOrSheetNames : [];
         let parsedContent = content;
         if (typeof content === 'string') {
@@ -153,7 +153,7 @@ export class InMemoryAdapter implements IStorageLayer {
     }
 
     async createPermission(_fileId: string, role: string, type: string, emailAddress?: string): Promise<any> {
-        return { id: "perm-" + Math.random(), role, type, emailAddress, displayName: emailAddress ? emailAddress.split('@')[0] : "User" };
+        return { id: "perm-" + crypto.randomUUID(), role, type, emailAddress, displayName: emailAddress ? emailAddress.split('@')[0] : "User" };
     }
 
     async listPermissions(_fileId: string): Promise<any[]> {
