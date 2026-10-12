@@ -77,12 +77,19 @@ export function AutoSyncProvider({
         if (!activeGroupId || !isEnabled) return;
 
         try {
+            if (quozen.replication) {
+                await quozen.replication.sync(activeGroupId);
+            }
+
             // Fetch metadata only
             const remoteTimeStr = await quozen.getLastModified(activeGroupId);
 
             if (!lastKnownRemoteTimeRef.current) {
                 // First check, initialize
                 lastKnownRemoteTimeRef.current = remoteTimeStr;
+                if (quozen.replication) {
+                    await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+                }
             } else if (new Date(remoteTimeStr).getTime() > new Date(lastKnownRemoteTimeRef.current).getTime()) {
                 // Remote is newer -> Invalidate
                 await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });

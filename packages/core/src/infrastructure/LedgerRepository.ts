@@ -1,6 +1,16 @@
 import { IStorageLayer } from "./IStorageLayer";
 import { Expense, Settlement, Member } from "../domain/models";
 import { SheetDataMapper, HeaderMap, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP } from "./SheetDataMapper";
+import type { QuozenDatabase } from "../db";
+import {
+    expenseToDoc,
+    docToExpense,
+    settlementToDoc,
+    docToSettlement,
+    memberToDoc,
+    docToMember
+} from "../db/schemas";
+import { map, type Observable, of } from "rxjs";
 
 export class LedgerRepository {
     private expenseRowMap = new Map<string, number>();
@@ -11,19 +21,144 @@ export class LedgerRepository {
     private settlementHeaderMap: HeaderMap = DEFAULT_SETTLEMENT_MAP;
     private memberHeaderMap: HeaderMap = DEFAULT_MEMBER_MAP;
 
-    constructor(private storage: IStorageLayer, private groupId: string) { }
+    private static hydratedGroups = new WeakMap<object, Set<string>>();
+
+    constructor(
+        private storage?: IStorageLayer,
+        private groupId: string = "",
+        private db?: QuozenDatabase
+    ) {}
+
+    private isGroupHydrated(): boolean {
+        if (!this.db) return false;
+        const set = LedgerRepository.hydratedGroups.get(this.db);
+        return Boolean(set?.has(this.groupId));
+    }
+
+    private markGroupHydrated(): void {
+        if (!this.db) return;
+        let set = LedgerRepository.hydratedGroups.get(this.db);
+        if (!set) {
+            set = new Set<string>();
+            LedgerRepository.hydratedGroups.set(this.db, set);
+        }
+        set.add(this.groupId);
+    }
+
+    private async hydrateFromStorageIfNeeded(): Promise<void> {
+        if (!this.db || !this.storage || !this.groupId || this.isGroupHydrated()) return;
+        this.markGroupHydrated();
+
+        try {
+            const [existingMembers, existingExpenses, existingSettlements] = await Promise.all([
+                this.db.members.find({ selector: { groupId: this.groupId } }).exec(),
+                this.db.expenses.find({ selector: { groupId: this.groupId } }).exec(),
+                this.db.settlements.find({ selector: { groupId: this.groupId } }).exec()
+            ]);
+
+            if (existingMembers.length === 0 && existingExpenses.length === 0 && existingSettlements.length === 0) {
+                const res = await this.storage.batchGetValues(this.groupId, [
+                    "Members!A1:Z",
+                    "Expenses!A1:Z",
+                    "Settlements!A1:Z"
+                ]);
+
+                const memberRows = res[0]?.values || [];
+                if (memberRows.length > 1) {
+                    const mHeaders = SheetDataMapper.buildHeaderMap(memberRows[0]);
+                    const mDocs = memberRows.slice(1).map((r: any[], i: number) =>
+                        memberToDoc(SheetDataMapper.mapToMember(r, i + 2, mHeaders).entity, this.groupId)
+                    );
+                    if (mDocs.length > 0) await this.db.members.bulkUpsert(mDocs);
+                }
+
+                const expenseRows = res[1]?.values || [];
+                if (expenseRows.length > 1) {
+                    const eHeaders = SheetDataMapper.buildHeaderMap(expenseRows[0]);
+                    const eDocs = expenseRows.slice(1).map((r: any[], i: number) =>
+                        expenseToDoc(SheetDataMapper.mapToExpense(r, i + 2, eHeaders).entity, this.groupId)
+                    );
+                    if (eDocs.length > 0) await this.db.expenses.bulkUpsert(eDocs);
+                }
+
+                const settlementRows = res[2]?.values || [];
+                if (settlementRows.length > 1) {
+                    const sHeaders = SheetDataMapper.buildHeaderMap(settlementRows[0]);
+                    const sDocs = settlementRows.slice(1).map((r: any[], i: number) =>
+                        settlementToDoc(SheetDataMapper.mapToSettlement(r, i + 2, sHeaders).entity, this.groupId)
+                    );
+                    if (sDocs.length > 0) await this.db.settlements.bulkUpsert(sDocs);
+                }
+            }
+        } catch {
+            // Ignore hydration error if offline or group not yet created in remote storage
+        }
+    }
 
     private async touchGroup() {
-        await this.storage.updateFile(this.groupId, { properties: { _lastSyncTrigger: new Date().toISOString() } });
+        if (!this.storage) return;
+        await this.storage.updateFile(this.groupId, { properties: { _lastSyncTrigger: new Date().toISOString() } }).catch(() => {});
+    }
+
+    public observeExpenses(): Observable<Expense[]> {
+        if (!this.db) return of([]);
+        return this.db.expenses
+            .find({ selector: { groupId: this.groupId } })
+            .$.pipe(
+                map(docs =>
+                    docs
+                        .map(d => d.toJSON())
+                        .filter(d => !d.deletedAt)
+                        .map(d => docToExpense(d))
+                )
+            );
+    }
+
+    public observeSettlements(): Observable<Settlement[]> {
+        if (!this.db) return of([]);
+        return this.db.settlements
+            .find({ selector: { groupId: this.groupId } })
+            .$.pipe(
+                map(docs =>
+                    docs
+                        .map(d => d.toJSON())
+                        .filter(d => !d.deletedAt)
+                        .map(d => docToSettlement(d))
+                )
+            );
+    }
+
+    public observeMembers(): Observable<Member[]> {
+        if (!this.db) return of([]);
+        return this.db.members
+            .find({ selector: { groupId: this.groupId } })
+            .$.pipe(
+                map(docs =>
+                    docs
+                        .map(d => d.toJSON())
+                        .filter(d => !d.deletedAt)
+                        .map(d => docToMember(d))
+                )
+            );
     }
 
     async getMembers(): Promise<Member[]> {
+        if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
+            const docs = await this.db.members.find({ selector: { groupId: this.groupId } }).exec();
+            return docs
+                .map(d => d.toJSON())
+                .filter(d => !d.deletedAt)
+                .map(d => docToMember(d));
+        }
+
+        if (!this.storage) return [];
         const res = await this.storage.batchGetValues(this.groupId, ["Members!A1:Z"]);
         const rows = res[0]?.values || [];
         if (rows.length === 0) return [];
 
         const headers = rows[0].map((h: any) => String(h).trim());
-        this.memberHeaderMap = headers.reduce((acc: HeaderMap, h: string, i: number) => { acc[h] = i; return acc; }, {} as HeaderMap);
+        this.memberHeaderMap = SheetDataMapper.buildHeaderMap(headers);
 
         return rows.slice(1).map((r: any[], i: number) => {
             const mapped = SheetDataMapper.mapToMember(r, i + 2, this.memberHeaderMap);
@@ -33,12 +168,22 @@ export class LedgerRepository {
     }
 
     async getExpenses(): Promise<Expense[]> {
+        if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
+            const docs = await this.db.expenses.find({ selector: { groupId: this.groupId } }).exec();
+            return docs
+                .map(d => d.toJSON())
+                .filter(d => !d.deletedAt)
+                .map(d => docToExpense(d));
+        }
+
+        if (!this.storage) return [];
         const res = await this.storage.batchGetValues(this.groupId, ["Expenses!A1:Z"]);
         const rows = res[0]?.values || [];
         if (rows.length === 0) return [];
 
         const headers = rows[0].map((h: any) => String(h).trim());
-        this.expenseHeaderMap = headers.reduce((acc: HeaderMap, h: string, i: number) => { acc[h] = i; return acc; }, {} as HeaderMap);
+        this.expenseHeaderMap = SheetDataMapper.buildHeaderMap(headers);
 
         return rows.slice(1).map((r: any[], i: number) => {
             const mapped = SheetDataMapper.mapToExpense(r, i + 2, this.expenseHeaderMap);
@@ -48,12 +193,22 @@ export class LedgerRepository {
     }
 
     async getSettlements(): Promise<Settlement[]> {
+        if (this.db) {
+            await this.hydrateFromStorageIfNeeded();
+            const docs = await this.db.settlements.find({ selector: { groupId: this.groupId } }).exec();
+            return docs
+                .map(d => d.toJSON())
+                .filter(d => !d.deletedAt)
+                .map(d => docToSettlement(d));
+        }
+
+        if (!this.storage) return [];
         const res = await this.storage.batchGetValues(this.groupId, ["Settlements!A1:Z"]);
         const rows = res[0]?.values || [];
         if (rows.length === 0) return [];
 
         const headers = rows[0].map((h: any) => String(h).trim());
-        this.settlementHeaderMap = headers.reduce((acc: HeaderMap, h: string, i: number) => { acc[h] = i; return acc; }, {} as HeaderMap);
+        this.settlementHeaderMap = SheetDataMapper.buildHeaderMap(headers);
 
         return rows.slice(1).map((r: any[], i: number) => {
             const mapped = SheetDataMapper.mapToSettlement(r, i + 2, this.settlementHeaderMap);
@@ -63,7 +218,12 @@ export class LedgerRepository {
     }
 
     async addExpense(expense: Expense): Promise<void> {
-        // Ensure header map is populated
+        if (this.db) {
+            await this.db.expenses.upsert(expenseToDoc(expense, this.groupId));
+            return;
+        }
+
+        if (!this.storage) return;
         if (Object.keys(this.expenseHeaderMap).length === 0 || this.expenseHeaderMap === DEFAULT_EXPENSE_MAP) await this.getExpenses();
         const row = SheetDataMapper.mapFromExpense(expense, this.expenseHeaderMap);
         await this.storage.appendValues(this.groupId, "Expenses!A1", [row]);
@@ -71,6 +231,14 @@ export class LedgerRepository {
     }
 
     async updateExpense(expense: Expense, _expectedLastModified?: Date): Promise<void> {
+        if (this.db) {
+            const existing = await this.db.expenses.findOne(expense.id).exec();
+            if (!existing || existing.deletedAt) throw new Error("Expense not found");
+            await this.db.expenses.upsert(expenseToDoc(expense, this.groupId));
+            return;
+        }
+
+        if (!this.storage) return;
         if (!this.expenseRowMap.has(expense.id)) {
             await this.getExpenses();
         }
@@ -83,6 +251,15 @@ export class LedgerRepository {
     }
 
     async deleteExpense(expenseId: string): Promise<void> {
+        if (this.db) {
+            const existing = await this.db.expenses.findOne(expenseId).exec();
+            if (!existing || existing.deletedAt) throw new Error("Expense not found");
+            const nowIso = new Date().toISOString();
+            await existing.patch({ deletedAt: nowIso, updatedAt: nowIso });
+            return;
+        }
+
+        if (!this.storage) return;
         if (!this.expenseRowMap.has(expenseId)) {
             await this.getExpenses();
         }
@@ -100,7 +277,12 @@ export class LedgerRepository {
     }
 
     async addSettlement(settlement: Settlement): Promise<void> {
-        // Ensure header map is populated
+        if (this.db) {
+            await this.db.settlements.upsert(settlementToDoc(settlement, this.groupId));
+            return;
+        }
+
+        if (!this.storage) return;
         if (Object.keys(this.settlementHeaderMap).length === 0 || this.settlementHeaderMap === DEFAULT_SETTLEMENT_MAP) await this.getSettlements();
         const row = SheetDataMapper.mapFromSettlement(settlement, this.settlementHeaderMap);
         await this.storage.appendValues(this.groupId, "Settlements!A1", [row]);
@@ -108,6 +290,14 @@ export class LedgerRepository {
     }
 
     async updateSettlement(settlement: Settlement): Promise<void> {
+        if (this.db) {
+            const existing = await this.db.settlements.findOne(settlement.id).exec();
+            if (!existing || existing.deletedAt) throw new Error("Settlement not found");
+            await this.db.settlements.upsert(settlementToDoc({ ...settlement, updatedAt: new Date() }, this.groupId));
+            return;
+        }
+
+        if (!this.storage) return;
         if (!this.settlementRowMap.has(settlement.id)) {
             await this.getSettlements();
         }
@@ -120,6 +310,15 @@ export class LedgerRepository {
     }
 
     async deleteSettlement(settlementId: string): Promise<void> {
+        if (this.db) {
+            const existing = await this.db.settlements.findOne(settlementId).exec();
+            if (!existing || existing.deletedAt) throw new Error("Settlement not found");
+            const nowIso = new Date().toISOString();
+            await existing.patch({ deletedAt: nowIso, updatedAt: nowIso });
+            return;
+        }
+
+        if (!this.storage) return;
         if (!this.settlementRowMap.has(settlementId)) {
             await this.getSettlements();
         }
@@ -137,7 +336,12 @@ export class LedgerRepository {
     }
 
     async addMember(member: Member): Promise<void> {
-        // Ensure header map is populated
+        if (this.db) {
+            await this.db.members.upsert(memberToDoc(member, this.groupId));
+            return;
+        }
+
+        if (!this.storage) return;
         if (Object.keys(this.memberHeaderMap).length === 0 || this.memberHeaderMap === DEFAULT_MEMBER_MAP) await this.getMembers();
         const row = SheetDataMapper.mapFromMember(member, this.memberHeaderMap);
         await this.storage.appendValues(this.groupId, "Members!A1", [row]);
@@ -145,6 +349,15 @@ export class LedgerRepository {
     }
 
     async updateMember(member: Member): Promise<void> {
+        if (this.db) {
+            const docId = `${this.groupId}_${member.userId}`;
+            const existing = await this.db.members.findOne(docId).exec();
+            if (!existing || existing.deletedAt) throw new Error("Member not found");
+            await this.db.members.upsert(memberToDoc({ ...member, updatedAt: new Date() }, this.groupId));
+            return;
+        }
+
+        if (!this.storage) return;
         if (!this.memberRowMap.has(member.userId)) {
             await this.getMembers();
         }
@@ -157,6 +370,16 @@ export class LedgerRepository {
     }
 
     async deleteMember(userId: string): Promise<void> {
+        if (this.db) {
+            const docId = `${this.groupId}_${userId}`;
+            const existing = await this.db.members.findOne(docId).exec();
+            if (!existing || existing.deletedAt) throw new Error("Member not found");
+            const nowIso = new Date().toISOString();
+            await existing.patch({ deletedAt: nowIso, updatedAt: nowIso });
+            return;
+        }
+
+        if (!this.storage) return;
         if (!this.memberRowMap.has(userId)) {
             await this.getMembers();
         }
@@ -174,6 +397,59 @@ export class LedgerRepository {
     }
 
     async migrateUser(oldUserId: string, newUserId: string, newName?: string): Promise<void> {
+        if (this.db) {
+            const members = await this.getMembers();
+            const member = members.find(m => m.userId === oldUserId);
+            if (member) {
+                await this.deleteMember(oldUserId);
+                await this.addMember({
+                    ...member,
+                    userId: newUserId,
+                    name: newName || member.name,
+                    updatedAt: new Date()
+                });
+            }
+
+            const expenses = await this.getExpenses();
+            for (const expense of expenses) {
+                let changed = false;
+                if (expense.paidByUserId === oldUserId) {
+                    expense.paidByUserId = newUserId;
+                    changed = true;
+                }
+                if (expense.splits) {
+                    for (const split of expense.splits) {
+                        if (split.userId === oldUserId) {
+                            split.userId = newUserId;
+                            changed = true;
+                        }
+                    }
+                }
+                if (changed) {
+                    expense.updatedAt = new Date();
+                    await this.updateExpense(expense);
+                }
+            }
+
+            const settlements = await this.getSettlements();
+            for (const settlement of settlements) {
+                let changed = false;
+                if (settlement.fromUserId === oldUserId) {
+                    settlement.fromUserId = newUserId;
+                    changed = true;
+                }
+                if (settlement.toUserId === oldUserId) {
+                    settlement.toUserId = newUserId;
+                    changed = true;
+                }
+                if (changed) {
+                    settlement.updatedAt = new Date();
+                    await this.updateSettlement(settlement);
+                }
+            }
+            return;
+        }
+
         // 1. Members
         const members = await this.getMembers();
         const member = members.find(m => m.userId === oldUserId);
@@ -182,7 +458,7 @@ export class LedgerRepository {
             if (newName) member.name = newName;
             
             const rowIndex = this.memberRowMap.get(oldUserId);
-            if (rowIndex) {
+            if (rowIndex && this.storage) {
                 const row = SheetDataMapper.mapFromMember(member, this.memberHeaderMap);
                 await this.storage.updateValues(this.groupId, `Members!A${rowIndex}:Z${rowIndex}`, [row]);
                 this.memberRowMap.delete(oldUserId);

@@ -213,4 +213,23 @@ describe("AutoSyncContext", () => {
             expect(quozen.getLastModified).toHaveBeenCalled();
         });
     });
+
+    it("triggers ReplicationCoordinator.sync when quozen.replication is available", async () => {
+        const syncMock = vi.fn().mockResolvedValue(undefined);
+        (quozen as any).replication = {
+            sync: syncMock
+        };
+
+        renderHook(() => useAutoSync(), { wrapper });
+
+        // Wait for initial async checkUpdates
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        expect(syncMock).toHaveBeenCalledWith("group-1");
+
+        delete (quozen as any).replication;
+    });
 });
+

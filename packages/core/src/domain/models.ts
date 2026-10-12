@@ -31,6 +31,7 @@ export interface Expense {
     splits: ExpenseSplit[];
     createdAt: Date;
     updatedAt: Date;
+    deletedAt?: Date;
 }
 
 export interface Settlement {
@@ -41,6 +42,8 @@ export interface Settlement {
     amount: number;
     method: string;
     notes?: string;
+    updatedAt?: Date;
+    deletedAt?: Date;
 }
 
 export interface Member {
@@ -49,6 +52,8 @@ export interface Member {
     name: string;
     role: "owner" | "member";
     joinedAt: Date;
+    updatedAt?: Date;
+    deletedAt?: Date;
 }
 
 export interface LedgerAnalytics {

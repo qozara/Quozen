@@ -27,3 +27,7 @@ export * from "./agent";
 
 // 6. Schema
 export * from "./schema/ValidationService";
+
+// 7. Local RxDB & Composite Cloud Sync
+export * from "./db";
+export * from "./sync";

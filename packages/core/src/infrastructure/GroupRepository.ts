@@ -4,11 +4,45 @@ import { UserSettings, CachedGroup, QUOZEN_PREFIX, SETTINGS_FILE_NAME, REQUIRED_
 import { SheetDataMapper } from "./SheetDataMapper";
 import { LedgerRepository } from "./LedgerRepository";
 import { ValidationService, ValidationStatus } from "../schema/ValidationService";
+import type { QuozenDatabase } from "../db";
+import { userSettingsToDoc, docToUserSettings } from "../db/schemas";
+import type { BlobStorageDriver } from "../sync/types";
 
 export class GroupRepository {
-    constructor(private storage: IStorageLayer, private user: User, private getToken?: () => string | null) { }
+    constructor(
+        private storage: IStorageLayer,
+        private user: User,
+        private getToken?: () => string | null,
+        private db?: QuozenDatabase,
+        private blobDriver?: BlobStorageDriver
+    ) { }
 
     async getSettings(): Promise<UserSettings> {
+        if (this.db) {
+            const localDoc = await this.db.user_settings.findOne("global_settings").exec();
+            if (localDoc && !localDoc.deletedAt) {
+                return docToUserSettings(localDoc.toJSON());
+            }
+        }
+
+        if (this.blobDriver) {
+            try {
+                const blobData = await this.blobDriver.readBlob<any>(SETTINGS_FILE_NAME);
+                if (blobData) {
+                    const raw = Array.isArray(blobData) ? blobData[0] : blobData;
+                    if (raw && raw.version) {
+                        const settings = raw.id ? docToUserSettings(raw) : (raw as UserSettings);
+                        if (this.db) {
+                            await this.db.user_settings.upsert(userSettingsToDoc(settings));
+                        }
+                        return settings;
+                    }
+                }
+            } catch {
+                // Fall through to storage or reconcile
+            }
+        }
+
         const files = await this.storage.listFiles(`name = '${SETTINGS_FILE_NAME}' and trashed = false`);
         if (files.length > 0) {
             let fileToUse = files[0];
@@ -22,7 +56,13 @@ export class GroupRepository {
             }
             try {
                 const data = await this.storage.getFile(fileToUse.id, { alt: 'media' });
-                if (data && data.version) return data as UserSettings;
+                if (data && data.version) {
+                    const settings = data as UserSettings;
+                    if (this.db) {
+                        await this.db.user_settings.upsert(userSettingsToDoc(settings));
+                    }
+                    return settings;
+                }
             } catch (e) {
                 // Fall through to reconcile
             }
@@ -32,6 +72,19 @@ export class GroupRepository {
 
     async saveSettings(settings: UserSettings): Promise<void> {
         settings.lastUpdated = new Date().toISOString();
+        if (this.db) {
+            await this.db.user_settings.upsert(userSettingsToDoc(settings));
+        }
+
+        if (this.blobDriver) {
+            try {
+                await this.blobDriver.writeBlob(SETTINGS_FILE_NAME, [userSettingsToDoc(settings)]);
+                return;
+            } catch {
+                // Fall back to storage if blobDriver fails in mock environment
+            }
+        }
+
         const files = await this.storage.listFiles(`name = '${SETTINGS_FILE_NAME}' and trashed = false`);
         if (files.length > 0) {
             let fileToUse = files[0];
