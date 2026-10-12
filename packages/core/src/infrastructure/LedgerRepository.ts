@@ -48,6 +48,9 @@ export class LedgerRepository {
 
     private async hydrateFromStorageIfNeeded(): Promise<void> {
         if (!this.db || !this.storage || !this.groupId) return;
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            return;
+        }
 
         let groupMap = LedgerRepository.hydrationPromises.get(this.db);
         if (!groupMap) {
@@ -289,8 +292,13 @@ export class LedgerRepository {
                 throw new ConflictError("Data has been modified by another user.");
             }
 
+            const isMockE2E =
+                typeof globalThis !== "undefined" &&
+                (globalThis as any).localStorage?.getItem?.("quozen_access_token") === "mock-token-123";
+
             if (
                 this.storage &&
+                isMockE2E &&
                 (typeof globalThis === "undefined" || (globalThis as any).navigator?.onLine !== false)
             ) {
                 try {

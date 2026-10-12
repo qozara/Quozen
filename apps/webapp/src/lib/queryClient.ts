@@ -75,12 +75,14 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: axiosQueryFn,
+      networkMode: 'always',
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
       retry: false,
     },
     mutations: {
+      networkMode: 'always',
       retry: false,
     },
   },
