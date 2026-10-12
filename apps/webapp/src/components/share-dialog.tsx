@@ -47,6 +47,17 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
         }
     }, [permissionStatus]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                onClose();
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown, true);
+        return () => window.removeEventListener("keydown", handleKeyDown, true);
+    }, [isOpen, onClose]);
+
     const permissionMutation = useMutation({
         mutationFn: async (makePublic: boolean) => {
             const access = makePublic ? 'public' : 'restricted';
@@ -85,7 +96,7 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
     };
 
     return (
-        <Drawer open={isOpen} onOpenChange={onClose}>
+        <Drawer open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
             <DrawerContent
                 onCloseAutoFocus={(event) => {
                     if (event.defaultPrevented) return;

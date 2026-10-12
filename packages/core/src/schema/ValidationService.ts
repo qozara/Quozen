@@ -64,6 +64,29 @@ export class ValidationService {
             // Ignore error
         }
 
+        // Two-way reconciliation: inspect _migrations tab in the spreadsheet if available
+        try {
+            if (typeof this.client.batchGet === "function") {
+                const migrationsRes = await this.client.batchGet(spreadsheetId, ["_migrations!A2:B"]);
+                const rows = migrationsRes?.valueRanges?.[0]?.values || [];
+                let maxMigratedVersion = 0;
+                for (const row of rows) {
+                    const v = parseInt(row[0], 10);
+                    if (!isNaN(v) && v > maxMigratedVersion) {
+                        maxMigratedVersion = v;
+                    }
+                }
+                if (maxMigratedVersion > currentVersion) {
+                    currentVersion = maxMigratedVersion;
+                    await this.client.updateFileAppProperties(spreadsheetId, {
+                        quozen_schema_version: currentVersion.toString()
+                    }).catch(() => {});
+                }
+            }
+        } catch {
+            // Ignore if _migrations tab is missing or unreadable
+        }
+
         const result = await this.validator.validateStructure(spreadsheetId, QuozenSchema);
         let status = ValidationStatus.READY;
         let canAutoMigrate = false;
@@ -144,6 +167,14 @@ export class ValidationService {
             const expectedModified = new Date(expectedLastModified).getTime();
             if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
                 throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
+            }
+        }
+
+        if (typeof (this.client as any).createBackup === "function") {
+            try {
+                await (this.client as any).createBackup(spreadsheetId);
+            } catch {
+                // Proceed if backup is unsupported in mock environment
             }
         }
 

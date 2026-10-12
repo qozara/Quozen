@@ -1,8 +1,8 @@
 # 💸 Quozen: Decentralized Expense Sharing
 
-Quozen is a modern, privacy-first expense sharing platform designed for simplicity and collaboration. Unlike traditional apps that store your financial data on proprietary servers, **Quozen is entirely decentralized and serverless**. 
+Quozen is a modern, privacy-first expense sharing platform designed for simplicity and collaboration. Unlike traditional apps that store your financial data on proprietary servers, **Quozen is entirely decentralized, local-first, and serverless**. 
 
-**Your Data, Your Drive:** Quozen uses your personal Google Drive to store groups, expenses, and settlements as standard Google Sheets. You own your data, and you can export, backup, or analyze it using standard spreadsheet tools anytime.
+**Local-First & Bring-Your-Own-Backend (BYOB):** Quozen operates on a **Local-First** architecture powered by RxDB. All financial operations execute with **0ms latency** against a local database, providing full offline capability. Data seamlessly synchronizes in the background with your personal Google Drive (stored as transparent Google Sheets) or any custom BYOB sync backend.
 
 ---
 
@@ -10,8 +10,8 @@ Quozen is a modern, privacy-first expense sharing platform designed for simplici
 
 Quozen is built as a highly modular monorepo, decoupling core business logic from the presentation layer to enable extreme portability across browsers, edge networks, and terminal environments.
 
-- 🧠 **`packages/core` (`@quozen/core`)**: The heart of Quozen. An isomorphic TypeScript SDK that handles split-bill algorithms, financial math, optimistic concurrency, and generalized storage adapters (Google Drive & In-Memory).
-- 💻 **`apps/webapp`**: The main React Single Page Application (SPA). Built with Vite, Tailwind CSS, Shadcn UI, and React Query for a native-like, responsive experience.
+- 🧠 **`packages/core` (`@quozen/core`)**: The heart of Quozen. An isomorphic TypeScript SDK containing split-bill algorithms, RxDB local persistence collections, replication coordination, and pluggable sync backends (Google Drive & In-Memory).
+- 💻 **`apps/webapp`**: The main React Single Page Application (SPA). Built with Vite, Tailwind CSS, Shadcn UI, and reactive query bindings for an instant, responsive local-first experience.
 - 🌐 **`apps/api`**: A high-performance, stateless REST API built with Hono and OpenAPI 3.0. Deployable to Cloudflare Workers or Vercel Edge, enabling AI agents and third-party integrations.
 - ⌨️ **`apps/cli`**: An interactive terminal application demonstrating Node.js compatibility and offering terminal-based expense management.
 
@@ -23,10 +23,10 @@ Quozen is built as a highly modular monorepo, decoupling core business logic fro
 - **Offline Members**: Add members by username (e.g., "Bob") to track expenses for friends who don't use the app.
 
 ### 🔄 Smart Data Sync & Resilience
-- **Auto-Sync & Conflict Detection**: Automatically detects changes from other users and prevents accidental overwrites if multiple users edit an expense simultaneously.
-- **Schema Self-Healing**: Automatically detects if a group spreadsheet is corrupted or requires a version upgrade, presenting a one-click remediation workflow to reconstruct headers or migrate data safely via Optimistic Concurrency Control.
+- **0ms Latency & Full Offline Reliability**: Read, write, and balance expenses instantly without waiting for network roundtrips.
+- **Reactive Background Sync & LWW Resolution**: RxDB replication runs in the background with Last-Write-Wins (LWW) conflict resolution across devices.
+- **Declarative Schema Self-Healing**: Automatically repairs remote Google Sheet columns and structures during synchronization without blocking local usage.
 - **Pull-to-Refresh**: Intuitive mobile gestures for manual syncing.
-- **Edit Safety**: Intelligent background guards prevent data updates while you are actively typing.
 
 ### 🌍 Internationalization (i18n) & Localization (l10n)
 - **Multi-Language**: Fully translated into **English (US)** and **Spanish (LatAm)**. Auto-detects system preferences.

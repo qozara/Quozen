@@ -13,7 +13,7 @@
         }
     },
     "scripts": {
-        "build": "tsup src/index.ts --format esm --dts",
+        "build": "tsup src/index.ts --format esm --dts && node scripts/validate-schemas.js",
         "dev": "tsup src/index.ts --format esm --watch --dts",
         "lint": "tsc --noEmit",
         "test": "vitest run",
@@ -27,6 +27,8 @@
         "typescript": "^5.0.0"
     },
     "dependencies": {
-        "@qozara/gdocs-schema": "^1.0.4"
+        "@qozara/gdocs-schema": "^1.0.4",
+        "rxdb": "^17.5.0",
+        "rxjs": "^7.8.1"
     }
 }

@@ -306,5 +306,34 @@
         "dismiss": "Descartar",
         "successDesc": "Esquema del grupo actualizado exitosamente.",
         "errorDesc": "Error al reparar el esquema."
+    },
+    "sync": {
+        "title": "Sincronización en la Nube",
+        "providerName": "Google Drive y Sheets",
+        "forceSync": "Sincronizar Ahora",
+        "syncingNow": "Sincronizando...",
+        "reconnect": "Reconectar Cuenta de Google",
+        "lastSynced": "Última sincronización {{time}}",
+        "neverSynced": "Aún no sincronizado",
+        "justNow": "ahora mismo",
+        "cloudSyncFailedTitle": "Problema de Sincronización",
+        "states": {
+            "synced": "Todos los cambios guardados en Google Drive",
+            "syncing": "Sincronizando con Google Drive...",
+            "offline": "Modo sin conexión — cambios guardados localmente",
+            "warning": "Acción requerida para reanudar la sincronización",
+            "hidden": "Almacenamiento local activo"
+        },
+        "diagnostics": {
+            "synced": "Sincronizado",
+            "syncing": "Sincronizando cambios...",
+            "offline": "Sin conexión (en cola local)",
+            "auth_failed": "Sesión expirada — por favor reconecta",
+            "throttled": "Límite alcanzado — reintentando pronto",
+            "corrupted": "La hoja de cálculo requiere reparación",
+            "upgrade_required": "Actualización de formato requerida",
+            "error": "Error al sincronizar — se reintentará automáticamente",
+            "disconnected": "No conectado"
+        }
     }
 }

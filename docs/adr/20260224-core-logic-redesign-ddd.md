@@ -1,5 +1,8 @@
 # Architecture Decision Record: Domain-Driven Design for Core Logic
 
+## Status
+Amended by [ADR 20261011: Local-First Persistence Layer with RxDB](20261011-local-first-rxdb-persistence.md) (SheetDataMapper encapsulated into GoogleDriveSyncBackend adapter; LedgerRepository backed exclusively by RxDB).
+
 ## Context
 The `@quozen/core` package initially leaked implementation details (like Sheet `_rowIndex`) directly to consumers, making it brittle. As the system prepared for REST API integration, state management and data formatting needed robust boundaries.
 

@@ -3,13 +3,21 @@ import { useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
 import { useAppContext } from "./app-context";
+import { useOptionalAuth } from "./auth-provider";
+import { useToast } from "@/hooks/use-toast";
+import { useTranslation } from "react-i18next";
+import { resolveUXStatus, type SyncStatus, type UXSyncState } from "@quozen/core";
 
-interface AutoSyncContextType {
+export interface AutoSyncContextType {
     isPaused: boolean;
     setPaused: (paused: boolean) => void;
     isEnabled: boolean;
     lastSyncTime: Date | null;
     triggerSync: () => Promise<void>;
+    isOnline: boolean;
+    syncStatus: SyncStatus;
+    uxSyncState: UXSyncState;
+    reconnectProvider: () => Promise<void>;
 }
 
 // Export Context so the hook can use it
@@ -34,6 +42,9 @@ export function AutoSyncProvider({
 }) {
     const pollingInterval = window.__QUOZEN_POLLING_OVERRIDE || propInterval;
     const { activeGroupId } = useAppContext();
+    const auth = useOptionalAuth();
+    const { toast } = useToast();
+    const { t } = useTranslation();
     const queryClient = useQueryClient();
     const location = useLocation();
 
@@ -41,8 +52,16 @@ export function AutoSyncProvider({
     const [routePaused, setRoutePaused] = useState(false);
     const [pageHidden, setPageHidden] = useState(document.hidden);
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+    const [isOnline, setIsOnline] = useState<boolean>(() =>
+        typeof navigator !== "undefined" ? navigator.onLine !== false : true
+    );
+    const [syncStatus, setSyncStatus] = useState<SyncStatus>(() =>
+        quozen.syncProvider?.getStatus?.() || "idle"
+    );
 
     const lastKnownRemoteTimeRef = useRef<string | null>(null);
+    const prevStatusRef = useRef<SyncStatus>("idle");
+    const wasOnlineRef = useRef<boolean>(isOnline);
 
     // We use a ref to hold the latest check function to avoid restarting the interval
     // whenever the dependencies of checkUpdates change.
@@ -72,17 +91,113 @@ export function AutoSyncProvider({
         return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
     }, []);
 
+    // 3. Online / Offline Listeners + 30s Origin Heartbeat (Quomida Pattern)
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener("online", handleOnline);
+        window.addEventListener("offline", handleOffline);
+
+        let heartbeatId: ReturnType<typeof setInterval> | undefined;
+        if (import.meta.env.MODE !== "test") {
+            heartbeatId = setInterval(async () => {
+                if (typeof navigator !== "undefined" && !navigator.onLine) {
+                    setIsOnline(false);
+                    return;
+                }
+                try {
+                    const controller = new AbortController();
+                    const timeout = setTimeout(() => controller.abort(), 5000);
+                    await fetch(`${window.location.origin}/?hb=${Date.now()}`, {
+                        method: "HEAD",
+                        cache: "no-store",
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeout);
+                    setIsOnline(true);
+                } catch {
+                    setIsOnline(false);
+                }
+            }, 30000);
+        }
+
+        return () => {
+            window.removeEventListener("online", handleOnline);
+            window.removeEventListener("offline", handleOffline);
+            if (heartbeatId) clearInterval(heartbeatId);
+        };
+    }, []);
+
+    // 4. Subscribe to ReplicationCoordinator / CloudSyncProvider status changes
+    useEffect(() => {
+        const replication = (quozen as any).replication;
+        const provider = (quozen as any).syncProvider;
+
+        const handleNewStatus = (newStatus: SyncStatus) => {
+            const prev = prevStatusRef.current;
+            prevStatusRef.current = newStatus;
+            setSyncStatus(newStatus);
+
+            if (prev === "syncing" && newStatus === "idle") {
+                const syncedTimeStr = provider?.getLastSyncedTime?.();
+                setLastSyncTime(syncedTimeStr ? new Date(syncedTimeStr) : new Date());
+                if (activeGroupId) {
+                    void queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+                }
+            } else if (newStatus !== prev) {
+                if (newStatus === "corrupted") {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "CORRUPTED" }));
+                } else if (newStatus === "upgrade_required") {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "UPGRADE_REQUIRED" }));
+                } else if (
+                    newStatus === "auth_failed" ||
+                    newStatus === "throttled" ||
+                    newStatus === "error"
+                ) {
+                    toast({
+                        title: t("sync.cloudSyncFailedTitle"),
+                        description: t(`sync.diagnostics.${newStatus}`),
+                        variant: "destructive"
+                    });
+                }
+            }
+        };
+
+        if (replication?.status$?.subscribe) {
+            const sub = replication.status$.subscribe(handleNewStatus);
+            return () => sub.unsubscribe();
+        } else if (provider?.onStatusChange) {
+            return provider.onStatusChange(handleNewStatus);
+        }
+    }, [activeGroupId, queryClient, toast, t]);
+
     // Core Sync Logic
     const checkUpdates = useCallback(async () => {
         if (!activeGroupId || !isEnabled) return;
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+            setIsOnline(false);
+            return;
+        }
 
         try {
+            if (quozen.syncProvider && !quozen.syncProvider.isInitialized()) {
+                await quozen.syncProvider.initialize();
+            }
+            if (quozen.replication) {
+                await quozen.replication.sync(activeGroupId);
+                setLastSyncTime(new Date());
+            }
+
             // Fetch metadata only
             const remoteTimeStr = await quozen.getLastModified(activeGroupId);
 
             if (!lastKnownRemoteTimeRef.current) {
                 // First check, initialize
                 lastKnownRemoteTimeRef.current = remoteTimeStr;
+                if (quozen.replication) {
+                    await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+                }
             } else if (new Date(remoteTimeStr).getTime() > new Date(lastKnownRemoteTimeRef.current).getTime()) {
                 // Remote is newer -> Invalidate
                 await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
@@ -100,6 +215,14 @@ export function AutoSyncProvider({
         checkUpdatesRef.current = checkUpdates;
     }, [checkUpdates]);
 
+    // Automatically trigger sync when transitioning from offline -> online
+    useEffect(() => {
+        if (!wasOnlineRef.current && isOnline) {
+            void checkUpdatesRef.current();
+        }
+        wasOnlineRef.current = isOnline;
+    }, [isOnline]);
+
     // Expose explicit trigger for E2E tests to enable deterministic syncing
     useEffect(() => {
         window.__triggerAutoSync = checkUpdates;
@@ -108,7 +231,7 @@ export function AutoSyncProvider({
         };
     }, [checkUpdates]);
 
-    // 3. Polling Loop
+    // 5. Polling Loop
     // This effect is now stable and won't reset on re-renders unless paused state changes
     useEffect(() => {
         if (isPaused || !isEnabled) return;
@@ -130,13 +253,35 @@ export function AutoSyncProvider({
         lastKnownRemoteTimeRef.current = null;
     }, [activeGroupId]);
 
+    const reconnectProvider = useCallback(async () => {
+        if (auth?.login) {
+            auth.login();
+        } else if (quozen.syncProvider) {
+            await quozen.syncProvider.initialize();
+            await checkUpdatesRef.current();
+        }
+    }, [auth]);
+
+    const uxSyncState = useMemo<UXSyncState>(() => {
+        const providerConnected = Boolean(quozen.syncProvider?.isInitialized?.() ?? auth?.isAuthenticated ?? true);
+        return resolveUXStatus({
+            isOnline,
+            providerConnected,
+            providerStatus: syncStatus
+        });
+    }, [isOnline, syncStatus, auth?.isAuthenticated]);
+
     const value = useMemo(() => ({
         isPaused,
         setPaused: setManualPaused,
         isEnabled,
         lastSyncTime,
-        triggerSync: checkUpdates
-    }), [isPaused, isEnabled, lastSyncTime, checkUpdates]);
+        triggerSync: checkUpdates,
+        isOnline,
+        syncStatus,
+        uxSyncState,
+        reconnectProvider
+    }), [isPaused, isEnabled, lastSyncTime, checkUpdates, isOnline, syncStatus, uxSyncState, reconnectProvider]);
 
     return (
         <AutoSyncContext.Provider value={value}>

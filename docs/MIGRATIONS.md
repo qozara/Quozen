@@ -1,5 +1,7 @@
 # Schema Migrations
 
+> **Important**: Quozen uses a **Dual-Layer Migration Architecture** across local RxDB and remote Google Drive. See the complete architectural guide in [Persistence & Migrations Guide](persistence-and-migrations.md).
+
 Quozen core uses `@qozara/gdocs-schema` to handle programmatic schema migrations for our Google Spreadsheet-based groups. This allows the app to evolve the data schema (tabs, columns) over time without breaking existing files in users' Google Drives.
 
 ## How it works

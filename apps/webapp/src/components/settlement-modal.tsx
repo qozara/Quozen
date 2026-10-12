@@ -112,9 +112,6 @@ export default function SettlementModal({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
       navigator.vibrate?.(50);
-      toast({
-        title: t("common.success"),
-      });
       onClose();
     },
     onError: (error) => {
@@ -134,7 +131,6 @@ export default function SettlementModal({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
-      toast({ title: t("common.success") });
       setShowDeleteConfirm(false);
       onClose();
     },

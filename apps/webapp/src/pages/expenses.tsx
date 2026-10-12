@@ -67,10 +67,6 @@ export default function ExpensesList({ expenses = [], members = [], isLoading = 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
-      toast({
-        title: t("common.success"),
-        description: t("expenseItem.deleteTitle")
-      });
       setExpenseToDelete(null);
     },
     onError: (error) => {
