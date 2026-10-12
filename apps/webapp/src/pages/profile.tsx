@@ -108,7 +108,6 @@ export default function Profile() {
           defaultCurrency: currency
         }
       });
-      toast({ title: t("common.save") });
     }
   };
 
@@ -125,7 +124,6 @@ export default function Profile() {
         }
       });
       // Side effect handled by useSettings hook
-      toast({ title: t("common.save") });
     }
   };
 
@@ -174,12 +172,7 @@ export default function Profile() {
         setApiKey("");
       }
 
-      if (isAvailable) {
-        toast({
-          title: t("common.success"),
-          description: "Connection Successful & Settings Saved",
-        });
-      } else {
+      if (!isAvailable) {
         toast({
           title: t("common.error"),
           description: "Settings saved, but provider is unreachable.",
