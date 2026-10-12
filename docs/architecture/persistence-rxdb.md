@@ -1,171 +1,220 @@
-# Persistence Layer & Local-First Architecture Plan (Updated Specification)
+# Persistence Layer & Local-First Architecture Plan (Composite BYOS & Dual Migration Specification)
 
-This document outlines the architecture for overhauling the Quozen persistence layer. The design shifts from a synchronous, Google Sheets-dependent model to a **Local-First, Offline-Capable, Bring-Your-Own-Backend (BYOB)** architecture powered by RxDB.
+This document establishes the architecture for overhauling Quozen's persistence layer. The system transitions from a synchronous, Google Sheets-dependent model to a **Local-First, Offline-Capable, Bring-Your-Own-Storage (BYOS)** architecture powered by RxDB, adapting the battle-tested storage strategy pattern from Quomida.
 
 ---
 
-## 1. Architectural Paradigm: True Decoupling & Local-First
+## 1. Architectural Blueprint: The Composite Storage Pattern
 
-The architecture cleanly decouples into four discrete layers: **Core Local Database (RxDB)**, **Domain Repositories**, **Sync & Replication Engine**, and **Backend Implementations (BYOB)**.
+Following the architecture established in Quomida (ADR 0010 & ADR 0013), persistence cleanly divides into a **Local Single Source of Truth (RxDB on IndexedDB)** and a **Composite Cloud Sync Provider** that routes collections according to their natural storage characteristics.
+
+```
+                     ┌──────────────────────────────────────────────┐
+                     │            RxDB Database Layer               │
+                     │  (Single local database in apps/webapp)      │
+                     │                                              │
+                     │  Collections:                                │
+                     │  • user_settings                             │
+                     │  • expenses (partitioned by groupId)         │
+                     │  • settlements (partitioned by groupId)      │
+                     │  • members (partitioned by groupId)          │
+                     └──────────────────────┬───────────────────────┘
+                                            │ SyncDeltaPayload
+                                            ▼
+                     ┌──────────────────────────────────────────────┐
+                     │         CompositeCloudSyncProvider           │
+                     └──────────────┬────────────────┬──────────────┘
+                                    │                │
+                      Collection    │                │ Collections:
+                     user_settings  │                │ expenses, settlements,
+                                    ▼                │ members (per active groupId)
+                     ┌─────────────────────┐         ▼
+                     │  BlobStorageDriver  │ ┌────────────────────────┐
+                     └──────────┬──────────┘ │  TabularStorageDriver  │
+                                │            └───────────┬────────────┘
+                  Google Drive  │                        │ Google Sheets
+                 appDataFolder  │                        │ (Individual Group Spreadsheets)
+                                ▼                        ▼
+                     quozen-settings.json    ┌─────────────────────────────────┐
+                     (Private to User)       │ Quozen: Trip to Tokyo (GroupId) │
+                                             │  ├── Expenses                   │ (Shareable via
+                                             │  ├── Settlements                │  Drive Permissions)
+                                             │  └── Members                    │
+                                             ├─────────────────────────────────┤
+                                             │ Quozen: Roommates (GroupId)     │
+                                             │  ├── Expenses                   │
+                                             │  ├── Settlements                │
+                                             │  └── Members                    │
+                                             └─────────────────────────────────┘
+```
+
+### 1.1 Local Single Source of Truth (`packages/core/src/db/`)
+- A single local RxDB database maintains all application data across all groups.
+- `LedgerRepository` reads and writes **strictly and exclusively** to local RxDB collections:
+  - `user_settings`: User profile, active group pointer, cached groups list.
+  - `expenses`: All expenses tagged with `groupId`.
+  - `settlements`: All settlements tagged with `groupId`.
+  - `members`: All members tagged with `groupId`.
+- **Zero-Latency UI**: All user mutations complete in 0ms without waiting for remote cloud roundtrips.
+- **Offline Autonomy**: Full read and write capabilities are preserved offline.
+
+### 1.2 Routing Strategy: Private AppData Blob vs. Shared Group Spreadsheets
+Cloud storage requirements differ fundamentally across domain boundaries:
+1. **User Settings & Group Directory (`user_settings`)**:
+   - Internal user configuration that belongs in hidden, tamper-resistant storage.
+   - Handled by `BlobStorageDriver`: Persisted as a JSON blob (`quozen-settings.json`) in the user's private Google Drive `appDataFolder` (`spaces=appDataFolder`).
+   - *Backward Compatibility*: If a legacy `quozen-settings.json` exists in the user's root Drive, the driver reads it, seamlessly migrates it to `appDataFolder`, and cleans up the root file.
+2. **Collaborative Group Ledgers (`expenses`, `settlements`, `members`)**:
+   - Transactional, shared financial records.
+   - Handled by `TabularStorageDriver`: Each group is an independent Google Spreadsheet in the user's Drive (e.g. `Quozen: Trip to Tokyo`).
+   - Group spreadsheets retain their native Google Drive permissions, allowing users to invite members, share magic links, and inspect/export data using Google Sheets.
+
+---
+
+## 2. Backward Compatibility & Existing Google Groups
+
+A critical requirement is that **existing Google Drive group spreadsheets must continue working seamlessly without data loss or corruption**.
+
+### 2.1 Dynamic Header Mapping (Resilience to Column Layouts)
+Users or legacy versions may have created sheets with different column orderings. Row serialization and deserialization in `TabularStorageDriver`:
+- Does **not** rely on hardcoded row array indices (`row[0]`, `row[3]`).
+- Uses dynamic header lookup matching normalized column names (`id`, `date`, `amount`, `paidBy`, `splits`, `meta`, etc.).
+- Trims whitespace and prevents formula injection (`=`, `+`, `-`, `@`).
+
+### 2.2 Fallback Parsing for Legacy Rows
+Existing spreadsheets (created under Schema v1) do not have dedicated `updatedAt` or `deletedAt` columns:
+- **`updatedAt`**: Deserializer checks for `updatedAt` column first. If absent, it checks `meta.lastModified`, then `date`, then `createdAt`, and finally defaults to the epoch `new Date(0)`.
+- **`deletedAt`**: If the `deletedAt` column is absent, rows default to `null` (active/not deleted).
+- This guarantees that opening any existing Google Spreadsheet never crashes or drops data.
+
+### 2.3 Automated Safety Backups Prior to Upgrades
+Before any structural modification (migration or repair) is applied to an existing user spreadsheet in Google Drive:
+- `TabularStorageDriver` / `ValidationService` calls `client.createBackup()`.
+- Generates an automated Google Drive copy named `Backup of <SpreadsheetTitle> - <ISO timestamp>`.
+- Only after the backup succeeds does the driver apply schema updates.
+
+### 2.4 Non-Destructive Structural Healing
+When new schema columns (such as `updatedAt` and `deletedAt`) are introduced to remote spreadsheets:
+- Existing user data is never truncated or overwritten.
+- `ValidationService.repairFile()` uses Google Sheets `appendDimension` and `updateCells` to append missing columns to the end of the sheet, preserving all existing rows and formulas.
+
+---
+
+## 3. The Three-Tier Version Tracking & Dual Migration Architecture
+
+Following Quomida ADR 0013, Quozen manages two decoupled storage environments across three explicitly tracked version tiers:
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│ Tier 1: Application Version                                       │
+│ • SemVer Release (package.json) + Git Commit SHA                  │
+│ • Defines active code, models, and migration scripts              │
+└─────────────────────────────────┬─────────────────────────────────┘
+                                  │
+         ┌────────────────────────┴────────────────────────┐
+         ▼                                                 ▼
+┌───────────────────────────────────┐     ┌───────────────────────────────────┐
+│ Tier 2: Local DB Version (RxDB)   │     │ Tier 3: Cloud Store Version       │
+│ • RxDB collection schema version  │     │ • Google Drive appProperties      │
+│ • Tracked in IndexedDB &          │     │   (quozen_schema_version)         │
+│   localStorage schema hashes      │     │ • Google Sheets _migrations tab   │
+│ • Runs 100% offline on boot       │     │ • Managed per connected provider  │
+└───────────────────────────────────┘     └───────────────────────────────────┘
+```
+
+### 3.1 Tier 2: Local RxDB Migration Engine
+- **Location**: `packages/core/src/db/schemas/`
+- **Execution**: Runs synchronously on client boot via native RxDB `migrationStrategies`.
+- **Offline Safety**: If the user's app updates while offline, local document schemas upgrade instantly. The user can continue adding expenses without network access.
+- **Integrity Guard**: Build-time script (`scripts/validate-schemas.js`) guarantees every schema bump includes corresponding migration strategy functions.
+
+### 3.2 Tier 3: Remote Cloud Migration & Repair Engine
+- **Location**: `packages/core/src/schema/` via `@qozara/gdocs-schema`.
+- **Execution**: Triggered during cloud sync handshake or via explicit repair workflows.
+- **Workflow**:
+  1. `ValidationService.checkHealth(spreadsheetId)` reads `appProperties.quozen_schema_version` and validates structural headers.
+  2. If version is outdated (`UPGRADE_REQUIRED`) or columns are missing (`CORRUPTED`), background sync suspends and exposes status to `AutoSyncContext`.
+  3. Clicking "Repair" or "Upgrade" in `SchemaRemediationModal` creates a safety backup, executes migrations/column repairs, updates `appProperties`, and resumes sync.
+
+---
+
+## 4. Multi-Runtime Storage Strategy
+
+To support the heterogeneous execution runtimes across the Quozen monorepo:
+- **Browser (`apps/webapp`)**: Uses `getRxStorageDexie()` (Dexie / IndexedDB) for persistent offline storage.
+- **Edge API (`apps/api`) & Node CLI (`apps/cli`) & Vitest Unit Tests**: Uses `getRxStorageMemory()` for ultra-fast, stateless in-memory database execution without DOM dependencies.
+
+---
+
+## 5. Phased Implementation Plan
 
 ```mermaid
 flowchart TD
-    subgraph UI_Layer ["Presentation Layer (apps/webapp, apps/cli, apps/api)"]
-        UI["React UI / Hooks"]
-        ReactQuery["React Query / RxDB Observables"]
-        UI --> ReactQuery
-    end
-
-    subgraph Core_App ["Core Engine (@quozen/core)"]
-        Client["QuozenClient"]
-        LedgerRepo["LedgerRepository (RxDB Native)"]
-        GroupRepo["GroupRepository (Settings & Files)"]
-        RxDB[(RxDB Local Database)]
-
-        ReactQuery --> Client
-        Client --> LedgerRepo
-        Client --> GroupRepo
-        LedgerRepo <--> RxDB
-    end
-
-    subgraph Sync_Engine ["Replication Engine (RxDB Custom Replication)"]
-        ReplPool["RxDB Replication Coordinator"]
-        RxDB <--> ReplPool
-    end
-
-    subgraph Backend_Adapters ["Backend Implementations (BYOB)"]
-        ISync["ISyncBackend Interface"]
-        IGroup["IGroupStorageBackend Interface"]
-        ReplPool <--> ISync
-        GroupRepo <--> IGroup
-        
-        GDriveSync["GoogleDriveSyncBackend"]
-        RestSync["CustomRestSyncBackend"]
-        MemSync["InMemorySyncBackend"]
-        
-        ISync -.-> GDriveSync
-        ISync -.-> RestSync
-        ISync -.-> MemSync
-
-        subgraph GDrive_Internals ["Google Drive Encapsulation"]
-            Mapper["SheetDataMapper"]
-            ValSvc["ValidationService (repairFile)"]
-            GDriveSync --> Mapper
-            GDriveSync --> ValSvc
-        end
-    end
-
-    subgraph Remote_Storage ["External Cloud Backends"]
-        GoogleSheets[("Google Sheets / Drive API")]
-        CustomAPI[("Custom REST / Document DB")]
-        GDriveSync <--> GoogleSheets
-        RestSync <--> CustomAPI
-    end
+    P1["Phase 1: Domain Models, Timestamps & Schemas (Local & Cloud)"] --> P2["Phase 2: Composite Cloud Sync & Drivers (Blob & Tabular)"]
+    P2 --> P3["Phase 3: Local-First LedgerRepository & GroupRepository"]
+    P3 --> P4["Phase 4: Replication Coordinator & LWW Conflict Resolution"]
+    P4 --> P5["Phase 5: WebApp UI & Reactive Integration"]
 ```
 
-### 1.1 The Core App (RxDB Local Database)
-The local database acts as the single source of truth for all ledger data:
-- `LedgerRepository` reads and writes **exclusively** from local RxDB collections (`expenses`, `settlements`, `members`).
-- **Zero-Latency CRUD**: Local mutations resolve instantaneously without awaiting remote roundtrips.
-- **Offline Autonomy**: Read and write capabilities remain fully functional without internet access.
-- **Local Migrations**: RxDB enforces JSON-to-JSON migrations locally when the schema increments (e.g. adding a new property). If an offline user receives an application update, RxDB migrates existing documents automatically.
+### Phase 1: Domain Models, Timestamps & Dual-Schema Definitions
+1. **Timestamp Normalization**:
+   - Add `updatedAt: Date` and `deletedAt?: Date` to `Expense`, `Settlement`, and `Member` in `packages/core/src/domain/models.ts`.
+2. **RxDB Schemas (Tier 2)**:
+   - Define collection schemas (`user_settings`, `expenses`, `settlements`, `members`) with `migrationStrategies` in `packages/core/src/db/schemas/`.
+3. **Cloud Schemas (Tier 3)**:
+   - Update `packages/core/src/schema/SchemaDefinition.ts` to include `updatedAt` and `deletedAt` columns for Google Sheets tabs (`Expenses`, `Settlements`, `Members`).
+   - Define `@qozara/gdocs-schema` migration to upgrade legacy sheets from v1 to v2.
+4. **Unit Tests**:
+   - Write tests validating local RxDB migrations and Google Sheets schema validation.
 
-### 1.2 The Interface Decoupling: Document Sync vs. Group Management
-The legacy `IStorageLayer` coupled file system/drive operations with tabular spreadsheet updates. We cleanly partition this into two independent contracts:
+### Phase 2: Composite Cloud Sync & Storage Drivers
+1. **Blob Storage Driver (`BlobStorageDriver`)**:
+   - Implement `GoogleDriveBlobDriver` targeting `spaces=appDataFolder` for `user_settings`.
+   - Implement automatic migration from legacy root `quozen-settings.json` to `appDataFolder`.
+2. **Tabular Storage Driver (`TabularStorageDriver`)**:
+   - Implement `GoogleSheetsTabularDriver` managing individual group spreadsheets.
+   - Implement dynamic header mapping and fallback parsing for legacy rows.
+   - Integrate `createBackup()` before applying repairs or migrations.
+3. **CompositeCloudSyncProvider**:
+   - Implement routing table: `user_settings` ➔ Blob driver; `expenses`, `settlements`, `members` ➔ Tabular driver (for active `groupId`).
+4. **In-Memory Mock Driver**:
+   - Implement for fast, zero-credential automated integration tests.
 
-1. **Document Synchronization (`ISyncBackend`)**:
-   Used by the RxDB replication engine to exchange JSON documents with any remote persistence provider:
-   ```typescript
-   export interface SyncDocument {
-       id: string;
-       updatedAt: string;
-       deletedAt?: string | null;
-       [key: string]: any;
-   }
+### Phase 3: Local-First `LedgerRepository` & `GroupRepository`
+1. **LedgerRepository Rewrite**:
+   - Refactor `LedgerRepository` to perform queries and mutations strictly against local RxDB collections.
+   - Remove spreadsheet row maps and synchronous sheet API calls from `LedgerRepository`.
+2. **GroupRepository Refactor**:
+   - Update `GroupRepository` to read/write `user_settings` locally in RxDB, synchronized via `BlobStorageDriver`.
+   - Group creation and permission management operate via Drive file manager.
+3. **Domain Integration**:
+   - Ensure all financial algorithms (`LedgerService`, split distribution, balances) pass tests against RxDB.
 
-   export interface ISyncBackend {
-       pullChanges(collection: string, sinceCheckpoint?: string): Promise<{ documents: SyncDocument[]; checkpoint: string }>;
-       pushChanges(collection: string, documents: SyncDocument[]): Promise<void>;
-   }
-   ```
-   The replication engine is completely agnostic of tabular cells, row coordinates, or cloud provider APIs.
+### Phase 4: Replication Coordinator & Conflict Resolution
+1. **Replication Coordinator**:
+   - Wrap RxDB's `replicateRxCollection` with custom push/pull handlers communicating with `CompositeCloudSyncProvider`.
+   - Setup Last-Write-Wins (LWW) conflict resolution using `updatedAt`.
+2. **Sync State Management**:
+   - Expose lifecycle states: `idle`, `syncing`, `upgrade_required`, `corrupted`, `error`, `offline`.
+3. **Multi-Device Concurrency Tests**:
+   - Test simultaneous offline edits resolving cleanly via LWW without duplicate or lost transactions.
 
-2. **Group & File Management (`IGroupStorageBackend`)**:
-   Used exclusively by `GroupRepository` to handle file creation, listing, Google Drive permissions (for collaborator sharing and magic links), and serverless user settings (`quozen-settings.json`).
-
-### 1.3 Unified & Declarative Migration Strategy
-We unify data migrations between local JSON stores and remote Google Sheets:
-1. **Local JSON Migration (RxDB)**: Handled offline by RxDB's `migrationStrategies`. The app remains available immediately upon code updates.
-2. **Remote Structural Healing (`ValidationService`)**: When `GoogleDriveSyncBackend.pushChanges()` executes, it declaratively invokes `ValidationService.repairFile()` before updating rows. If new columns were added to the schema, they are appended to the remote Google Sheet automatically.
-3. **Non-Blocking Reads**: `LedgerService.getLedger()` no longer synchronously blocks on remote `checkHealth()`. Structural repair is handled asynchronously during background sync.
-4. **Deprecation of Imperative Remote Scripts**: With automatic structural repair and JSON migrations, manually written migration steps in `packages/core/src/schema/migrations/` are deprecated.
-
-### 1.4 Backend Encapsulation (Google Drive)
-All spreadsheet-specific translation is isolated inside `GoogleDriveSyncBackend`:
-- **SheetDataMapper**: Converts incoming JSON documents into Google Sheets rows and translates row responses to JSON documents.
-- **ValidationService**: Encapsulated within the adapter to perform declarative repairs.
-- **Core Ignorance**: `@quozen/core` contains zero Google Sheets logic outside the adapter.
-
-### 1.5 Multi-Runtime Storage Strategy
-To support the monorepo's heterogeneous execution environments:
-- **Browser (`apps/webapp`)**: Uses `getRxStorageDexie()` (Dexie / IndexedDB) for persistent offline storage.
-- **Edge API (`apps/api`) & CLI (`apps/cli`) & Unit Tests**: Uses `getRxStorageMemory()` (in-memory) for high-performance, stateless execution without DOM or IndexedDB requirements.
-
----
-
-## 2. Sync Engine & Conflict Resolution
-
-### 2.1 Last-Write-Wins (LWW) & Soft Deletion
-- **Timestamps**: All core entities (`Expense`, `Settlement`, `Member`) include `updatedAt: Date` and `deletedAt?: Date`.
-- **Soft Deletion**: Deleting an item marks `deletedAt` with a timestamp rather than purging data immediately, allowing deletions to replicate reliably across offline peers.
-- **LWW Conflict Resolution**: RxDB Custom Replication automatically resolves conflict between concurrent edits using the latest `updatedAt` timestamp.
-
-### 2.2 Replication State Monitoring
-- The legacy timer-based polling in `AutoSyncContext` is replaced with an event-driven status stream fed directly by the RxDB replication engine.
-- Exposes states: `IDLE`, `SYNCING`, `ERROR`, `OFFLINE`.
-- Route-based pausing is retired because local-first mutations never overwrite user input during background replication.
+### Phase 5: WebApp UI & Reactive Integration
+1. **Storage Setup in WebApp**:
+   - Initialize RxDB with `getRxStorageDexie()` in `apps/webapp/src/lib/storage/index.ts`.
+2. **AutoSyncContext Refactor**:
+   - Bind `AutoSyncContext` to the replication coordinator's status stream.
+3. **Schema Remediation Flow**:
+   - Connect `SchemaRemediationModal` to `CompositeCloudSyncProvider.repair()` and `migrate()`, displaying automated backup confirmations to the user.
+4. **Reactive UI Query Hooks**:
+   - Update dashboard and expense views to read from RxDB observables with 0ms latency.
 
 ---
 
-## 3. Implementation Steps
-
-#### Phase 1: Models & RxDB Schema Foundation
-- Add `updatedAt` and `deletedAt` to `Expense`, `Settlement`, and `Member` in `packages/core/src/domain/models.ts`.
-- Install `rxdb`, `rxjs`, and storage adapters in `packages/core/package.json`.
-- Define JSON schemas and database factory in `packages/core/src/db/`.
-- Validate with unit tests covering schema creation, CRUD, and local migrations.
-
-#### Phase 2: Local-First `LedgerRepository`
-- Refactor `LedgerRepository` to perform CRUD exclusively against RxDB collections.
-- Remove spreadsheet row maps (`expenseRowMap`, etc.) from `LedgerRepository`.
-- Decouple `LedgerService.getLedger()` from synchronous remote schema health checks.
-- Verify all financial calculations and split distributions pass existing unit tests.
-
-#### Phase 3: BYOB Sync Interface & Google Drive Adapter
-- Define `ISyncBackend` and `IGroupStorageBackend` in `packages/core/src/sync/`.
-- Implement `GoogleDriveSyncBackend` encapsulating `SheetDataMapper` and `ValidationService.repairFile()`.
-- Implement `InMemorySyncBackend` for testing.
-
-#### Phase 4: RxDB Replication & Conflict Resolution
-- Build `ReplicationCoordinator` wrapping RxDB's `replicateRxCollection`.
-- Bind collections to `ISyncBackend` with LWW conflict resolution.
-- Verify two-way synchronization and conflict handling with automated tests.
-
-#### Phase 5: WebApp, Context & UI Integration
-- Configure `getRxStorageDexie()` in `apps/webapp/src/lib/storage/index.ts`.
-- Refactor `AutoSyncContext` to subscribe to RxDB replication status observables.
-- Update React query / hook bindings in `dashboard.tsx` and `expenses.tsx` for 0ms reactivity.
-
----
-
-## 4. Verification Plan
-
-### Automated Verification
-1. **Core Unit Tests**: Verify RxDB initialization, schema validation, and CRUD operations using in-memory storage.
-2. **Replication & Conflict Resolution Tests**: Simulate simultaneous local and remote edits; verify LWW resolves state without loss.
-3. **Adapter Translation Tests**: Ensure `GoogleDriveSyncBackend` correctly translates JSON changes to batch spreadsheet operations and triggers `repairFile()` when columns are missing.
-
-### Manual & E2E Verification
-1. **Offline Workflow**: Disconnect network, create and edit expenses, verify 0ms latency and data persistence across reload.
-2. **Reconnection Sync**: Reconnect network and verify changes replicate cleanly to Google Drive.
-3. **Multi-Tab / Multi-Client Concurrency**: Perform concurrent edits across two sessions and confirm LWW convergence.
+## 6. Verification Criteria
+- [ ] **Existing Groups Preserved**: Legacy Google Sheets groups open, parse, and synchronize without errors.
+- [ ] **Zero Latency**: Local ledger CRUD operations complete in 0ms without network roundtrips.
+- [ ] **Offline Full-Functionality**: App operates fully offline with automatic sync upon reconnection.
+- [ ] **Tamper & Layout Resilience**: Manual column reordering in Google Sheets is handled gracefully via dynamic header mapping.
+- [ ] **Safety Backups**: Remote repairs and migrations generate safety backups before applying structural changes.
+- [ ] **Clean Test Suite**: All unit, integration, and monorepo build checks pass with 0 failures.
