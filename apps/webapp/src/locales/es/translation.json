@@ -283,9 +283,20 @@
         "welcomeTitle": "¡Te han invitado!",
         "welcomeDesc": "{{inviter}} te invitó a unirte al grupo \"{{groupName}}\".",
         "joinButton": "Unirse al Grupo",
+        "joinAsAccount": "Unirse como {{name}}",
         "useExistingAccount": "Usar una cuenta existente en este grupo",
         "selectExistingAccountDesc": "Selecciona una cuenta para compartirla con otros o reclamar una creada para ti.",
-        "loadingAccounts": "Cargando cuentas del grupo..."
+        "loadingAccounts": "Cargando cuentas del grupo...",
+        "noExistingAccounts": "No se encontraron otras cuentas en este grupo.",
+        "personalAccount": "Cuenta Personal",
+        "personalAccountDesc": "Únete como {{name}} con tu propia cuenta personal",
+        "existingAccount": "Cuenta Existente",
+        "orSelectExisting": "O gestiona una cuenta existente en este grupo",
+        "signInTitle": "Inicia sesión para unirte",
+        "signInDesc": "{{inviter}} te invitó a unirte a \"{{groupName}}\". Inicia sesión con Google para continuar.",
+        "sessionExpiredTitle": "Sesión expirada",
+        "sessionExpiredDesc": "Tu sesión ha expirado. Por favor inicia sesión con Google para unirte a \"{{groupName}}\".",
+        "signInWithGoogle": "Iniciar sesión con Google"
     },
     "agent": {
         "title": "Asistente de AI",

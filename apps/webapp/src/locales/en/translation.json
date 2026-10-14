@@ -283,9 +283,20 @@
         "welcomeTitle": "You've been invited!",
         "welcomeDesc": "{{inviter}} invited you to join the group \"{{groupName}}\".",
         "joinButton": "Join Group",
+        "joinAsAccount": "Join as {{name}}",
         "useExistingAccount": "Use an existing account in this group",
         "selectExistingAccountDesc": "Select an account to share it with others or claim one already created for you.",
-        "loadingAccounts": "Loading group accounts..."
+        "loadingAccounts": "Loading group accounts...",
+        "noExistingAccounts": "No other accounts found in this group.",
+        "personalAccount": "Personal Account",
+        "personalAccountDesc": "Join as {{name}} with your own personal account",
+        "existingAccount": "Existing Account",
+        "orSelectExisting": "Or manage an existing account in this group",
+        "signInTitle": "Sign in to join",
+        "signInDesc": "{{inviter}} invited you to join \"{{groupName}}\". Sign in with Google to continue.",
+        "sessionExpiredTitle": "Session expired",
+        "sessionExpiredDesc": "Your session has expired. Please sign in with Google to join \"{{groupName}}\".",
+        "signInWithGoogle": "Sign in with Google"
     },
     "agent": {
         "title": "AI Assistant",

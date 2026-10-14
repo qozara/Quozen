@@ -77,6 +77,13 @@ export default function Groups() {
   const handleEditClick = async (e: React.MouseEvent, group: Group) => {
     e.stopPropagation();
     try {
+      if (quozen.replication) {
+        try {
+          await quozen.replication.sync(group.id);
+        } catch (syncErr) {
+          console.warn("Could not sync group before editing:", syncErr);
+        }
+      }
       const members = await quozen.ledger(group.id).getMembers();
       const editableMembers = members.filter(m => m.role !== 'owner').map(m => m.email || m.userId).join(", ");
       setDialogState({ open: true, mode: "edit", groupId: group.id, initialName: group.name, initialMembers: editableMembers });

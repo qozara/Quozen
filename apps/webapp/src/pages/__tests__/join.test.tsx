@@ -223,8 +223,8 @@ describe("JoinPage", () => {
         });
     });
 
-    it("allows selecting an existing account when 'Use an existing account in this group' is clicked", async () => {
-        (useAuth as any).mockReturnValue({ isAuthenticated: true, user: mockUser, isLoading: false });
+    it("allows selecting an existing account when 'Use an existing account in this group' is clicked without premature submit", async () => {
+        (useAuth as any).mockReturnValue({ isAuthenticated: true, user: mockUser, isLoading: false, login: vi.fn(), logout: vi.fn() });
         mockValidateQuozenSpreadsheet.mockResolvedValue({
             valid: true,
             members: [
@@ -249,13 +249,95 @@ describe("JoinPage", () => {
             expect(screen.getByTestId("join-existing-account-acc-shared")).toBeInTheDocument();
         });
 
+        // 1. Selecting an account does NOT trigger joinMutation immediately
         fireEvent.click(screen.getByTestId("join-existing-account-acc-shared"));
+        expect(mockMutate).not.toHaveBeenCalled();
 
+        // 2. Primary button updates label to reflect the selected account
+        const joinBtn = screen.getByTestId("button-join-group");
+        expect(joinBtn).toHaveTextContent("Join as Garcia Family");
+
+        // 3. Clicking the primary button triggers the mutation with the accountId
+        fireEvent.click(joinBtn);
         await waitFor(() => {
             expect(mockMutate).toHaveBeenCalledWith({
                 accountId: "acc-shared"
             });
         });
+    });
+
+    it("renders dedicated Google Sign-in card when unauthenticated and triggers login", async () => {
+        const mockLogin = vi.fn();
+        (useAuth as any).mockReturnValue({ isAuthenticated: false, user: null, isLoading: false, login: mockLogin, logout: vi.fn() });
+
+        render(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        // Verify Sign-in card is displayed
+        expect(screen.getByText(en.join.signInTitle)).toBeInTheDocument();
+        expect(screen.getByTestId("button-join-signin")).toBeInTheDocument();
+
+        // Clicking Sign-in calls login()
+        fireEvent.click(screen.getByTestId("button-join-signin"));
+        expect(mockLogin).toHaveBeenCalledTimes(1);
+    });
+
+    it("handles 401 Session expired error gracefully by showing the re-login flow", async () => {
+        const mockLogout = vi.fn();
+        const mockLogin = vi.fn();
+        let isAuth = true;
+
+        (useAuth as any).mockImplementation(() => ({
+            isAuthenticated: isAuth,
+            user: mockUser,
+            isLoading: false,
+            login: mockLogin,
+            logout: () => {
+                isAuth = false;
+                mockLogout();
+            }
+        }));
+
+        (useMutation as any).mockImplementation((options: any) => ({
+            mutate: () => {
+                const error = new Error("Session expired (401). Please reload to sign in again.");
+                if (options.onError) options.onError(error);
+            },
+            isPending: false,
+            isSuccess: false,
+            isError: true,
+            error: new Error("Session expired (401)")
+        }));
+
+        const { rerender } = render(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        // Click Join Group to trigger 401
+        fireEvent.click(screen.getByTestId("button-join-group"));
+
+        expect(mockLogout).toHaveBeenCalled();
+
+        // Re-render to reflect unauthenticated / expired state
+        rerender(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        expect(screen.getByText(en.join.sessionExpiredTitle)).toBeInTheDocument();
+        expect(screen.getByTestId("button-join-signin")).toBeInTheDocument();
     });
 });
 

@@ -110,4 +110,33 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
         const joinerRow = rows.find((r: any[]) => r[0] === 'u2');
         expect(joinerRow).toBeDefined();
     });
+
+    it('US-205: Joined users retain explicit Drive permissions when group is changed from public to restricted', async () => {
+        // 1. User A creates group and makes it public
+        const group = await repo.create("Shared Vacation");
+        await repo.setGroupPermissions(group.id, "public");
+        expect(await repo.getGroupPermissions(group.id)).toBe("public");
+
+        // 2. User B joins via magic link
+        const userB: User = { id: 'u-b', name: 'Bob', email: 'bob@example.com', username: 'bob' };
+        const repoB = new GroupRepository(adapter as any, userB);
+        await repoB.joinGroup(group.id);
+
+        // Verify Bob got an explicit permission on the file
+        let perms = await adapter.listPermissions(group.id);
+        const bobPerm = perms.find((p: any) => p.emailAddress === 'bob@example.com' && p.role === 'writer');
+        expect(bobPerm).toBeDefined();
+
+        // 3. User A toggles the link to restricted
+        await repo.setGroupPermissions(group.id, "restricted");
+        expect(await repo.getGroupPermissions(group.id)).toBe("restricted");
+
+        // Verify anyone permission is removed but Bob's explicit user permission remains intact
+        perms = await adapter.listPermissions(group.id);
+        const anyonePerm = perms.find((p: any) => p.type === 'anyone');
+        expect(anyonePerm).toBeUndefined();
+
+        const bobPermAfter = perms.find((p: any) => p.emailAddress === 'bob@example.com' && p.role === 'writer');
+        expect(bobPermAfter).toBeDefined();
+    });
 });

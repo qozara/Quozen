@@ -306,6 +306,34 @@ export class GroupRepository {
         if (access === 'public') {
             await this.storage.createPermission(groupId, "writer", "anyone");
         } else {
+            // When restricting access, ensure all members who joined via link retain explicit user permissions
+            try {
+                const res = await this.storage.batchGetValues(groupId, ["Members!A1:Z"]);
+                const memberRows = res[0]?.values || [];
+                if (memberRows.length > 1) {
+                    const headers = SheetDataMapper.buildHeaderMap(memberRows[0]);
+                    const members = memberRows.slice(1).map((r: any[], i: number) => SheetDataMapper.mapToMember(r, i + 2, headers).entity);
+                    const existingPerms = await this.storage.listPermissions(groupId);
+                    const existingEmails = new Set(
+                        existingPerms
+                            .filter((p: any) => p.type === 'user' && (p.emailAddress || p.email))
+                            .map((p: any) => (p.emailAddress || p.email).toLowerCase())
+                    );
+
+                    for (const m of members) {
+                        if (m.email && m.role !== 'owner' && !existingEmails.has(m.email.toLowerCase())) {
+                            try {
+                                await this.storage.createPermission(groupId, "writer", "user", m.email);
+                            } catch (e) {
+                                console.warn(`Could not add explicit permission for member ${m.email}:`, e);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("Could not verify member permissions before restricting group:", e);
+            }
+
             const permissions = await this.storage.listPermissions(groupId);
             const publicPerm = permissions.find((p: any) => p.type === 'anyone');
             if (publicPerm) {
@@ -463,6 +491,19 @@ export class GroupRepository {
         const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
         if (!validation.valid) throw new Error("Could not read group data");
 
+        // Ensure joining user receives explicit Google Drive permission so they don't lose access when link becomes restricted
+        if (this.user.email) {
+            try {
+                await this.storage.createPermission(spreadsheetId, "writer", "user", this.user.email);
+            } catch (e) {
+                console.warn("Could not set explicit permission during joinGroup", e);
+            }
+        }
+
+        await this.storage.updateFile(spreadsheetId, {
+            properties: { _lastSyncTrigger: new Date().toISOString() }
+        }).catch(() => {});
+
         if (options?.accountId) {
             const targetAccount = validation.members?.find(m => m.userId === options.accountId);
             if (!targetAccount) {
@@ -522,6 +563,28 @@ export class GroupRepository {
                 await this.storage.updateFile(groupId, { name: newTitle });
             } catch (err) {
                 if (!this.db || !isNetworkError(err)) throw err;
+            }
+
+            if (this.storage && this.db) {
+                try {
+                    const res = await this.storage.batchGetValues(groupId, ["Members!A1:Z"]);
+                    const memberRows = res[0]?.values || [];
+                    if (memberRows.length > 1) {
+                        const mHeaders = SheetDataMapper.buildHeaderMap(memberRows[0]);
+                        const mDocs = memberRows
+                            .slice(1)
+                            .filter((r: any[]) => Array.isArray(r) && r.some(cell => String(cell ?? "").trim() !== ""))
+                            .map((r: any[], i: number) =>
+                                memberToDoc(SheetDataMapper.mapToMember(r, i + 2, mHeaders).entity, groupId)
+                            )
+                            .filter((d: any) => Boolean(d.userId));
+                        if (mDocs.length > 0) {
+                            await this.db.members.bulkUpsert(mDocs);
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Could not refresh members from storage during updateGroup:", e);
+                }
             }
         }
 
