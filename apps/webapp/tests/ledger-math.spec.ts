@@ -24,12 +24,14 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
         console.log("Filled group form.");
         await page.getByTestId('button-submit-group').click();
 
-        // Wait for success toast
-        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
+        // Wait for ShareDialog
+        const shareTitle = page.getByTestId('drawer-title-share');
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         console.log("Group created.");
 
         // Dismiss ShareDialog
         await page.keyboard.press('Escape');
+        await expect(shareTitle).not.toBeVisible();
 
         // Wait for header to update
         await expect(page.getByTestId('header')).not.toContainText(/Select Group/i, { timeout: 15000 });
@@ -103,8 +105,10 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
         await page.getByTestId('input-group-name').fill('Validation Group');
         await page.getByTestId('button-submit-group').click();
-        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
+        const shareTitle = page.getByTestId('drawer-title-share');
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
+        await expect(shareTitle).not.toBeVisible();
         await expect(page.getByTestId('header')).not.toContainText(/Select Group/i, { timeout: 15000 });
         await expect(page.getByTestId('header')).toContainText('Validation Group');
 
