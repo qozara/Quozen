@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAuth } from "@/context/auth-provider";
 
 const API_KEY = import.meta.env.VITE_GOOGLE_PICKER_API_KEY;
@@ -12,7 +12,9 @@ interface UseGooglePickerProps {
 
 export function useGooglePicker({ onPick, onCancel, query }: UseGooglePickerProps) {
     const { token } = useAuth();
-    const [isLoaded, setIsLoaded] = useState(false);
+    const [isLoaded, setIsLoaded] = useState(() => {
+        return typeof window !== "undefined" && Boolean(window.google && window.google.picker);
+    });
     const [error, setError] = useState<string | null>(null);
 
     // Load the Google API script if not already loaded
@@ -27,7 +29,13 @@ export function useGooglePicker({ onPick, onCancel, query }: UseGooglePickerProp
             return;
         }
 
+        const scriptId = "google-picker-api-script";
+        if (document.getElementById(scriptId)) {
+            return;
+        }
+
         const script = document.createElement("script");
+        script.id = scriptId;
         script.src = "https://apis.google.com/js/api.js";
         script.async = true;
         script.defer = true;
@@ -46,6 +54,11 @@ export function useGooglePicker({ onPick, onCancel, query }: UseGooglePickerProp
         document.body.appendChild(script);
     }, []);
 
+    // Proactively load Picker API on mount so it's ready when user clicks
+    useEffect(() => {
+        loadPickerApi();
+    }, [loadPickerApi]);
+
     // Open the picker
     const openPicker = useCallback(() => {
         if (!isLoaded) {
@@ -63,23 +76,35 @@ export function useGooglePicker({ onPick, onCancel, query }: UseGooglePickerProp
             return;
         }
 
-        // DocsView extends View. We chain methods here.
-        // The type definition update ensures setMimeTypes returns 'this', preserving DocsView type.
+        // Spreadsheets view with setOwnedByMe(false) so shared spreadsheets are included
         const view = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
             .setMimeTypes("application/vnd.google-apps.spreadsheet")
-            // We want to see files shared with us, so we don't restrict to "Owned by me"
             .setIncludeFolders(true)
-            .setSelectFolderEnabled(false);
+            .setSelectFolderEnabled(false)
+            .setOwnedByMe(false);
 
         if (query) {
             view.setQuery(query);
+        }
+
+        // Dedicated Docs view with setOwnedByMe(false) to guarantee visibility for restricted files shared by email
+        const allDocsView = new google.picker.DocsView(google.picker.ViewId.DOCS)
+            .setMimeTypes("application/vnd.google-apps.spreadsheet")
+            .setIncludeFolders(true)
+            .setSelectFolderEnabled(false)
+            .setOwnedByMe(false);
+
+        if (query) {
+            allDocsView.setQuery(query);
         }
 
         const picker = new google.picker.PickerBuilder()
             .setAppId(APP_ID)
             .setOAuthToken(token)
             .setDeveloperKey(API_KEY)
+            .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
             .addView(view)
+            .addView(allDocsView)
             .setCallback((data: google.picker.PickerResponse) => {
                 if (data.action === google.picker.Action.PICKED && data.docs && data.docs.length > 0) {
                     onPick(data.docs[0]);

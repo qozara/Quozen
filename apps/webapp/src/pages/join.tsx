@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
@@ -7,7 +7,7 @@ import { useAuth } from "@/context/auth-provider";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertCircle, CheckCircle2, ExternalLink, Search, ChevronDown, User, Check, LogIn } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2, ExternalLink, Search, ChevronDown, User, Check, LogIn, FolderLock } from "lucide-react";
 import { useAppContext } from "@/context/app-context";
 import { useTranslation } from "react-i18next";
 import { useGooglePicker } from "@/hooks/use-google-picker";
@@ -31,6 +31,7 @@ export default function JoinPage() {
     const [accountsError, setAccountsError] = useState<string | null>(null);
     const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
     const [isSessionExpired, setIsSessionExpired] = useState(false);
+    const connectingFromAccountsRef = useRef(false);
 
     const groupName = searchParams.get("name") || "Group";
     const inviterName = searchParams.get("inviter") || "Someone";
@@ -147,14 +148,36 @@ export default function JoinPage() {
         // But ID search in picker is flaky if file is not indexed. 
         // Strategy: User clicks Link -> File added to "Recent" -> Picker searches by name -> User picks.
         query: groupName !== "Group" ? groupName : undefined,
-        onPick: (doc) => {
+        onPick: async (doc) => {
             if (doc.id === id) {
                 setError(null);
-                // Retry mutation now that we presumably have permission
-                joinMutation.mutate(selectedAccountId ? { accountId: selectedAccountId } : undefined);
+                setAccountsError(null);
+                if (connectingFromAccountsRef.current) {
+                    connectingFromAccountsRef.current = false;
+                    setIsLoadingAccounts(true);
+                    try {
+                        const res = await quozen.groups.validateQuozenSpreadsheet(id);
+                        if (res.valid) {
+                            setExistingAccounts(res.members || []);
+                        } else {
+                            setAccountsError(t("join.accessDenied"));
+                        }
+                    } catch (err: any) {
+                        const errMsg = String(err?.message || err);
+                        setAccountsError(errMsg || t("join.genericError"));
+                    } finally {
+                        setIsLoadingAccounts(false);
+                    }
+                } else {
+                    // Retry mutation now that we presumably have permission
+                    joinMutation.mutate(selectedAccountId ? { accountId: selectedAccountId } : undefined);
+                }
             } else {
                 toast({ title: t("common.error"), description: t("join.idMismatch"), variant: "destructive" });
             }
+        },
+        onCancel: () => {
+            connectingFromAccountsRef.current = false;
         }
     });
 
@@ -289,9 +312,55 @@ export default function JoinPage() {
                                                 <span>{t("join.loadingAccounts")}</span>
                                             </div>
                                         ) : accountsError ? (
-                                            <div className="p-3 text-xs text-destructive bg-destructive/10 rounded-md">
-                                                {accountsError}
-                                            </div>
+                                            accountsError === t("join.accessDenied") ? (
+                                                <div className="p-3.5 rounded-lg border border-primary/20 bg-primary/5 space-y-3 text-left" data-testid="connect-drive-prompt">
+                                                    <div className="flex items-start gap-2.5">
+                                                        <FolderLock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                                                        <div className="space-y-1">
+                                                            <p className="text-xs font-semibold text-foreground">
+                                                                {t("join.confirmAccessTitle", { groupName })}
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                                                {t("join.confirmAccessDesc", { inviter: inviterName, groupName })}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        className="w-full flex items-center justify-center gap-2 text-xs font-semibold h-8 shadow-sm"
+                                                        data-testid="button-connect-drive-accounts"
+                                                        onClick={() => {
+                                                            connectingFromAccountsRef.current = true;
+                                                            openPicker();
+                                                        }}
+                                                    >
+                                                        <Search className="w-3.5 h-3.5" />
+                                                        {t("join.connectWithDrive")}
+                                                    </Button>
+                                                    {user?.email && (
+                                                        <p className="text-[11px] text-muted-foreground text-center">
+                                                            {t("join.confirmAccessHint", { email: user.email, inviter: inviterName })}
+                                                        </p>
+                                                    )}
+                                                    <div className="pt-1 text-[11px] text-muted-foreground flex items-center justify-center gap-1">
+                                                        <span>{t("join.cantFindFile")}</span>
+                                                        <a
+                                                            href={driveUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-primary hover:underline inline-flex items-center gap-0.5 font-medium"
+                                                        >
+                                                            {t("join.openInDriveFirst")}
+                                                            <ExternalLink className="w-3 h-3" />
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="p-3 text-xs text-destructive bg-destructive/10 rounded-md">
+                                                    {accountsError}
+                                                </div>
+                                            )
                                         ) : existingAccounts.length === 0 ? (
                                             <div className="p-3 text-xs text-muted-foreground bg-muted/40 rounded-md text-center">
                                                 {t("join.noExistingAccounts")}

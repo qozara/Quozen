@@ -339,6 +339,54 @@ describe("JoinPage", () => {
         expect(screen.getByText(en.join.sessionExpiredTitle)).toBeInTheDocument();
         expect(screen.getByTestId("button-join-signin")).toBeInTheDocument();
     });
+
+    it("handles restricted group access when viewing existing accounts by showing Drive connect prompt and re-fetching after picking file", async () => {
+        (useAuth as any).mockReturnValue({ isAuthenticated: true, user: mockUser, isLoading: false, login: vi.fn(), logout: vi.fn() });
+
+        // 1. Initially restricted: 403 Forbidden
+        mockValidateQuozenSpreadsheet
+            .mockResolvedValueOnce({
+                valid: false,
+                error: "403 Forbidden"
+            })
+            // 2. After user connects via Google Picker, second validation succeeds with members
+            .mockResolvedValueOnce({
+                valid: true,
+                members: [
+                    { userId: "acc-shared", name: "Garcia Family", email: "alice@example.com", role: "owner", joinedAt: new Date() }
+                ]
+            });
+
+        render(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        // Click toggle to view existing accounts
+        const useExistingBtn = screen.getByTestId("button-use-existing-account");
+        fireEvent.click(useExistingBtn);
+
+        // Verify friendly connect prompt appears instead of dead-end text
+        await waitFor(() => {
+            expect(screen.getByTestId("connect-drive-prompt")).toBeInTheDocument();
+            expect(screen.getByTestId("button-connect-drive-accounts")).toBeInTheDocument();
+        });
+
+        // Click "Connect with Google Drive"
+        fireEvent.click(screen.getByTestId("button-connect-drive-accounts"));
+
+        // Picker opens and user picks the file (mockOpenPicker resolves cb({ id: "123" }))
+        expect(mockOpenPicker).toHaveBeenCalled();
+
+        // Accounts list appears after authorization
+        await waitFor(() => {
+            expect(screen.getByTestId("join-existing-account-acc-shared")).toBeInTheDocument();
+            expect(screen.queryByTestId("connect-drive-prompt")).not.toBeInTheDocument();
+        });
+    });
 });
 
 
