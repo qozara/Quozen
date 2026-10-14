@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Copy, Check, Globe, Lock } from "lucide-react";
+import { Copy, Check, Globe, Lock, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/auth-provider";
 import { useTranslation } from "react-i18next";
 
@@ -67,10 +67,6 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
         onSuccess: (makePublic) => {
             setIsPublic(makePublic);
             queryClient.setQueryData(["drive", "permissions", groupId], makePublic ? 'public' : 'restricted');
-            toast({
-                title: t("common.success"),
-                description: makePublic ? t("share.successPublic") : t("share.successRestricted")
-            });
         },
         onError: () => {
             // Revert state on error
@@ -91,12 +87,18 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
     const handleCopy = () => {
         navigator.clipboard.writeText(joinLink);
         setCopied(true);
-        toast({ description: t("share.copied") });
         setTimeout(() => setCopied(false), 2000);
     };
 
     return (
-        <Drawer open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+        <Drawer
+            open={isOpen}
+            onOpenChange={(open) => {
+                if (permissionMutation.isPending) return;
+                if (!open) onClose();
+            }}
+            dismissible={!permissionMutation.isPending}
+        >
             <DrawerContent
                 onCloseAutoFocus={(event) => {
                     if (event.defaultPrevented) return;
@@ -155,7 +157,11 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
                                         disabled={permissionMutation.isPending}
                                         data-testid="button-enable-public-sharing"
                                     >
-                                        <Globe className="w-3.5 h-3.5 text-primary" />
+                                        {permissionMutation.isPending ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                                        ) : (
+                                            <Globe className="w-3.5 h-3.5 text-primary" />
+                                        )}
                                         {t("share.enablePublicAction")}
                                     </Button>
                                 </div>

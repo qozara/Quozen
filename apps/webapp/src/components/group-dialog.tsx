@@ -7,7 +7,7 @@ import { parseMembers } from "@/lib/utils";
 import { MemberInput } from "@quozen/core";
 import { useTranslation } from "react-i18next";
 import { useAutoSync } from "@/hooks/use-auto-sync";
-import { X, Plus } from "lucide-react";
+import { X, Plus, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface GroupDialogProps {
@@ -77,7 +77,14 @@ export default function GroupDialog({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer
+      open={open}
+      onOpenChange={(newOpen) => {
+        if (isPending) return;
+        onOpenChange(newOpen);
+      }}
+      dismissible={!isPending}
+    >
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle data-testid="drawer-title-group">{mode === 'create' ? t("groups.create") : t("groups.edit")}</DrawerTitle>
@@ -153,6 +160,7 @@ export default function GroupDialog({
               type="button"
               variant="secondary"
               className="flex-1 h-12"
+              disabled={isPending}
               onClick={() => onOpenChange(false)}
             >
               {t("common.cancel")}
@@ -164,7 +172,14 @@ export default function GroupDialog({
               disabled={isPending}
               data-testid="button-submit-group"
             >
-              {isPending ? t("expenseForm.saving") : (mode === 'create' ? t("groups.create") : t("groups.update"))}
+              {isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {t("expenseForm.saving")}
+                </>
+              ) : (
+                mode === 'create' ? t("groups.create") : t("groups.update")
+              )}
             </Button>
           </div>
         </DrawerFooter>

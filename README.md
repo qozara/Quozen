@@ -36,6 +36,13 @@ Quozen is built as a highly modular monorepo, decoupling core business logic fro
 - **Regional Formatting**: Automatically formats dates and numbers (e.g., `1,234.56` vs `1.234,56`) based on your locale.
 - **Currency Selection**: Set your preferred display currency (`USD`, `EUR`, `GBP`, etc.).
 
+### 📱 Mobile-First UX & Asynchronous Feedback Conventions
+Quozen enforces strict interaction conventions for local vs. remote operations (see [ADR 20261014](docs/adr/20261014-sync-async-ux-feedback-guidelines.md)):
+- **Zero Success Toasts for Local Actions**: Local RxDB writes (0ms latency) provide feedback via 60fps reactive updates, animated drawer dismissal, and subtle haptic feedback. No intrusive success toasts obstruct the screen.
+- **Mandatory UI Blocking for Cloud Operations (>300ms)**: Any action communicating with external cloud APIs (Google Drive/Sheets) displays inline spinners, locks drawers (`dismissible={!isPending}`), and blocks interaction until the server responds.
+- **Passive Background Diagnostics**: Background replication blips do not spam error toasts. Health states route to the header `SyncTrigger` glyph (spinning, amber warning, or offline) with an on-demand inspector popover.
+- **In-Place Micro-Interactions**: Ephemeral actions like copying magic links or manual refresh trigger in-place icon transitions (e.g., checkmark `<Check />` or `<RefreshCw className="animate-spin" />`) rather than floating toasts.
+
 ## 🔐 Architecture & Security
 
 Quozen utilizes **Client-Side OAuth 2.0** via Google Identity Services. There is **no proprietary backend database**. The relationship is strictly **You ↔ Google**.

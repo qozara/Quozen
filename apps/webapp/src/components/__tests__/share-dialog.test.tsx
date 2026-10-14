@@ -114,9 +114,7 @@ describe("ShareDialog Component", () => {
 
         await waitFor(() => {
             expect(mockMutate).toHaveBeenCalledWith(true);
-            expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
-                description: en.share.successPublic
-            }));
+            expect(mockToast).not.toHaveBeenCalled();
         });
     });
 

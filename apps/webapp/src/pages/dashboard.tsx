@@ -114,17 +114,11 @@ export default function Dashboard() {
         (authUser.name && currentUser.name !== authUser.name))
   );
 
-  const applyAccountSwitch = (accountId: string, accountName?: string) => {
+  const applyAccountSwitch = (accountId: string) => {
     if (setActiveAccountId) {
       setActiveAccountId(accountId);
     } else if (updateGroupAccount && activeGroupId) {
       updateGroupAccount({ groupId: activeGroupId, accountId });
-    }
-    if (accountName) {
-      toast({
-        title: t("common.success"),
-        description: t("dashboard.accountSwitched", { name: accountName }),
-      });
     }
   };
 
@@ -163,28 +157,28 @@ export default function Dashboard() {
       }
     }
 
-    applyAccountSwitch(targetUserId, targetMember.name);
+    applyAccountSwitch(targetUserId);
   };
 
   const handleConfirmShareAndRemoveUnused = async () => {
     if (!pendingSwitch || !activeGroupId) return;
-    const { targetUserId, targetName, unusedMemberId } = pendingSwitch;
+    const { targetUserId, unusedMemberId } = pendingSwitch;
     setPendingSwitch(null);
     try {
       await quozen.ledger(activeGroupId, targetUserId).removeUnusedMember(unusedMemberId);
-      applyAccountSwitch(targetUserId, targetName);
+      applyAccountSwitch(targetUserId);
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
     } catch (err) {
       console.error("Failed to remove unused personal account", err);
-      applyAccountSwitch(targetUserId, targetName);
+      applyAccountSwitch(targetUserId);
     }
   };
 
   const handleJustSwitchView = () => {
     if (!pendingSwitch) return;
-    const { targetUserId, targetName } = pendingSwitch;
+    const { targetUserId } = pendingSwitch;
     setPendingSwitch(null);
-    applyAccountSwitch(targetUserId, targetName);
+    applyAccountSwitch(targetUserId);
   };
 
   const handleOpenRename = () => {
@@ -201,10 +195,6 @@ export default function Dashboard() {
       await quozen.ledger(activeGroupId, effectiveUserId).renameMember(effectiveUserId, renameValue.trim());
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
       setIsRenameOpen(false);
-      toast({
-        title: t("common.success"),
-        description: t("dashboard.accountRenamed"),
-      });
     } catch (err) {
       console.error("Failed to rename account", err);
       toast({
