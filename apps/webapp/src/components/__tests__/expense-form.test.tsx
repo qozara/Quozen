@@ -15,7 +15,10 @@ vi.mock("@/hooks/use-toast", () => ({
 
 vi.mock("react-i18next", () => ({
     useTranslation: () => ({
-        t: (key: string) => {
+        t: (key: string, options?: Record<string, string>) => {
+            if (key === "expenseForm.youNamed" && options?.name) {
+                return `You (${options.name})`;
+            }
             const keys: Record<string, string> = {
                 "expenseForm.description": "Description",
                 "expenseForm.amount": "Amount",
@@ -190,4 +193,44 @@ describe("ExpenseForm — Amount Validation (U5)", () => {
             })
         );
     });
+
+    it("displays 'You (<Account Name>)' when the active account is a Shared or Offline Account", async () => {
+        const authMod = await import("@/context/auth-provider");
+        vi.spyOn(authMod, "useOptionalAuth").mockReturnValue({
+            user: { id: "user-bob", name: "Bob", email: "bob@example.com", username: "bob" },
+            isAuthenticated: true,
+            isLoading: false,
+            token: "tok",
+            login: vi.fn(),
+            logout: vi.fn(),
+        });
+
+        const sharedUsers: Member[] = [
+            {
+                userId: "shared-acc-1",
+                name: "Garcia Family",
+                email: "alice@example.com",
+                role: "owner",
+                joinedAt: new Date(),
+            },
+            {
+                userId: "user-charlie",
+                name: "Charlie",
+                email: "charlie@example.com",
+                role: "member",
+                joinedAt: new Date(),
+            },
+        ];
+
+        render(
+            <ExpenseForm
+                {...defaultProps}
+                users={sharedUsers}
+                currentUserId="shared-acc-1"
+            />
+        );
+
+        expect(screen.getAllByText("You (Garcia Family)").length).toBeGreaterThan(0);
+    });
 });
+

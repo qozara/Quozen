@@ -13,3 +13,6 @@ Inviting users required manual entry of their emails or asking them to use the G
 - We rely heavily on atomic `appendRow` for joining instead of full array rewrites to prevent multiple users joining concurrently from overriding each other.
 - Magic link permissions are "writer" for "anyone". The owner must turn it off manually to restrict access again.
 - Files must have `properties` globally visible (`PUBLIC`) so other accounts can identify them as Quozen files.
+
+> **Update (2026-10-12):** See [ADR: Account-User Separation](./20261012-account-user-separation.md). When joining via `/join/:id`, a user can either join as a new **Personal Account** (default `appendRow` behavior) or select an existing **Shared Account** / **Offline Account** (`joinGroup(id, { accountId })`), which binds their `UserSettings.groupCache[].accountId` without appending a duplicate `Members` row or triggering `migrateUser`.
+

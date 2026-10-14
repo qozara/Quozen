@@ -17,10 +17,13 @@ Quozen is built as a highly modular monorepo, decoupling core business logic fro
 
 ## 🚀 Features
 
-### 👥 Collaborative Groups
+### 👥 Collaborative Groups & Flexible Accounts
 - **Magic Link Sharing**: Generate a unique link to let anyone join the group instantly with automatic permissions handling.
 - **Share via Email**: Invite friends directly via their Google account.
-- **Offline Members**: Add members by username (e.g., "Bob") to track expenses for friends who don't use the app.
+- **Personal, Shared & Offline Accounts**: Decouples logged-in Google **Users** from group ledger **Accounts**:
+  - **Personal Account**: Default 1:1 account for an individual user.
+  - **Shared Account**: Multiple logged-in users (e.g., a family, a couple, or a subgroup of friends) can link to and co-manage a single consolidated account that counts as one share in group splits.
+  - **Offline Account**: Add accounts without an email (e.g., `"Bob"`) and let any logged-in user switch to or record expenses on their behalf.
 
 ### 🔄 Smart Data Sync & Resilience
 - **0ms Latency & Full Offline Reliability**: Read, write, and balance expenses instantly without waiting for network roundtrips.
@@ -32,6 +35,13 @@ Quozen is built as a highly modular monorepo, decoupling core business logic fro
 - **Multi-Language**: Fully translated into **English (US)** and **Spanish (LatAm)**. Auto-detects system preferences.
 - **Regional Formatting**: Automatically formats dates and numbers (e.g., `1,234.56` vs `1.234,56`) based on your locale.
 - **Currency Selection**: Set your preferred display currency (`USD`, `EUR`, `GBP`, etc.).
+
+### 📱 Mobile-First UX & Asynchronous Feedback Conventions
+Quozen enforces strict interaction conventions for local vs. remote operations (see [ADR 20261014](docs/adr/20261014-sync-async-ux-feedback-guidelines.md)):
+- **Zero Success Toasts for Local Actions**: Local RxDB writes (0ms latency) provide feedback via 60fps reactive updates, animated drawer dismissal, and subtle haptic feedback. No intrusive success toasts obstruct the screen.
+- **Mandatory UI Blocking for Cloud Operations (>300ms)**: Any action communicating with external cloud APIs (Google Drive/Sheets) displays inline spinners, locks drawers (`dismissible={!isPending}`), and blocks interaction until the server responds.
+- **Passive Background Diagnostics**: Background replication blips do not spam error toasts. Health states route to the header `SyncTrigger` glyph (spinning, amber warning, or offline) with an on-demand inspector popover.
+- **In-Place Micro-Interactions**: Ephemeral actions like copying magic links or manual refresh trigger in-place icon transitions (e.g., checkmark `<Check />` or `<RefreshCw className="animate-spin" />`) rather than floating toasts.
 
 ## 🔐 Architecture & Security
 

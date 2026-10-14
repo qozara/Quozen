@@ -1,11 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppContext } from "@/context/app-context";
+import { useOptionalAuth } from "@/context/auth-provider";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import SettlementModal from "@/components/settlement-modal";
 import { useState, useMemo } from "react";
 import {
   Utensils, Car, Bed, ShoppingBag, Gamepad2, MoreHorizontal,
-  Wallet, Handshake, ChevronDown, ArrowRight, Banknote
+  Wallet, Handshake, ChevronDown, ArrowRight, Banknote, User, Check, Pencil
 } from "lucide-react";
 import { quozen } from "@/lib/storage";
 import { useNavigate } from "react-router-dom";
@@ -16,17 +19,48 @@ import {
 } from "@quozen/core";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { useDateFormatter } from "@/hooks/use-date-formatter";
 import { useSettings } from "@/hooks/use-settings";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Dashboard() {
-  const { activeGroupId, currentUserId, setIsAddExpenseOpen } = useAppContext();
+  const { activeGroupId, currentUserId, setActiveAccountId, setIsAddExpenseOpen } = useAppContext();
+  const auth = useOptionalAuth();
+  const authUser = auth?.user;
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const { formatDate } = useDateFormatter();
-  const { settings } = useSettings();
+  const { settings, updateGroupAccount } = useSettings();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const currencyCode = settings?.preferences?.defaultCurrency || "USD";
 
@@ -41,9 +75,20 @@ export default function Dashboard() {
   const [isBalancesOpen, setIsBalancesOpen] = useState(true);
   const [isActivityOpen, setIsActivityOpen] = useState(true);
 
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
+
+  const [pendingSwitch, setPendingSwitch] = useState<{
+    targetUserId: string;
+    targetName: string;
+    unusedMemberId: string;
+    unusedMemberName: string;
+  } | null>(null);
+
   const { data: ledger, isLoading } = useQuery({
     queryKey: ["drive", "group", activeGroupId],
-    queryFn: () => quozen.ledger(activeGroupId).getLedger(),
+    queryFn: () => quozen.ledger(activeGroupId, currentUserId).getLedger(),
     enabled: !!activeGroupId,
   });
 
@@ -51,7 +96,116 @@ export default function Dashboard() {
   const settlements = ledger?.settlements || [];
   const users = ledger?.members || [];
 
-  const currentUser = users.find(u => u.userId === currentUserId);
+  const currentUser = useMemo(() => {
+    if (!users.length) return undefined;
+    return (
+      users.find(u => u.userId === currentUserId) ||
+      (authUser?.email ? users.find(u => u.email === authUser.email) : undefined) ||
+      users[0]
+    );
+  }, [users, currentUserId, authUser?.email]);
+
+  const effectiveUserId = currentUser?.userId || currentUserId;
+
+  const isManagingSharedOrOffline = Boolean(
+    currentUser &&
+      authUser &&
+      (currentUser.userId !== authUser.id ||
+        (authUser.name && currentUser.name !== authUser.name))
+  );
+
+  const applyAccountSwitch = (accountId: string) => {
+    if (setActiveAccountId) {
+      setActiveAccountId(accountId);
+    } else if (updateGroupAccount && activeGroupId) {
+      updateGroupAccount({ groupId: activeGroupId, accountId });
+    }
+  };
+
+  const handleSelectAccount = (targetUserId: string) => {
+    if (targetUserId === effectiveUserId) return;
+    const targetMember = users.find(u => u.userId === targetUserId);
+    if (!targetMember) return;
+
+    // Check if the user is switching away from their own unused Personal Account
+    const personalMember = users.find(
+      u =>
+        u.userId === effectiveUserId &&
+        (!authUser ||
+          u.userId === authUser.id ||
+          (authUser.email && u.email === authUser.email))
+    );
+
+    if (personalMember && personalMember.role !== "owner" && personalMember.userId !== targetUserId) {
+      const hasExpenses = expenses.some(
+        e =>
+          e.paidByUserId === personalMember.userId ||
+          e.splits?.some(s => s.userId === personalMember.userId && s.amount > 0)
+      );
+      const hasSettlements = settlements.some(
+        s => s.fromUserId === personalMember.userId || s.toUserId === personalMember.userId
+      );
+
+      if (!hasExpenses && !hasSettlements) {
+        setPendingSwitch({
+          targetUserId: targetMember.userId,
+          targetName: targetMember.name,
+          unusedMemberId: personalMember.userId,
+          unusedMemberName: personalMember.name,
+        });
+        return;
+      }
+    }
+
+    applyAccountSwitch(targetUserId);
+  };
+
+  const handleConfirmShareAndRemoveUnused = async () => {
+    if (!pendingSwitch || !activeGroupId) return;
+    const { targetUserId, unusedMemberId } = pendingSwitch;
+    setPendingSwitch(null);
+    try {
+      await quozen.ledger(activeGroupId, targetUserId).removeUnusedMember(unusedMemberId);
+      applyAccountSwitch(targetUserId);
+      queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+    } catch (err) {
+      console.error("Failed to remove unused personal account", err);
+      applyAccountSwitch(targetUserId);
+    }
+  };
+
+  const handleJustSwitchView = () => {
+    if (!pendingSwitch) return;
+    const { targetUserId } = pendingSwitch;
+    setPendingSwitch(null);
+    applyAccountSwitch(targetUserId);
+  };
+
+  const handleOpenRename = () => {
+    if (!currentUser) return;
+    setRenameValue(currentUser.name);
+    setIsRenameOpen(true);
+  };
+
+  const handleRenameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeGroupId || !currentUser || !renameValue.trim()) return;
+    setIsRenaming(true);
+    try {
+      await quozen.ledger(activeGroupId, effectiveUserId).renameMember(effectiveUserId, renameValue.trim());
+      queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+      setIsRenameOpen(false);
+    } catch (err) {
+      console.error("Failed to rename account", err);
+      toast({
+        title: t("common.error"),
+        description: t("common.genericError"),
+        variant: "destructive",
+      });
+    } finally {
+      setIsRenaming(false);
+    }
+  };
 
   const getUserById = (id: string) => {
     const u = users.find(u => u.userId === id);
@@ -64,8 +218,8 @@ export default function Dashboard() {
   };
 
   const balances = useMemo(() => ledger?.getBalances() || {}, [ledger]);
-  const totalSpent = useMemo(() => ledger?.getTotalSpent(currentUserId) || 0, [ledger, currentUserId]);
-  const userBalance = ledger?.getUserBalance(currentUserId) || 0;
+  const totalSpent = useMemo(() => ledger?.getTotalSpent(effectiveUserId) || 0, [ledger, effectiveUserId]);
+  const userBalance = ledger?.getUserBalance(effectiveUserId) || 0;
 
   const recentActivity = useMemo(() => {
     const combined = [
@@ -89,7 +243,7 @@ export default function Dashboard() {
     }
   };
 
-  const settlementSuggestion = useMemo(() => ledger?.getSettleUpSuggestion(currentUserId), [ledger, currentUserId]);
+  const settlementSuggestion = useMemo(() => ledger?.getSettleUpSuggestion(effectiveUserId), [ledger, effectiveUserId]);
 
 
   const handleSettleUp = () => {
@@ -144,10 +298,68 @@ export default function Dashboard() {
     <>
       <div className="space-y-4" data-testid="dashboard-view">
         <div className="mx-4 mt-4 bg-card rounded-lg border border-border p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-2">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <Wallet className="w-5 h-5 text-primary" /> {t("dashboard.balance")}
             </h2>
+            {currentUser && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="button-account-switcher"
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                      isManagingSharedOrOffline
+                        ? "bg-primary/10 text-primary border-primary/20 hover:bg-primary/15"
+                        : "bg-secondary/60 text-muted-foreground border-border hover:bg-secondary"
+                    )}
+                  >
+                    <User className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate max-w-[130px]" data-testid="text-active-account-name">
+                      {currentUser.name}
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5 opacity-70 shrink-0" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                    {t("dashboard.activeAccount")}
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {users.map((u) => {
+                    const isSelected = u.userId === effectiveUserId;
+                    return (
+                      <DropdownMenuItem
+                        key={u.userId}
+                        onClick={() => handleSelectAccount(u.userId)}
+                        data-testid={`menu-item-account-${u.userId}`}
+                        className="flex items-center justify-between cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <Check className={cn("w-4 h-4 text-primary shrink-0", !isSelected && "opacity-0")} />
+                          <span className={cn("truncate", isSelected && "font-semibold")}>{u.name}</span>
+                        </div>
+                        {u.role === "owner" && (
+                          <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded ml-2 shrink-0">
+                            {t("roles.owner")}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={handleOpenRename}
+                    data-testid="menu-item-rename-account"
+                    className="cursor-pointer"
+                  >
+                    <Pencil className="w-4 h-4 mr-2 text-muted-foreground" />
+                    <span>{t("dashboard.renameAccount")}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
           <div className="text-center py-2">
             <div
@@ -193,7 +405,7 @@ export default function Dashboard() {
             <CollapsibleContent>
               <div className="divide-y divide-border">
                 {users
-                  .filter(u => u.userId !== currentUserId)
+                  .filter(u => u.userId !== effectiveUserId)
                   .map((u) => {
                     const balance = balances[u.userId] || 0;
 
@@ -263,10 +475,10 @@ export default function Dashboard() {
                     recentActivity.map((item) => {
                       if (item.type === 'settlement') {
                         const s = item as Settlement;
-                        const fromName = s.fromUserId === currentUserId ? t("dashboard.you") : getMemberName(s.fromUserId).split(' ')[0];
-                        const toName = s.toUserId === currentUserId ? t("dashboard.you") : getMemberName(s.toUserId).split(' ')[0];
-                        const isMeSender = s.fromUserId === currentUserId;
-                        const isMeReceiver = s.toUserId === currentUserId;
+                        const fromName = s.fromUserId === effectiveUserId ? t("dashboard.you") : getMemberName(s.fromUserId).split(' ')[0];
+                        const toName = s.toUserId === effectiveUserId ? t("dashboard.you") : getMemberName(s.toUserId).split(' ')[0];
+                        const isMeSender = s.fromUserId === effectiveUserId;
+                        const isMeReceiver = s.toUserId === effectiveUserId;
 
                         let colorClass = "text-muted-foreground";
                         if (isMeSender) colorClass = "text-orange-600 dark:text-orange-400";
@@ -307,7 +519,7 @@ export default function Dashboard() {
                       const e = item as Expense;
                       const paidByUser = getUserById(e.paidByUserId);
                       const Icon = getExpenseIcon(e.category);
-                      const status = ledger?.getExpenseStatus(e.id, currentUserId) || { status: 'none' };
+                      const status = ledger?.getExpenseStatus(e.id, effectiveUserId) || { status: 'none' };
 
                       return (
                         <div key={e.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => navigate(`/edit-expense/${e.id}`)} data-testid={`expense-item-${e.id}`}>
@@ -368,6 +580,79 @@ export default function Dashboard() {
         initialData={settlementModal.initialData}
         users={users}
       />
+
+      <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>
+        <DialogContent data-testid="dialog-rename-account">
+          <DialogHeader>
+            <DialogTitle>{t("dashboard.renameAccountTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("dashboard.renameAccountDesc")}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleRenameSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="rename-account-input">{t("dashboard.accountNameLabel")}</Label>
+              <Input
+                id="rename-account-input"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                required
+                data-testid="input-rename-account"
+                className="mt-1"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsRenameOpen(false)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="submit"
+                disabled={isRenaming || !renameValue.trim()}
+                data-testid="button-save-rename-account"
+              >
+                {t("common.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!pendingSwitch} onOpenChange={(open) => !open && setPendingSwitch(null)}>
+        <AlertDialogContent data-testid="alert-share-account-cleanup">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("dashboard.shareAccountConfirmTitle", { targetName: pendingSwitch?.targetName || "" })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("dashboard.shareAccountConfirmDesc", {
+                unusedName: pendingSwitch?.unusedMemberName || "",
+                targetName: pendingSwitch?.targetName || ""
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={handleJustSwitchView}
+              data-testid="button-switch-view-only"
+            >
+              {t("dashboard.justSwitchView")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmShareAndRemoveUnused}
+              data-testid="button-confirm-share-account"
+            >
+              {t("dashboard.shareAndRemoveUnused", {
+                targetName: pendingSwitch?.targetName || "",
+                unusedName: pendingSwitch?.unusedMemberName || ""
+              })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

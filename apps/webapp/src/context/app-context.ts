@@ -4,6 +4,7 @@ export interface AppState {
   activeGroupId: string;
   setActiveGroupId: (groupId: string) => void;
   currentUserId: string;
+  setActiveAccountId?: (accountId: string) => void;
   isAddExpenseOpen: boolean;
   setIsAddExpenseOpen: (isOpen: boolean) => void;
   schemaErrorStatus: 'CORRUPTED' | 'UPGRADE_REQUIRED' | null;

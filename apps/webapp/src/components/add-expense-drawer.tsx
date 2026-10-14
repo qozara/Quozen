@@ -22,7 +22,7 @@ export default function AddExpenseDrawer() {
 
     const { data: ledger } = useQuery({
         queryKey: ["drive", "group", activeGroupId],
-        queryFn: () => quozen.ledger(activeGroupId).getLedger(),
+        queryFn: () => quozen.ledger(activeGroupId, currentUserId).getLedger(),
         enabled: !!activeGroupId && isAddExpenseOpen,
     });
 
@@ -31,7 +31,7 @@ export default function AddExpenseDrawer() {
     const expenseMutation = useMutation({
         mutationFn: async (data: any) => {
             if (!activeGroupId) throw new Error("No active group");
-            return await quozen.ledger(activeGroupId).addExpense({
+            return await quozen.ledger(activeGroupId, currentUserId).addExpense({
                 description: data.description,
                 amount: data.amount,
                 category: data.category,

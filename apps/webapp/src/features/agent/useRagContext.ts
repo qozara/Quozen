@@ -5,14 +5,24 @@ import { useAuth } from "@/context/auth-provider";
 import { AgentOrchestrator } from "@quozen/core";
 
 export const useRagContext = () => {
-    const { activeGroupId } = useAppContext();
-    const { user: me } = useAuth();
+    const { activeGroupId, currentUserId } = useAppContext();
+    const { user: authUser } = useAuth();
 
     const { data: ledger } = useQuery({
         queryKey: ["drive", "group", activeGroupId],
-        queryFn: () => quozen.ledger(activeGroupId!).getLedger(),
+        queryFn: () => quozen.ledger(activeGroupId!, currentUserId).getLedger(),
         enabled: !!activeGroupId,
     });
+
+    const activeMember = ledger?.members?.find(m => m.userId === currentUserId);
+    const me = authUser
+        ? {
+            ...authUser,
+            id: activeMember?.userId || currentUserId || authUser.id,
+            name: activeMember?.name || authUser.name,
+            username: activeMember?.name || authUser.username,
+        }
+        : null;
 
     const systemPrompt = (ledger && me && activeGroupId)
         ? AgentOrchestrator.buildSystemPrompt({ ledger, me, activeGroupId })
@@ -22,6 +32,7 @@ export const useRagContext = () => {
         systemPrompt,
         ledger,
         activeGroupId,
+        currentUserId,
         isLoading: !ledger
     };
 };

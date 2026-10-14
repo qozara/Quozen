@@ -62,7 +62,7 @@ export class QuozenClient {
         return this.config.user;
     }
 
-    public ledger(groupId: string): LedgerService {
+    public ledger(groupId: string, activeAccountId?: string): LedgerService {
         const repo = new LedgerRepository(
             this.storage,
             groupId,
@@ -77,7 +77,14 @@ export class QuozenClient {
                 validationSvc = undefined;
             }
         }
-        return new LedgerService(repo, this.config.user, validationSvc, groupId);
+        return new LedgerService(
+            repo,
+            this.config.user,
+            validationSvc,
+            groupId,
+            activeAccountId,
+            () => this.groups.getGroupAccountId(groupId)
+        );
     }
 
     public async getLastModified(fileId: string): Promise<string> {

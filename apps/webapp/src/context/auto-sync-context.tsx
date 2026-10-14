@@ -150,14 +150,10 @@ export function AutoSyncProvider({
                     window.dispatchEvent(new CustomEvent("schema-error", { detail: "CORRUPTED" }));
                 } else if (newStatus === "upgrade_required") {
                     window.dispatchEvent(new CustomEvent("schema-error", { detail: "UPGRADE_REQUIRED" }));
-                } else if (
-                    newStatus === "auth_failed" ||
-                    newStatus === "throttled" ||
-                    newStatus === "error"
-                ) {
+                } else if (newStatus === "auth_failed") {
                     toast({
                         title: t("sync.cloudSyncFailedTitle"),
-                        description: t(`sync.diagnostics.${newStatus}`),
+                        description: t("sync.diagnostics.auth_failed"),
                         variant: "destructive"
                     });
                 }

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Users, Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle } from "lucide-react";
+import { Users, Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2 } from "lucide-react";
 import { MemberInput, Group } from "@quozen/core";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import GroupDialog from "@/components/group-dialog";
 import ShareDialog from "@/components/share-dialog";
 import { useGroups } from "@/hooks/use-groups";
+import { useSettings } from "@/hooks/use-settings";
 import { useTranslation } from "react-i18next";
 import { useGooglePicker } from "@/hooks/use-google-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -30,6 +31,7 @@ export default function Groups() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { groups } = useGroups();
+  const { settings } = useSettings();
   const { t } = useTranslation();
 
   const [dialogState, setDialogState] = useState<{
@@ -52,11 +54,14 @@ export default function Groups() {
     group?: Group;
   }>({ open: false, type: "delete" });
 
+  const [loadingGroupId, setLoadingGroupId] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+
   // --- Import Logic (Migrated from Switcher) ---
   const { openPicker, error: pickerError } = useGooglePicker({
     onPick: async (doc) => {
-      toast({ title: t("common.loading") });
       if (!user) return;
+      setIsImporting(true);
 
       try {
         const group = await quozen.groups.importGroup(doc.id);
@@ -65,9 +70,10 @@ export default function Groups() {
         await queryClient.invalidateQueries({ queryKey: ["drive", "group", group.id] });
 
         setActiveGroupId(group.id);
-        toast({ title: t("common.success") });
       } catch (e: any) {
         toast({ title: t("common.error"), description: e.message, variant: "destructive" });
+      } finally {
+        setIsImporting(false);
       }
     }
   });
@@ -76,12 +82,23 @@ export default function Groups() {
 
   const handleEditClick = async (e: React.MouseEvent, group: Group) => {
     e.stopPropagation();
+    if (loadingGroupId) return;
+    setLoadingGroupId(group.id);
     try {
+      if (quozen.replication) {
+        try {
+          await quozen.replication.sync(group.id);
+        } catch (syncErr) {
+          console.warn("Could not sync group before editing:", syncErr);
+        }
+      }
       const members = await quozen.ledger(group.id).getMembers();
       const editableMembers = members.filter(m => m.role !== 'owner').map(m => m.email || m.userId).join(", ");
       setDialogState({ open: true, mode: "edit", groupId: group.id, initialName: group.name, initialMembers: editableMembers });
     } catch (err) {
       toast({ title: t("common.error"), description: t("groups.loadError"), variant: "destructive" });
+    } finally {
+      setLoadingGroupId(null);
     }
   };
 
@@ -109,7 +126,6 @@ export default function Groups() {
     },
     onSuccess: (newGroup) => {
       queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
-      toast({ title: t("common.success") });
       setDialogState(prev => ({ ...prev, open: false }));
       if (newGroup?.id) {
         setActiveGroupId(newGroup.id);
@@ -130,7 +146,6 @@ export default function Groups() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
       if (variables.groupId) queryClient.invalidateQueries({ queryKey: ["drive", "group", variables.groupId] });
-      toast({ title: t("common.success") });
       setDialogState(prev => ({ ...prev, open: false }));
     },
     onError: (error) => toast({ title: t("common.error"), description: error instanceof Error ? error.message : t("common.genericError"), variant: "destructive" })
@@ -142,7 +157,6 @@ export default function Groups() {
     },
     onSuccess: (_, groupId) => {
       queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
-      toast({ title: t("common.success") });
       setAlertState({ open: false, type: "delete" });
       if (groupId === activeGroupId) setActiveGroupId("");
     },
@@ -155,7 +169,6 @@ export default function Groups() {
     },
     onSuccess: (_, groupId) => {
       queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
-      toast({ title: t("common.success") });
       setAlertState({ open: false, type: "leave" });
       if (groupId === activeGroupId) setActiveGroupId("");
     },
@@ -214,18 +227,19 @@ export default function Groups() {
           <>
             {groups.map((group) => {
               const isActive = group.id === activeGroupId;
+              const isLoadingThisGroup = loadingGroupId === group.id;
               return (
                 <Card
                   key={group.id}
                   data-testid="group-card"
                   className={cn(
                     "cursor-pointer transition-all hover:bg-accent/50",
-                    isActive ? "ring-2 ring-primary border-primary" : ""
+                    isActive ? "ring-2 ring-primary border-primary" : "",
+                    isLoadingThisGroup ? "opacity-75" : ""
                   )}
                   onClick={() => {
-                    if (!isActive) {
+                    if (!isActive && !loadingGroupId) {
                       setActiveGroupId(group.id);
-                      toast({ title: t("groups.switched") });
                     }
                   }}
                 >
@@ -258,9 +272,14 @@ export default function Groups() {
                               size="icon"
                               className="h-8 w-8 text-muted-foreground hover:text-foreground"
                               onClick={(e) => e.stopPropagation()}
+                              disabled={isLoadingThisGroup}
                               data-testid="group-menu-trigger"
                             >
-                              <MoreVertical className="w-4 h-4" />
+                              {isLoadingThisGroup ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                              ) : (
+                                <MoreVertical className="w-4 h-4" />
+                              )}
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
@@ -313,27 +332,63 @@ export default function Groups() {
         )}
       </div>
 
-      <AlertDialog open={alertState.open} onOpenChange={(open) => !open && setAlertState(prev => ({ ...prev, open }))}>
+      <AlertDialog
+        open={alertState.open}
+        onOpenChange={(open) => {
+          if (deleteGroupMutation.isPending || leaveGroupMutation.isPending) return;
+          if (!open) setAlertState(prev => ({ ...prev, open }));
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{alertState.type === 'delete' ? t("groups.delete") : t("groups.leave")}</AlertDialogTitle>
             <AlertDialogDescription>
               {alertState.type === 'delete'
                 ? t("groups.confirmDelete", { name: alertState.group?.name })
-                : t("groups.confirmLeave", { name: alertState.group?.name })}
+                : (() => {
+                    const cachedGroup = settings?.groupCache?.find(g => g.id === alertState.group?.id);
+                    const isLinkedToDifferentAccount = cachedGroup?.accountId && user?.id && cachedGroup.accountId !== user.id;
+                    return isLinkedToDifferentAccount
+                      ? t("groups.confirmLeaveShared", { name: alertState.group?.name, accountName: cachedGroup.accountId })
+                      : t("groups.confirmLeave", { name: alertState.group?.name });
+                  })()}
               {alertState.type === 'delete' && <br />}
               {alertState.type === 'delete' && t("groups.confirmDeleteDesc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction data-testid="alert-action-confirm" onClick={() => {
-              if (!alertState.group) return;
-              alertState.type === 'delete' ? deleteGroupMutation.mutate(alertState.group.id) : leaveGroupMutation.mutate(alertState.group.id);
-            }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{alertState.type === 'delete' ? t("groups.deleteAction") : t("groups.leaveAction")}</AlertDialogAction>
+            <AlertDialogCancel disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="alert-action-confirm"
+              disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (!alertState.group || deleteGroupMutation.isPending || leaveGroupMutation.isPending) return;
+                alertState.type === 'delete' ? deleteGroupMutation.mutate(alertState.group.id) : leaveGroupMutation.mutate(alertState.group.id);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteGroupMutation.isPending || leaveGroupMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {alertState.type === 'delete' ? t("groups.deleting") : t("groups.leaving")}
+                </>
+              ) : (
+                alertState.type === 'delete' ? t("groups.deleteAction") : t("groups.leaveAction")
+              )}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {isImporting && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3" data-testid="importing-overlay">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-sm font-medium text-foreground">{t("groups.importing")}</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -27,6 +27,7 @@ export class InMemoryAdapter implements IStorageLayer {
     // Refactored to Maps to prevent prototype pollution
     private globalSheetData = new Map<string, Map<string, any[][]>>();
     private globalSheetIds = new Map<string, Map<string, number>>();
+    private permissionsMap = new Map<string, any[]>();
 
     constructor() {
         console.log("[MemoryAdapter] Initialized.");
@@ -152,15 +153,22 @@ export class InMemoryAdapter implements IStorageLayer {
         return { id: fileId, name: sheet.name };
     }
 
-    async createPermission(_fileId: string, role: string, type: string, emailAddress?: string): Promise<any> {
-        return { id: "perm-" + crypto.randomUUID(), role, type, emailAddress, displayName: emailAddress ? emailAddress.split('@')[0] : "User" };
+    async createPermission(fileId: string, role: string, type: string, emailAddress?: string): Promise<any> {
+        const perm = { id: "perm-" + crypto.randomUUID(), role, type, emailAddress, displayName: emailAddress ? emailAddress.split('@')[0] : "User" };
+        const list = this.permissionsMap.get(fileId) || [];
+        list.push(perm);
+        this.permissionsMap.set(fileId, list);
+        return perm;
     }
 
-    async listPermissions(_fileId: string): Promise<any[]> {
-        return [];
+    async listPermissions(fileId: string): Promise<any[]> {
+        return this.permissionsMap.get(fileId) || [];
     }
 
-    async deletePermission(_fileId: string, _permissionId: string): Promise<void> { }
+    async deletePermission(fileId: string, permissionId: string): Promise<void> {
+        const list = this.permissionsMap.get(fileId) || [];
+        this.permissionsMap.set(fileId, list.filter((p: any) => p.id !== permissionId));
+    }
 
     async createSpreadsheet(title: string, sheetTitles: string[], properties?: Record<string, string>): Promise<string> {
         const id = await this.createFile(title, sheetTitles, properties);

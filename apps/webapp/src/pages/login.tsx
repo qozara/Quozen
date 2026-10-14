@@ -33,7 +33,11 @@ export default function Login() {
   }
 
   if (isAuthenticated) {
-    const from = location.state?.from?.pathname || "/dashboard";
+    const from = typeof location.state?.from === "string"
+      ? location.state.from
+      : location.state?.from
+        ? `${location.state.from.pathname || ""}${location.state.from.search || ""}`
+        : "/dashboard";
     return <Navigate to={from} replace />;
   }
 

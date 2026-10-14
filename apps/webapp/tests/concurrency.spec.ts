@@ -18,8 +18,10 @@ test.describe('Feature: E2E Concurrency & Auto-Sync', () => {
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
         await page.getByTestId('input-group-name').fill('Sync Validation Trip');
         await page.getByTestId('button-submit-group').click();
-        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
+        const shareTitle = page.getByTestId('drawer-title-share');
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
+        await expect(shareTitle).not.toBeVisible();
 
         // Wait for group to settle
         await expect(page.getByTestId('header')).not.toContainText(/Select Group/i, { timeout: 15000 });
@@ -78,8 +80,10 @@ test.describe('Feature: E2E Concurrency & Auto-Sync', () => {
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
         await page.getByTestId('input-group-name').fill('Conflict Trip');
         await page.getByTestId('button-submit-group').click();
-        await expect(page.getByTestId('toast-default').first()).toBeVisible({ timeout: 15000 });
+        const shareTitle = page.getByTestId('drawer-title-share');
+        await expect(shareTitle).toBeVisible({ timeout: 15000 });
         await page.keyboard.press('Escape');
+        await expect(shareTitle).not.toBeVisible();
         await expect(page.getByTestId('header')).not.toContainText(/Select Group/i, { timeout: 15000 });
         await expect(page.getByTestId('header')).toContainText('Conflict Trip');
 

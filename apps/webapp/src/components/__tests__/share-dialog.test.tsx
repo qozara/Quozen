@@ -114,9 +114,7 @@ describe("ShareDialog Component", () => {
 
         await waitFor(() => {
             expect(mockMutate).toHaveBeenCalledWith(true);
-            expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
-                description: en.share.successPublic
-            }));
+            expect(mockToast).not.toHaveBeenCalled();
         });
     });
 
@@ -154,5 +152,40 @@ describe("ShareDialog Component", () => {
         await waitFor(() => {
             expect(switchEl).toHaveAttribute("aria-checked", "false");
         });
+    });
+
+    it("displays restricted link label, description, and enables 1-click sharing with button", async () => {
+        (useQuery as any).mockReturnValue({
+            data: 'restricted',
+            isLoading: false
+        });
+
+        render(<ShareDialog {...defaultProps} />);
+
+        expect(screen.getByText(en.share.restrictedLink)).toBeInTheDocument();
+        expect(screen.getByText(en.share.restrictedNote)).toBeInTheDocument();
+
+        const enableBtn = screen.getByTestId("button-enable-public-sharing");
+        expect(enableBtn).toBeInTheDocument();
+        expect(enableBtn).toHaveTextContent(en.share.enablePublicAction);
+
+        fireEvent.click(enableBtn);
+
+        await waitFor(() => {
+            expect(mockMutate).toHaveBeenCalledWith(true);
+        });
+    });
+
+    it("displays public link label and note when group is public", () => {
+        (useQuery as any).mockReturnValue({
+            data: 'public',
+            isLoading: false
+        });
+
+        render(<ShareDialog {...defaultProps} />);
+
+        expect(screen.getByText(en.share.publicLink)).toBeInTheDocument();
+        expect(screen.getByText(en.share.publicNote)).toBeInTheDocument();
+        expect(screen.queryByTestId("button-enable-public-sharing")).not.toBeInTheDocument();
     });
 });

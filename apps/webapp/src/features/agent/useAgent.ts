@@ -9,7 +9,7 @@ import { useAiFeature } from "./AiFeatureContext";
 
 export const useAgent = () => {
     const { settings } = useSettings();
-    const { activeGroupId } = useRagContext();
+    const { activeGroupId, currentUserId } = useRagContext();
     const { toast } = useToast();
     const { t, i18n } = useTranslation();
     const queryClient = useQueryClient();
@@ -38,7 +38,9 @@ export const useAgent = () => {
             const locale = settings?.preferences?.locale === 'system' ? i18n.language : (settings?.preferences?.locale || 'en');
 
             const ai = new QuozenAI(quozen, provider);
-            const result = await ai.executeCommand(prompt, activeGroupId, locale);
+            const result = currentUserId
+                ? await ai.executeCommand(prompt, activeGroupId, locale, currentUserId)
+                : await ai.executeCommand(prompt, activeGroupId, locale);
 
             if (result.success) {
                 toast({

@@ -4,7 +4,6 @@ import GroupSwitcherModal from "./group-switcher-modal";
 import { useState } from "react";
 import { quozen } from "@/lib/storage";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
 import { useGroups } from "@/hooks/use-groups";
 import { useTranslation } from "react-i18next";
 import { useAutoSync } from "@/hooks/use-auto-sync";
@@ -17,7 +16,6 @@ export default function Header() {
   const { activeGroupId } = useAppContext();
   const [showGroupSwitcher, setShowGroupSwitcher] = useState(false);
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const { t } = useTranslation();
   const { isEnabled } = useAutoSync();
   const location = useLocation();
@@ -52,8 +50,6 @@ export default function Header() {
 
     // US-106: Only invalidate the active group data
     await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
-
-    toast({ description: t("header.synced") });
   };
 
   return (

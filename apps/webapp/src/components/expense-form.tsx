@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Expense, Member } from "@quozen/core";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { useOptionalAuth } from "@/context/auth-provider";
 
 const distributeAmount = (total: number, count: number): number[] => {
   if (count <= 0) return [];
@@ -45,6 +46,8 @@ interface ExpenseFormProps {
 export default function ExpenseForm({ initialData, users, currentUserId, onSubmit, isPending, isDrawer }: ExpenseFormProps) {
   const { toast } = useToast();
   const { t } = useTranslation();
+  const auth = useOptionalAuth();
+  const authUser = auth?.user;
 
   const [description, setDescription] = useState(initialData?.description || "");
   const [amount, setAmount] = useState(initialData?.amount?.toString() || "");
@@ -52,6 +55,26 @@ export default function ExpenseForm({ initialData, users, currentUserId, onSubmi
   const [category, setCategory] = useState(initialData?.category || "");
   const [date, setDate] = useState(initialData?.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
   const [splits, setSplits] = useState<ExpenseSplit[]>([]);
+
+  useEffect(() => {
+    if (!initialData && currentUserId) {
+      setPaidBy(currentUserId);
+    }
+  }, [currentUserId, initialData]);
+
+  const formatUserLabel = (u?: Member) => {
+    if (!u) return "";
+    if (u.userId !== currentUserId) return u.name;
+    const isSharedOrOfflineAccount = Boolean(
+      authUser &&
+        (u.userId !== authUser.id ||
+          (authUser.name && u.name !== authUser.name))
+    );
+    if (isSharedOrOfflineAccount && u.name) {
+      return t("expenseForm.youNamed", { name: u.name });
+    }
+    return t("expenseForm.you");
+  };
 
   useEffect(() => {
     if (users.length > 0 && splits.length === 0) {
@@ -211,7 +234,7 @@ export default function ExpenseForm({ initialData, users, currentUserId, onSubmi
           <Select value={paidBy} onValueChange={setPaidBy}>
             <SelectTrigger data-testid="select-paid-by"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {users.map((u) => <SelectItem key={u.userId} value={u.userId}>{u.userId === currentUserId ? t("expenseForm.you") : u.name}</SelectItem>)}
+              {users.map((u) => <SelectItem key={u.userId} value={u.userId}>{formatUserLabel(u)}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -262,7 +285,7 @@ export default function ExpenseForm({ initialData, users, currentUserId, onSubmi
                       </span>
                     </div>
                     <span className="text-sm font-medium">
-                      {users.find(u => u.userId === split.userId)?.userId === currentUserId ? t("expenseForm.you") : users.find(u => u.userId === split.userId)?.name}
+                      {formatUserLabel(users.find(u => u.userId === split.userId))}
                     </span>
                   </div>
                 </div>

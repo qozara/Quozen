@@ -9,7 +9,10 @@ As the application scales, the interaction patterns need standardization to ensu
 3. **Mobile-Safe Sizing:** Global inputs are strictly set to 16px to prevent iOS Safari auto-zooming. Touch targets (buttons, list item rows) enforce a minimum 44px height.
 4. **Contextual Primary CTAs:** Dashboard verbs adapt explicitly based on user state (e.g., "Pay Debt" vs. "Request Settlement" instead of a generic "Settle Up") and are promoted to full-width solid buttons when action is required.
 5. **Meatball Menus (Unified Secondary Actions):** We standardized secondary list item actions (Edit, Delete, Share) behind a single `MoreVertical` (Ellipsis) dropdown trigger globally (Groups, Expenses, Transfers) to reduce UI clutter.
+6. **Interaction Feedback & Zero Success Toasts:** (Detailed in `20261014-sync-async-ux-feedback-guidelines.md`). Successful local operations (0ms) rely entirely on reactive UI updates and drawer dismissals rather than noisy floating toasts. Utility actions use in-place micro-interactions (e.g., green checkmarks on copy buttons).
+7. **Cloud Operation UI Blocking (>300ms):** Any drawer or modal communicating synchronously with external cloud services (Google Drive/Sheets) enforces `dismissible={!isPending}` and displays inline button spinners to prevent duplicate submissions or premature swipe-to-dismiss mid-flight.
 
 ## Consequences
 - Forms feel less like document pages and more like application modals.
 - Navigation history is preserved as users swipe down to dismiss instead of relying on browser back logic for forms.
+- Elimination of notification fatigue on mobile viewports while guaranteeing safe state synchronization during cloud calls.

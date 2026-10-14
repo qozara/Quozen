@@ -133,4 +133,12 @@ describe("Dashboard Page", () => {
     expect(screen.getByText("To: Bob")).toBeInTheDocument();
     expect(screen.getByText("Amount: 10")).toBeInTheDocument();
   });
+
+  it("renders the active account switcher pill on the balance card", () => {
+    render(<Dashboard />);
+    const switcher = screen.getByTestId("button-account-switcher");
+    expect(switcher).toBeInTheDocument();
+    expect(switcher).toHaveTextContent("Alice");
+  });
 });
+

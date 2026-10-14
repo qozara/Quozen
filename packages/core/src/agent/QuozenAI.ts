@@ -10,16 +10,36 @@ export class QuozenAI {
         private provider: AiProvider
     ) { }
 
-    async executeCommand(prompt: string, activeGroupId: string, locale: string = 'en'): Promise<{ success: boolean; message: string }> {
+    async executeCommand(prompt: string, activeGroupId: string, locale: string = 'en', activeAccountId?: string): Promise<{ success: boolean; message: string }> {
         try {
             // 1. Fetch the Ledger
-            const ledgerService = this.client.ledger(activeGroupId);
+            const ledgerService = activeAccountId
+                ? this.client.ledger(activeGroupId, activeAccountId)
+                : this.client.ledger(activeGroupId);
             const ledger = await ledgerService.getLedger();
+
+            const effectiveAccountId =
+                activeAccountId ||
+                (await this.client.groups?.getGroupAccountId?.(activeGroupId)) ||
+                this.client.user.id;
+            const activeMember = ledger.members?.find(m => m.userId === effectiveAccountId);
+            const effectiveMe = activeMember
+                ? {
+                    ...this.client.user,
+                    id: activeMember.userId,
+                    name: activeMember.name,
+                    username: activeMember.name,
+                    email: activeMember.email || this.client.user.email
+                }
+                : {
+                    ...this.client.user,
+                    id: effectiveAccountId
+                };
 
             // 2. Build system prompt
             const systemPrompt = AgentOrchestrator.buildSystemPrompt({
                 activeGroupId,
-                me: this.client.user,
+                me: effectiveMe,
                 ledger,
                 locale
             });
@@ -56,7 +76,7 @@ export class QuozenAI {
                 const resolveId = (idOrName: string) => {
                     if (!idOrName || typeof idOrName !== 'string') return idOrName;
                     const lowerIdOrName = idOrName.toLowerCase().trim();
-                    if (lowerIdOrName === 'me' || lowerIdOrName === 'i' || lowerIdOrName === 'myself') return this.client.user.id;
+                    if (lowerIdOrName === 'me' || lowerIdOrName === 'i' || lowerIdOrName === 'myself') return effectiveMe.id;
 
                     let member = ledger.members.find(m => m.name.toLowerCase().trim() === lowerIdOrName);
                     if (!member) {

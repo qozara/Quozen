@@ -85,9 +85,11 @@ Quozen divides remote persistence into two drivers according to natural domain b
 1. **`BlobStorageDriver` (`spaces=appDataFolder`)**:
    - Manages internal, private user configuration (`user_settings`).
    - Stored in the hidden `appDataFolder` of Google Drive as `quozen-settings.json`.
+   - Stores `groupCache[]`, including the optional per-group `accountId` binding that maps a logged-in **User** to a **Personal Account**, **Shared Account**, or **Offline Account** in that group without requiring any Google Sheets or RxDB schema migrations.
    - *Legacy Migration*: Automatically reads any legacy root `quozen-settings.json`, imports it into `appDataFolder`, and cleans up the root file.
 2. **`TabularStorageDriver` (Group Spreadsheets in User Drive)**:
    - Manages shared collaborative ledgers (`Expenses`, `Settlements`, `Members` tabs).
+   - Rows in the `Members` tab represent ledger **Accounts** (Personal, Shared, or Offline). When a user links to an existing `accountId` via `UserSettings.groupCache[].accountId`, JIT email-to-Google-ID row migration (`migrateUser`) is bypassed so shared account IDs remain stable across all co-managing users.
    - Each group exists as a discrete Google Spreadsheet in the user's primary Drive.
    - Preserves Google Drive permissions, collaborator access, and magic link sharing.
 

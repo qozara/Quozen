@@ -57,6 +57,17 @@ vi.mock("@/hooks/use-google-picker", () => ({
     }
 }));
 
+const mockValidateQuozenSpreadsheet = vi.fn();
+vi.mock("@/lib/storage", () => ({
+    quozen: {
+        groups: {
+            validateQuozenSpreadsheet: (...args: any[]) => mockValidateQuozenSpreadsheet(...args),
+            joinGroup: vi.fn(),
+            importGroup: vi.fn(),
+        }
+    }
+}));
+
 describe("JoinPage", () => {
     const mockSetActiveGroup = vi.fn();
     const mockUser = { id: "u1", email: "test@example.com" };
@@ -211,4 +222,172 @@ describe("JoinPage", () => {
             expect(mockOpenPicker).toHaveBeenCalled();
         });
     });
+
+    it("allows selecting an existing account when 'Use an existing account in this group' is clicked without premature submit", async () => {
+        (useAuth as any).mockReturnValue({ isAuthenticated: true, user: mockUser, isLoading: false, login: vi.fn(), logout: vi.fn() });
+        mockValidateQuozenSpreadsheet.mockResolvedValue({
+            valid: true,
+            members: [
+                { userId: "acc-shared", name: "Garcia Family", email: "alice@example.com", role: "owner", joinedAt: new Date() },
+                { userId: "acc-2", name: "Charlie", email: "charlie@example.com", role: "member", joinedAt: new Date() }
+            ]
+        });
+
+        render(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        const useExistingBtn = screen.getByTestId("button-use-existing-account");
+        fireEvent.click(useExistingBtn);
+
+        await waitFor(() => {
+            expect(mockValidateQuozenSpreadsheet).toHaveBeenCalledWith("123");
+            expect(screen.getByTestId("join-existing-account-acc-shared")).toBeInTheDocument();
+        });
+
+        // 1. Selecting an account does NOT trigger joinMutation immediately
+        fireEvent.click(screen.getByTestId("join-existing-account-acc-shared"));
+        expect(mockMutate).not.toHaveBeenCalled();
+
+        // 2. Primary button updates label to reflect managing the selected account
+        const joinBtn = screen.getByTestId("button-join-group");
+        expect(joinBtn).toHaveTextContent("Join & Manage Garcia Family");
+        expect(screen.getByTestId("text-signed-in-as")).toHaveTextContent("Signed in as test@example.com");
+
+        // 3. Clicking the primary button triggers the mutation with the accountId
+        fireEvent.click(joinBtn);
+        await waitFor(() => {
+            expect(mockMutate).toHaveBeenCalledWith({
+                accountId: "acc-shared"
+            });
+        });
+    });
+
+    it("renders dedicated Google Sign-in card when unauthenticated and triggers login", async () => {
+        const mockLogin = vi.fn();
+        (useAuth as any).mockReturnValue({ isAuthenticated: false, user: null, isLoading: false, login: mockLogin, logout: vi.fn() });
+
+        render(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        // Verify Sign-in card is displayed
+        expect(screen.getByText(en.join.signInTitle)).toBeInTheDocument();
+        expect(screen.getByTestId("button-join-signin")).toBeInTheDocument();
+
+        // Clicking Sign-in calls login()
+        fireEvent.click(screen.getByTestId("button-join-signin"));
+        expect(mockLogin).toHaveBeenCalledTimes(1);
+    });
+
+    it("handles 401 Session expired error gracefully by showing the re-login flow", async () => {
+        const mockLogout = vi.fn();
+        const mockLogin = vi.fn();
+        let isAuth = true;
+
+        (useAuth as any).mockImplementation(() => ({
+            isAuthenticated: isAuth,
+            user: mockUser,
+            isLoading: false,
+            login: mockLogin,
+            logout: () => {
+                isAuth = false;
+                mockLogout();
+            }
+        }));
+
+        (useMutation as any).mockImplementation((options: any) => ({
+            mutate: () => {
+                const error = new Error("Session expired (401). Please reload to sign in again.");
+                if (options.onError) options.onError(error);
+            },
+            isPending: false,
+            isSuccess: false,
+            isError: true,
+            error: new Error("Session expired (401)")
+        }));
+
+        const { rerender } = render(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        // Click Join Group to trigger 401
+        fireEvent.click(screen.getByTestId("button-join-group"));
+
+        expect(mockLogout).toHaveBeenCalled();
+
+        // Re-render to reflect unauthenticated / expired state
+        rerender(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        expect(screen.getByText(en.join.sessionExpiredTitle)).toBeInTheDocument();
+        expect(screen.getByTestId("button-join-signin")).toBeInTheDocument();
+    });
+
+    it("handles restricted group access when viewing existing accounts by showing Drive connect prompt and re-fetching after picking file", async () => {
+        (useAuth as any).mockReturnValue({ isAuthenticated: true, user: mockUser, isLoading: false, login: vi.fn(), logout: vi.fn() });
+
+        // 1. Initially restricted: 403 Forbidden
+        mockValidateQuozenSpreadsheet
+            .mockResolvedValueOnce({
+                valid: false,
+                error: "403 Forbidden"
+            })
+            // 2. After user connects via Google Picker, second validation succeeds with members
+            .mockResolvedValueOnce({
+                valid: true,
+                members: [
+                    { userId: "acc-shared", name: "Garcia Family", email: "alice@example.com", role: "owner", joinedAt: new Date() }
+                ]
+            });
+
+        render(
+            <MemoryRouter initialEntries={["/join/123?name=TestGroup&inviter=Alice"]}>
+                <Routes>
+                    <Route path="/join/:id" element={<JoinPage />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        // Click toggle to view existing accounts
+        const useExistingBtn = screen.getByTestId("button-use-existing-account");
+        fireEvent.click(useExistingBtn);
+
+        // Verify friendly connect prompt appears instead of dead-end text
+        await waitFor(() => {
+            expect(screen.getByTestId("connect-drive-prompt")).toBeInTheDocument();
+            expect(screen.getByTestId("button-connect-drive-accounts")).toBeInTheDocument();
+        });
+
+        // Click "Connect with Google Drive"
+        fireEvent.click(screen.getByTestId("button-connect-drive-accounts"));
+
+        // Picker opens and user picks the file (mockOpenPicker resolves cb({ id: "123" }))
+        expect(mockOpenPicker).toHaveBeenCalled();
+
+        // Accounts list appears after authorization
+        await waitFor(() => {
+            expect(screen.getByTestId("join-existing-account-acc-shared")).toBeInTheDocument();
+            expect(screen.queryByTestId("connect-drive-prompt")).not.toBeInTheDocument();
+        });
+    });
 });
+
+

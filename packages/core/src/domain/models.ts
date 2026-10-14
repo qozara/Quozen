@@ -66,6 +66,7 @@ export interface CachedGroup {
     id: string;
     name: string;
     role: "owner" | "member";
+    accountId?: string;
     lastAccessed?: string;
     validationStatus?: string;
 }

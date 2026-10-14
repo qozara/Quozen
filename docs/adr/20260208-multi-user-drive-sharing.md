@@ -11,3 +11,6 @@ Quozen is entirely serverless. Enabling multiple users to collaborate on expense
 ## Consequences
 - No backend user management or authentication service is needed; everything relies exclusively on Google OAuth implicit flows.
 - Real-time conflict handling (Optimistic Concurrency Control) is implemented by comparing `lastModified` times on rows during edits.
+
+> **Update (2026-10-12):** See [ADR: Account-User Separation](./20261012-account-user-separation.md). Rows in the `Members` tab represent ledger **Accounts** (**Personal Accounts**, **Shared Accounts** co-managed by multiple logged-in users, and **Offline Accounts**). Multiple authenticated Google users can bind to the same Account in `UserSettings.groupCache[].accountId`.
+

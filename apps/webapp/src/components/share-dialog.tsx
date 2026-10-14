@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Copy, Check, Globe, Lock } from "lucide-react";
+import { Copy, Check, Globe, Lock, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/auth-provider";
 import { useTranslation } from "react-i18next";
 
@@ -67,10 +67,6 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
         onSuccess: (makePublic) => {
             setIsPublic(makePublic);
             queryClient.setQueryData(["drive", "permissions", groupId], makePublic ? 'public' : 'restricted');
-            toast({
-                title: t("common.success"),
-                description: makePublic ? t("share.successPublic") : t("share.successRestricted")
-            });
         },
         onError: () => {
             // Revert state on error
@@ -91,12 +87,18 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
     const handleCopy = () => {
         navigator.clipboard.writeText(joinLink);
         setCopied(true);
-        toast({ description: t("share.copied") });
         setTimeout(() => setCopied(false), 2000);
     };
 
     return (
-        <Drawer open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+        <Drawer
+            open={isOpen}
+            onOpenChange={(open) => {
+                if (permissionMutation.isPending) return;
+                if (!open) onClose();
+            }}
+            dismissible={!permissionMutation.isPending}
+        >
             <DrawerContent
                 onCloseAutoFocus={(event) => {
                     if (event.defaultPrevented) return;
@@ -131,7 +133,7 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
                         </div>
 
                         <div className="space-y-2">
-                            <Label>{t("share.magicLink")}</Label>
+                            <Label>{isPublic ? t("share.publicLink") : t("share.restrictedLink")}</Label>
                             <div className="flex items-center space-x-2">
                                 <Input
                                     readOnly
@@ -142,7 +144,29 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
                                     {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                                 </Button>
                             </div>
-                            <p className="text-[10px] text-muted-foreground">
+                            <p className="text-xs text-muted-foreground">
+                                {isPublic ? t("share.publicNote") : t("share.restrictedNote")}
+                            </p>
+                            {!isPublic && (
+                                <div className="pt-1">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full flex items-center justify-center gap-2 text-xs"
+                                        onClick={() => handleToggle(true)}
+                                        disabled={permissionMutation.isPending}
+                                        data-testid="button-enable-public-sharing"
+                                    >
+                                        {permissionMutation.isPending ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                                        ) : (
+                                            <Globe className="w-3.5 h-3.5 text-primary" />
+                                        )}
+                                        {t("share.enablePublicAction")}
+                                    </Button>
+                                </div>
+                            )}
+                            <p className="text-[10px] text-muted-foreground pt-1">
                                 {t("share.note")}
                             </p>
                         </div>

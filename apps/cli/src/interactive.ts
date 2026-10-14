@@ -17,15 +17,20 @@ export async function startInteractive() {
     while (true) {
         const activeGroup = settings.groupCache.find((g: any) => g.id === activeGroupId);
         const groupName = activeGroup ? activeGroup.name : 'None';
+        const activeAccountId = activeGroup?.accountId || quozen.user.id;
+        const activeAccountLabel = activeGroup?.accountId && activeGroup.accountId !== quozen.user.id
+            ? activeGroup.accountId
+            : (quozen.user.name || quozen.user.email || activeAccountId);
 
         const { action } = await prompts({
             type: 'select',
             name: 'action',
-            message: `Quozen CLI - Select an action (Current Group: ${chalk.green(groupName)})`,
+            message: `Quozen CLI - Select an action (Current Group: ${chalk.green(groupName)} | Account: ${chalk.cyan(activeAccountLabel)})`,
             choices: [
                 { title: 'View Dashboard', value: 'dashboard' },
                 { title: 'Ask AI 🤖', value: 'ask_ai' },
                 { title: 'Switch Group', value: 'switch_group' },
+                { title: 'Switch / Rename Account', value: 'manage_account' },
                 { title: 'Add Expense', value: 'add_expense' },
                 { title: 'Record Settlement', value: 'record_settlement' },
                 { title: 'Log out', value: 'logout' },
@@ -41,18 +46,20 @@ export async function startInteractive() {
                     console.log(chalk.red("No active group selected."));
                     continue;
                 }
-                const ledger = await quozen.ledger(activeGroupId).getLedger();
+                const ledger = await quozen.ledger(activeGroupId, activeAccountId).getLedger();
                 const balances = ledger.getBalances();
+                const activeMember = ledger.members.find(m => m.userId === activeAccountId);
 
-                console.log(chalk.bold("--- Group Balances ---"));
+                console.log(chalk.bold(`--- Group Balances (Active Account: ${activeMember?.name || activeAccountLabel}) ---`));
                 ledger.members.forEach(m => {
                     const bal = balances[m.userId] || 0;
                     const formattedBal = formatCurrency(Math.abs(bal), settings.preferences.defaultCurrency);
+                    const marker = m.userId === activeAccountId ? ' (Active)' : '';
 
                     if (bal >= 0) {
-                        console.log(`${m.name.padEnd(20)} ${chalk.green(`+${formattedBal}`)}`);
+                        console.log(`${(m.name + marker).padEnd(24)} ${chalk.green(`+${formattedBal}`)}`);
                     } else {
-                        console.log(`${m.name.padEnd(20)} ${chalk.red(`-${formattedBal}`)}`);
+                        console.log(`${(m.name + marker).padEnd(24)} ${chalk.red(`-${formattedBal}`)}`);
                     }
                 });
                 console.log("");
@@ -85,7 +92,7 @@ export async function startInteractive() {
                     const ai = new QuozenAI(quozen, provider);
 
                     const locale = settings?.preferences?.locale === 'system' ? Intl.DateTimeFormat().resolvedOptions().locale : (settings?.preferences?.locale || 'en');
-                    const result = await ai.executeCommand(aiPrompt, activeGroupId, locale);
+                    const result = await ai.executeCommand(aiPrompt, activeGroupId, locale, activeAccountId);
 
                     if (result.success) {
                         console.log(chalk.green(`✨ ${result.message}`));
@@ -105,9 +112,61 @@ export async function startInteractive() {
                     await quozen.groups.updateActiveGroup(newGroupId);
                     settings = await quozen.groups.getSettings();
                 }
+            } else if (action === 'manage_account') {
+                if (!activeGroupId) {
+                    console.log(chalk.red("No active group selected."));
+                    continue;
+                }
+                const ledgerSvc = quozen.ledger(activeGroupId, activeAccountId);
+                const ledger = await ledgerSvc.getLedger();
+                const currentMember = ledger.members.find(m => m.userId === activeAccountId) || ledger.members[0];
+
+                const { accountAction } = await prompts({
+                    type: 'select',
+                    name: 'accountAction',
+                    message: `Manage Account (Current: ${currentMember?.name || activeAccountId})`,
+                    choices: [
+                        { title: 'Switch Active Account (Personal / Shared / Offline)', value: 'switch' },
+                        { title: 'Rename Active Account', value: 'rename' },
+                        { title: 'Back', value: 'back' }
+                    ]
+                });
+
+                if (accountAction === 'switch') {
+                    const { newAccountId } = await prompts({
+                        type: 'select',
+                        name: 'newAccountId',
+                        message: 'Select the account you want to manage in this group',
+                        choices: ledger.members.map(m => ({
+                            title: `${m.name}${m.role === 'owner' ? ' (Owner)' : ''}${m.userId === activeAccountId ? ' ✓' : ''}`,
+                            value: m.userId
+                        }))
+                    });
+                    if (newAccountId && newAccountId !== activeAccountId) {
+                        await quozen.groups.updateGroupAccount(activeGroupId, newAccountId);
+                        settings = await quozen.groups.getSettings();
+                        const targetMember = ledger.members.find(m => m.userId === newAccountId);
+                        console.log(chalk.green(`Switched active account to "${targetMember?.name || newAccountId}".`));
+                    }
+                } else if (accountAction === 'rename' && currentMember) {
+                    const { newName } = await prompts({
+                        type: 'text',
+                        name: 'newName',
+                        message: 'Enter new account name (e.g., "Garcia Family"):',
+                        initial: currentMember.name
+                    });
+                    if (newName && newName.trim()) {
+                        await ledgerSvc.renameMember(currentMember.userId, newName.trim());
+                        console.log(chalk.green(`Account renamed to "${newName.trim()}".`));
+                    }
+                }
             } else if (action === 'add_expense') {
                 if (!activeGroupId) continue;
-                const ledger = await quozen.ledger(activeGroupId).getLedger();
+                const ledger = await quozen.ledger(activeGroupId, activeAccountId).getLedger();
+                const defaultPayerIndex = Math.max(
+                    0,
+                    ledger.members.findIndex(m => m.userId === activeAccountId)
+                );
 
                 const response = await prompts([
                     { type: 'text', name: 'description', message: 'Description' },
@@ -127,13 +186,14 @@ export async function startInteractive() {
                         type: 'select',
                         name: 'paidByUserId',
                         message: 'Who paid?',
+                        initial: defaultPayerIndex,
                         choices: ledger.members.map(m => ({ title: m.name, value: m.userId }))
                     },
                     {
                         type: 'multiselect',
                         name: 'splitUserIds',
                         message: 'Split between who? (Space to select)',
-                        choices: ledger.members.map(m => ({ title: m.name, value: m.userId })),
+                        choices: ledger.members.map(m => ({ title: m.name, value: m.userId, selected: true })),
                         min: 1
                     }
                 ]);
@@ -146,7 +206,7 @@ export async function startInteractive() {
                     }));
 
                     console.log(chalk.cyan("Adding expense..."));
-                    await quozen.ledger(activeGroupId).addExpense({
+                    await quozen.ledger(activeGroupId, activeAccountId).addExpense({
                         description: response.description,
                         amount: response.amount,
                         category: response.category,
@@ -158,7 +218,7 @@ export async function startInteractive() {
                 }
             } else if (action === 'record_settlement') {
                 if (!activeGroupId) continue;
-                const ledger = await quozen.ledger(activeGroupId).getLedger();
+                const ledger = await quozen.ledger(activeGroupId, activeAccountId).getLedger();
 
                 const response = await prompts([
                     {
@@ -182,7 +242,7 @@ export async function startInteractive() {
                         continue;
                     }
                     console.log(chalk.cyan("Recording settlement..."));
-                    await quozen.ledger(activeGroupId).addSettlement({
+                    await quozen.ledger(activeGroupId, activeAccountId).addSettlement({
                         fromUserId: response.fromUserId,
                         toUserId: response.toUserId,
                         amount: response.amount,
