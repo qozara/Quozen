@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import GroupDialog from "@/components/group-dialog";
 import ShareDialog from "@/components/share-dialog";
 import { useGroups } from "@/hooks/use-groups";
+import { useSettings } from "@/hooks/use-settings";
 import { useTranslation } from "react-i18next";
 import { useGooglePicker } from "@/hooks/use-google-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -30,6 +31,7 @@ export default function Groups() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { groups } = useGroups();
+  const { settings } = useSettings();
   const { t } = useTranslation();
 
   const [dialogState, setDialogState] = useState<{
@@ -327,7 +329,13 @@ export default function Groups() {
             <AlertDialogDescription>
               {alertState.type === 'delete'
                 ? t("groups.confirmDelete", { name: alertState.group?.name })
-                : t("groups.confirmLeave", { name: alertState.group?.name })}
+                : (() => {
+                    const cachedGroup = settings?.groupCache?.find(g => g.id === alertState.group?.id);
+                    const isLinkedToDifferentAccount = cachedGroup?.accountId && user?.id && cachedGroup.accountId !== user.id;
+                    return isLinkedToDifferentAccount
+                      ? t("groups.confirmLeaveShared", { name: alertState.group?.name, accountName: cachedGroup.accountId })
+                      : t("groups.confirmLeave", { name: alertState.group?.name });
+                  })()}
               {alertState.type === 'delete' && <br />}
               {alertState.type === 'delete' && t("groups.confirmDeleteDesc")}
             </AlertDialogDescription>

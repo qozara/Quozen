@@ -253,9 +253,10 @@ describe("JoinPage", () => {
         fireEvent.click(screen.getByTestId("join-existing-account-acc-shared"));
         expect(mockMutate).not.toHaveBeenCalled();
 
-        // 2. Primary button updates label to reflect the selected account
+        // 2. Primary button updates label to reflect managing the selected account
         const joinBtn = screen.getByTestId("button-join-group");
-        expect(joinBtn).toHaveTextContent("Join as Garcia Family");
+        expect(joinBtn).toHaveTextContent("Join & Manage Garcia Family");
+        expect(screen.getByTestId("text-signed-in-as")).toHaveTextContent("Signed in as test@example.com");
 
         // 3. Clicking the primary button triggers the mutation with the accountId
         fireEvent.click(joinBtn);

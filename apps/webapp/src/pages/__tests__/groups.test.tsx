@@ -220,4 +220,33 @@ describe("Groups Page", () => {
     expect(quozen.groups.deleteGroup).toHaveBeenCalledWith("group1");
     await waitFor(() => expect(screen.queryByText(en.groups.delete)).not.toBeInTheDocument());
   });
+
+  it("displays reassurance message when leaving a group with a co-managed shared account", async () => {
+    (useSettings as any).mockReturnValue({
+      settings: {
+        activeGroupId: "group2",
+        groupCache: [
+          { id: "group2", name: "Office Lunch", role: "member", accountId: "acc-shared-garcia" }
+        ]
+      }
+    });
+
+    render(<Groups />);
+    const group2Card = screen.getByText("Office Lunch").closest('[data-testid="group-card"]');
+    const meatball = within(group2Card as HTMLElement).getByTestId("group-menu-trigger");
+    fireEvent.click(meatball);
+
+    const leaveBtn = screen.getByText(en.groups.leaveAction);
+    fireEvent.click(leaveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(en.groups.leave)).toBeInTheDocument();
+      expect(screen.getByText(/acc-shared-garcia.*will remain in the group/i)).toBeInTheDocument();
+    });
+
+    const confirmBtn = screen.getByRole("button", { name: en.groups.leaveAction });
+    fireEvent.click(confirmBtn);
+
+    expect(quozen.groups.leaveGroup).toHaveBeenCalledWith("group2");
+  });
 });

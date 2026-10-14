@@ -247,6 +247,13 @@ export default function JoinPage() {
                             </p>
                         </div>
 
+                        {user?.email && (
+                            <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/60 px-3 py-1 rounded-full border border-border" data-testid="text-signed-in-as">
+                                <User className="w-3.5 h-3.5" />
+                                <span>{t("join.signedInAs", { email: user.email })}</span>
+                            </div>
+                        )}
+
                         {/* Account Selection */}
                         <div className="w-full space-y-3 text-left">
                             {/* Personal Account Option */}
@@ -278,7 +285,7 @@ export default function JoinPage() {
                                             </span>
                                         </div>
                                         <p className="text-xs text-muted-foreground truncate">
-                                            {t("join.personalAccountDesc", { name: user?.name || user?.email || "you" })}
+                                            {t("join.personalAccountDesc")}
                                         </p>
                                     </div>
                                 </div>
