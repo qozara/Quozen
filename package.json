@@ -10,7 +10,6 @@
   "scripts": {
     "dev": "npm run dev --workspace=@quozen/webapp",
     "dev:api": "npm run dev --workspace=@quozen/api",
-    "dev:ai": "npm run dev --workspace=@quozen/ai-proxy",
     "build": "npm run build --workspaces --if-present",
     "cli": "npm run start --workspace=@quozen/cli",
     "preview": "npm run preview --workspace=@quozen/webapp",
@@ -26,8 +25,7 @@
     "test:all": "node scripts/run-all-tests.js",
     "predeploy": "npm run test:all:non-interactive && npm run build",
     "deploy:api:vercel": "npm run build --workspaces --if-present && vercel deploy",
-    "deploy:api:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/api",
-    "deploy:ai:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/ai-proxy"
+    "deploy:api:cf": "npm run build --workspaces --if-present && npm run deploy --workspace=@quozen/api"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

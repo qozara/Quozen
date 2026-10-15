@@ -27,6 +27,7 @@
         "typescript": "^5.0.0"
     },
     "dependencies": {
+        "@qozara/ai-client": "file:../../../ai-proxy/packages/client",
         "@qozara/gdocs-schema": "^1.0.4",
         "rxdb": "^17.5.0",
         "rxjs": "^7.8.1"
