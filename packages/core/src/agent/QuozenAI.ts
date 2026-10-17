@@ -1,5 +1,5 @@
 import { QuozenClient } from '../QuozenClient';
-import { AiProvider } from './providers/types';
+import { AiProvider } from '@qozara/ai-client';
 import { AgentOrchestrator } from './Orchestrator';
 import { agentTools } from './tools';
 import { distributeAmount } from '../finance';
