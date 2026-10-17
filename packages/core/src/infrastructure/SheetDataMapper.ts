@@ -44,6 +44,25 @@ function safeIso(val: unknown, fallbackIso?: string): string {
     return d.toISOString();
 }
 
+const FORMULA_TRIGGER_REGEX = /^[\=\+\-\@\t\r]/;
+
+export function sanitizeSheetValue<T>(val: T): T {
+    if (typeof val === 'string' && FORMULA_TRIGGER_REGEX.test(val)) {
+        return `'${val}` as unknown as T;
+    }
+    return val;
+}
+
+export function desanitizeSheetValue(val: unknown): string {
+    if (typeof val === 'string') {
+        if (val.startsWith("'") && FORMULA_TRIGGER_REGEX.test(val.slice(1))) {
+            return val.slice(1);
+        }
+        return val;
+    }
+    return val !== undefined && val !== null ? String(val) : '';
+}
+
 export class SheetDataMapper {
     static buildHeaderMap(headers: any[]): HeaderMap {
         return headers.reduce((acc: HeaderMap, h: any, i: number) => {
@@ -69,10 +88,10 @@ export class SheetDataMapper {
 
         const id = row[idIdx];
         const date = row[dateIdx];
-        const description = row[descIdx];
+        const description = desanitizeSheetValue(row[descIdx]);
         const amountRaw = row[amountIdx];
-        const paidByUserId = row[paidByIdx];
-        const category = row[catIdx];
+        const paidByUserId = desanitizeSheetValue(row[paidByIdx]);
+        const category = desanitizeSheetValue(row[catIdx]);
         const splitsRaw = row[splitsIdx];
         const metaRaw = metaIdx !== undefined ? row[metaIdx] : row[7];
         const updatedAtCol = updatedAtIdx !== undefined ? row[updatedAtIdx] : undefined;
@@ -109,10 +128,10 @@ export class SheetDataMapper {
         const expense: Expense = {
             id: id ? String(id) : "",
             date: parsedDate,
-            description: description ? String(description) : "",
+            description,
             amount,
-            paidByUserId: paidByUserId ? String(paidByUserId) : "",
-            category: category ? String(category) : "",
+            paidByUserId,
+            category,
             splits,
             createdAt,
             updatedAt,
@@ -145,11 +164,11 @@ export class SheetDataMapper {
 
         setCol('id', expense.id);
         setCol('date', dateIso);
-        setCol('description', expense.description);
+        setCol('description', sanitizeSheetValue(expense.description));
         setCol('amount', expense.amount);
-        setCol('paidBy', expense.paidByUserId);
-        setCol('paidByUserId', expense.paidByUserId);
-        setCol('category', expense.category);
+        setCol('paidBy', sanitizeSheetValue(expense.paidByUserId));
+        setCol('paidByUserId', sanitizeSheetValue(expense.paidByUserId));
+        setCol('category', sanitizeSheetValue(expense.category));
         setCol('splits', JSON.stringify(expense.splits));
         setCol('meta', JSON.stringify({
             createdAt: createdIso,
@@ -165,11 +184,11 @@ export class SheetDataMapper {
     static mapToSettlement(row: any[], rowIndex: number, headerMap: HeaderMap = DEFAULT_SETTLEMENT_MAP): SheetRow<Settlement> {
         const id = row[getHeaderIndex(headerMap, 'id', 0)!];
         const date = row[getHeaderIndex(headerMap, 'date', 1)!];
-        const fromUserId = row[getHeaderIndex(headerMap, 'fromUserId', 2)!];
-        const toUserId = row[getHeaderIndex(headerMap, 'toUserId', 3)!];
+        const fromUserId = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'fromUserId', 2)!]);
+        const toUserId = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'toUserId', 3)!]);
         const amountRaw = row[getHeaderIndex(headerMap, 'amount', 4)!];
-        const method = row[getHeaderIndex(headerMap, 'method', 5)!];
-        const notes = row[getHeaderIndex(headerMap, 'notes', 6)!];
+        const method = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'method', 5)!]);
+        const notes = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'notes', 6)!]);
         const updatedAtIdx = getHeaderIndex(headerMap, 'updatedAt');
         const deletedAtIdx = getHeaderIndex(headerMap, 'deletedAt');
         const updatedAtCol = updatedAtIdx !== undefined ? row[updatedAtIdx] : undefined;
@@ -187,11 +206,11 @@ export class SheetDataMapper {
         const settlement: Settlement = {
             id: id ? String(id) : "",
             date: parsedDate,
-            fromUserId: fromUserId ? String(fromUserId) : "",
-            toUserId: toUserId ? String(toUserId) : "",
+            fromUserId,
+            toUserId,
             amount,
-            method: method ? String(method) : "cash",
-            notes: notes ? String(notes) : "",
+            method: method || "cash",
+            notes,
             updatedAt
         };
 
@@ -221,11 +240,11 @@ export class SheetDataMapper {
 
         setCol('id', settlement.id);
         setCol('date', dateIso);
-        setCol('fromUserId', settlement.fromUserId);
-        setCol('toUserId', settlement.toUserId);
+        setCol('fromUserId', sanitizeSheetValue(settlement.fromUserId));
+        setCol('toUserId', sanitizeSheetValue(settlement.toUserId));
         setCol('amount', settlement.amount);
-        setCol('method', settlement.method);
-        setCol('notes', settlement.notes || "");
+        setCol('method', sanitizeSheetValue(settlement.method));
+        setCol('notes', sanitizeSheetValue(settlement.notes || ""));
         setCol('updatedAt', updatedIso);
         if (settlement.deletedAt) {
             setCol('deletedAt', safeIso(settlement.deletedAt, updatedIso));
@@ -236,9 +255,9 @@ export class SheetDataMapper {
 
     static mapToMember(row: any[], rowIndex: number, headerMap: HeaderMap = DEFAULT_MEMBER_MAP): SheetRow<Member> {
         const userId = row[getHeaderIndex(headerMap, 'userId', 0)!];
-        const email = row[getHeaderIndex(headerMap, 'email', 1)!];
-        const name = row[getHeaderIndex(headerMap, 'name', 2)!];
-        const role = row[getHeaderIndex(headerMap, 'role', 3)!];
+        const email = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'email', 1)!]);
+        const name = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'name', 2)!]);
+        const role = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'role', 3)!]);
         const joinedAt = row[getHeaderIndex(headerMap, 'joinedAt', 4)!];
         const updatedAtIdx = getHeaderIndex(headerMap, 'updatedAt');
         const deletedAtIdx = getHeaderIndex(headerMap, 'deletedAt');
@@ -250,8 +269,8 @@ export class SheetDataMapper {
 
         const member: Member = {
             userId: userId ? String(userId) : "",
-            email: email ? String(email) : "",
-            name: name ? String(name) : "",
+            email,
+            name,
             role: (role === "owner" || role === "member") ? role : "member",
             joinedAt: parsedJoinedAt,
             updatedAt
@@ -282,9 +301,9 @@ export class SheetDataMapper {
             : joinedIso;
 
         setCol('userId', member.userId);
-        setCol('email', member.email);
-        setCol('name', member.name);
-        setCol('role', member.role);
+        setCol('email', sanitizeSheetValue(member.email || ""));
+        setCol('name', sanitizeSheetValue(member.name || ""));
+        setCol('role', sanitizeSheetValue(member.role || "member"));
         setCol('joinedAt', joinedIso);
         setCol('updatedAt', updatedIso);
         if (member.deletedAt) {

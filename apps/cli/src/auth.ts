@@ -17,22 +17,31 @@ export async function login() {
         process.exit(1);
     }
 
+    const state = crypto.randomUUID();
     const app = express();
-    const server = app.listen(3000, () => {
-        console.log("Listening on http://localhost:3000");
+    const server = app.listen(3000, '127.0.0.1', () => {
+        console.log("Listening on http://127.0.0.1:3000");
     });
 
     const redirectUri = 'http://localhost:3000/callback';
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid%20email%20profile%20https://www.googleapis.com/auth/drive.file&access_type=offline&prompt=consent`;
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile%20https://www.googleapis.com/auth/drive.file&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
 
     console.log("Opening browser for authentication...");
     await open(authUrl);
 
     return new Promise<void>((resolve, reject) => {
         app.get('/callback', async (req, res) => {
+            const receivedState = req.query.state as string;
             const code = req.query.code as string;
+
+            if (!receivedState || receivedState !== state) {
+                res.status(403).send("Authentication failed! State mismatch (CSRF protection).");
+                server.close();
+                return reject(new Error("OAuth state mismatch"));
+            }
+
             if (!code) {
-                res.send("Authentication failed! No code received.");
+                res.status(400).send("Authentication failed! No code received.");
                 server.close();
                 return reject(new Error("No code received"));
             }
@@ -56,14 +65,17 @@ export async function login() {
                     throw new Error("Failed to exchange token");
                 }
 
-                const tokens = await tokenResponse.json();
+                const tokens = await tokenResponse.json() as any;
 
                 const userResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                     headers: { Authorization: `Bearer ${tokens.access_token}` }
                 });
-                const userInfo = await userResponse.json();
+                if (!userResponse.ok) {
+                    throw new Error("Failed to fetch user info");
+                }
+                const userInfo = await userResponse.json() as any;
 
-                await fs.mkdir(CREDENTIALS_DIR, { recursive: true });
+                await fs.mkdir(CREDENTIALS_DIR, { recursive: true, mode: 0o700 });
                 await fs.writeFile(CREDENTIALS_PATH, JSON.stringify({
                     access_token: tokens.access_token,
                     refresh_token: tokens.refresh_token,

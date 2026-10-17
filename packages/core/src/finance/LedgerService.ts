@@ -1,5 +1,5 @@
 import { LedgerRepository } from "../infrastructure/LedgerRepository";
-import { User, Expense, Settlement } from "../domain/models";
+import { User, Expense, Settlement, Member } from "../domain/models";
 import { CreateExpenseDTO, UpdateExpenseDTO, CreateSettlementDTO, UpdateSettlementDTO } from "../domain/dtos";
 import { Ledger } from "../domain/Ledger";
 import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError } from "../errors";
@@ -73,7 +73,7 @@ export class LedgerService {
         return this.repo.getExpenses();
     }
 
-    async addExpense(payload: CreateExpenseDTO): Promise<Expense> {
+    private async assertMembership(): Promise<Member[]> {
         const members = await this.repo.getMembers();
         const userEmail = (this.user.email || "").trim().toLowerCase();
         const effectiveAccountId = await this.resolveEffectiveAccountId();
@@ -85,11 +85,32 @@ export class LedgerService {
                 (userEmail && (m.userId || "").trim().toLowerCase() === userEmail)
         );
         if (!isMember) throw new Error("Forbidden: User is not a member of this group");
+        return members;
+    }
+
+    private assertValidAmount(amount: unknown, fieldName: string = "Amount"): number {
+        const num = Number(amount);
+        if (!Number.isFinite(num) || num <= 0) {
+            throw new Error(`${fieldName} must be a positive number`);
+        }
+        return num;
+    }
+
+    async addExpense(payload: CreateExpenseDTO): Promise<Expense> {
+        const members = await this.assertMembership();
+        this.assertValidAmount(payload.amount, "Expense amount");
 
         let splits = payload.splits || [];
         if (splits.length === 0 && members.length > 0) {
             const amounts = distributeAmount(payload.amount, members.length);
             splits = members.map((m, i) => ({ userId: m.userId, amount: amounts[i] }));
+        }
+
+        for (const s of splits) {
+            const sAmount = Number(s.amount);
+            if (!Number.isFinite(sAmount) || sAmount < 0) {
+                throw new Error("Split amount must be a non-negative number");
+            }
         }
 
         // Validate splits mismatch
@@ -114,6 +135,11 @@ export class LedgerService {
     }
 
     async updateExpense(expenseId: string, payload: UpdateExpenseDTO, expectedLastModified?: Date): Promise<void> {
+        await this.assertMembership();
+        if (payload.amount !== undefined) {
+            this.assertValidAmount(payload.amount, "Expense amount");
+        }
+
         const expenses = await this.repo.getExpenses();
         const current = expenses.find(e => e.id === expenseId);
         if (!current) throw new Error("Expense not found");
@@ -125,6 +151,12 @@ export class LedgerService {
         // Validate splits mismatch if amount or splits are updated
         const newAmount = payload.amount ?? current.amount;
         const newSplits = payload.splits ?? current.splits;
+        for (const s of newSplits) {
+            const sAmount = Number(s.amount);
+            if (!Number.isFinite(sAmount) || sAmount < 0) {
+                throw new Error("Split amount must be a non-negative number");
+            }
+        }
         const splitSum = newSplits.reduce((sum, s) => sum + s.amount, 0);
         if (Math.abs(splitSum - newAmount) > 0.01) {
             throw new Error("Splits mismatch");
@@ -145,6 +177,7 @@ export class LedgerService {
     }
 
     async deleteExpense(expenseId: string): Promise<void> {
+        await this.assertMembership();
         await this.repo.deleteExpense(expenseId);
     }
 
@@ -153,6 +186,12 @@ export class LedgerService {
     }
 
     async addSettlement(payload: CreateSettlementDTO): Promise<Settlement> {
+        await this.assertMembership();
+        this.assertValidAmount(payload.amount, "Settlement amount");
+        if (payload.fromUserId === payload.toUserId) {
+            throw new Error("A user cannot settle with themselves");
+        }
+
         const now = new Date();
         const settlement: Settlement = {
             id: crypto.randomUUID(),
@@ -169,15 +208,26 @@ export class LedgerService {
     }
 
     async updateSettlement(settlementId: string, payload: UpdateSettlementDTO): Promise<void> {
+        await this.assertMembership();
+        if (payload.amount !== undefined) {
+            this.assertValidAmount(payload.amount, "Settlement amount");
+        }
+
         const settlements = await this.repo.getSettlements();
         const current = settlements.find(s => s.id === settlementId);
         if (!current) throw new Error("Settlement not found");
 
+        const targetFrom = payload.fromUserId ?? current.fromUserId;
+        const targetTo = payload.toUserId ?? current.toUserId;
+        if (targetFrom === targetTo) {
+            throw new Error("A user cannot settle with themselves");
+        }
+
         const updated: Settlement = {
             ...current,
             date: payload.date ?? current.date,
-            fromUserId: payload.fromUserId ?? current.fromUserId,
-            toUserId: payload.toUserId ?? current.toUserId,
+            fromUserId: targetFrom,
+            toUserId: targetTo,
             amount: payload.amount ?? current.amount,
             method: payload.method ?? current.method,
             notes: payload.notes ?? current.notes,
@@ -188,6 +238,7 @@ export class LedgerService {
     }
 
     async deleteSettlement(settlementId: string): Promise<void> {
+        await this.assertMembership();
         await this.repo.deleteSettlement(settlementId);
     }
 

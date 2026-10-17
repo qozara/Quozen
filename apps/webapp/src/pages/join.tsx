@@ -180,8 +180,8 @@ export default function JoinPage() {
             connectingFromAccountsRef.current = false;
         }
     });
-
-    const driveUrl = id ? `https://docs.google.com/spreadsheets/d/${id}` : "#";
+    const sanitizedId = id && /^[a-zA-Z0-9_-]+$/.test(id) ? id : null;
+    const driveUrl = sanitizedId ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sanitizedId)}` : "#";
 
     const selectedAccountName = selectedAccountId
         ? existingAccounts.find(m => m.userId === selectedAccountId)?.name || selectedAccountId

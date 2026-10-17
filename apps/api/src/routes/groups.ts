@@ -112,12 +112,18 @@ const deleteGroupRoute = createRoute({
     },
     responses: {
         204: { description: 'Group deleted successfully' },
+        403: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Forbidden' },
     },
 });
 
 groupsRouter.openapi(deleteGroupRoute, async (c) => {
     const id = c.req.valid('param').id;
     const quozen = c.get('quozen');
+    const settings = await quozen.groups.getSettings();
+    const group = settings.groupCache.find((g: any) => g.id === id);
+    if (group && group.role !== 'owner') {
+        return c.json({ error: 'Forbidden', message: 'Only the group owner can delete this group' }, 403);
+    }
     await quozen.groups.deleteGroup(id);
     return c.body(null, 204);
 });
