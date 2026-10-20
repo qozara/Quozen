@@ -186,28 +186,27 @@ The CLI connects directly to your Google Drive via a local OAuth loopback server
 
 ---
 
-## 🤖 Agentic UI & Polymorphic Providers
+## 🤖 Agentic UI & Qozara Intelligence
 
-Quozen features a state-of-the-art **Agentic UI** that allows you to manage your expenses using natural language (e.g., *"I paid $50 for lunch, split it with Alice"*). 
+Quozen features an **Agentic UI** powered by the centralized **Qozara AI Gateway** (`ai.qozara.org`) and isomorphic client SDK (`@qozara/ai-client`). It allows you to manage expenses using natural language (e.g., *"I paid $50 for lunch, split it with Alice"*).
 
-The system uses a **Polymorphic Provider Architecture** that automatically routes your commands through a waterfall strategy:
+The system uses a **Polymorphic Provider Architecture** that automatically routes commands through a prioritized fallback waterfall:
 
-1.  **Bring Your Own Key (BYOK):** If you provide a personal Gemini/OpenAI API key in settings, it is encrypted via our **Edge KMS** and stored safely in your Google Drive. All AI processing then happens using your dedicated quota.
-2.  **On-Device AI (Gemini Nano):** If your browser supports it (e.g., Chrome with AI features enabled), Quozen uses your local hardware for 100% private and free processing.
-3.  **Local LLM (Ollama):** Power users can connect the WebApp or CLI to a local `Ollama` instance running models like `qwen2.5` or `llama3`.
-4.  **Cloud Proxy (Team Key):** As a fallback, Quozen provided a rate-limited cloud proxy utilizing a budget-friendly model for occasional use.
+1. **Bring Your Own Key (BYOK):** Users can supply a personal Google Gemini API key. The key is encrypted via edge KMS (AES-256-GCM) and stored exclusively in the user's personal Google Drive with **zero server persistence**. All requests use the user's own quota with zero rate limits.
+2. **On-Device AI (Gemini Nano):** If your browser supports Chrome's Prompt API, Quozen runs inference locally on device for 100% private, zero-latency execution.
+3. **Local LLM (Ollama):** Connect to a local Ollama instance running models like `qwen2.5` or `llama3.2` for offline execution.
+4. **Qozara Intelligence:** Out-of-the-box edge AI powered by Gemini 2.0 Flash at `https://ai.qozara.org`, protected by sliding window rate limits (20 req/day for authenticated Google accounts; 5 req/day for anonymous users).
 
 ### Enabling Local AI (Chrome)
 To use On-Device AI:
-1.  Use **Chrome Dev/Canary** (Version 127+).
-2.  Enable `#prompt-api-for-gemini-nano` and `#enlightened-optimization-guide` in `chrome://flags`.
-3.  Relaunch and verify progress in `chrome://components`.
+1. Use **Chrome Dev/Canary** (Version 127+).
+2. Enable `#prompt-api-for-gemini-nano` and `#enlightened-optimization-guide` in `chrome://flags`.
+3. Relaunch and verify model status in `chrome://components`.
 
 ### Running with Ollama
-1.  Install [Ollama](https://ollama.com/).
-2.  Start with external origins allowed: `OLLAMA_ORIGINS="*" ollama serve`.
-3.  Pull a model: `ollama pull qwen2.5:0.5b`.
-4.  Update your `.env` with `VITE_OLLAMA_URL=http://localhost:11434/api` and `VITE_OLLAMA_MODEL=qwen2.5:0.5b`.
-
+1. Install [Ollama](https://ollama.com/).
+2. Start with external origins allowed: `OLLAMA_ORIGINS="*" ollama serve`.
+3. Pull a model: `ollama pull qwen2.5:0.5b`.
+4. Update your `.env` with `VITE_OLLAMA_URL=http://localhost:11434/api` and `VITE_OLLAMA_MODEL=qwen2.5:0.5b`.
 
 Quozen is a research project by the Qozara Lab.

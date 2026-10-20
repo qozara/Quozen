@@ -1,7 +1,0 @@
-name = "quozen-ai-proxy"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
-
-
-# Environment variables are managed via .dev.vars for local development
-# and via 'wrangler secret put' for production.

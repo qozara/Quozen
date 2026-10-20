@@ -8,7 +8,8 @@
     "scripts": {
         "dev": "tsup src/index.ts --format esm --watch",
         "build": "tsup src/index.ts --format esm",
-        "start": "node ./dist/index.js"
+        "start": "node ./dist/index.js",
+        "test": "vitest run"
     },
     "dependencies": {
         "@quozen/core": "*",
@@ -16,6 +17,7 @@
         "commander": "^11.1.0",
         "dotenv": "^17.3.1",
         "express": "^4.22.2",
+        "express-rate-limit": "^8.7.1",
         "open": "^9.1.0",
         "prompts": "^2.4.2"
     },
