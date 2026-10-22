@@ -33,6 +33,12 @@ export default function SchemaRemediationModal() {
     onSuccess: () => {
       toast({ title: t("common.success"), description: t("schemaRemediation.successDesc") });
       setSchemaErrorStatus(null);
+      if (quozen.syncProvider && typeof (quozen.syncProvider as any).setStatus === "function") {
+        (quozen.syncProvider as any).setStatus("idle");
+      }
+      if (quozen.replication && activeGroupId) {
+        void quozen.replication.sync(activeGroupId).catch(() => {});
+      }
       queryClient.invalidateQueries();
     },
     onError: (err: any) => {

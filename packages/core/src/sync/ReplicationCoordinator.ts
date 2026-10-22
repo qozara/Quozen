@@ -95,6 +95,8 @@ export class ReplicationCoordinator {
 
     public async sync(groupId?: string): Promise<void> {
         if (!this.provider.isInitialized()) return;
+        const currentStatus = this.provider.getStatus();
+        if (currentStatus === "upgrade_required" || currentStatus === "corrupted") return;
         if (this.isSyncing) {
             this.hasPendingSync = true;
             if (groupId !== undefined) {

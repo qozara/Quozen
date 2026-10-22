@@ -171,6 +171,7 @@ export function AutoSyncProvider({
     // Core Sync Logic
     const checkUpdates = useCallback(async () => {
         if (!activeGroupId || !isEnabled) return;
+        if (syncStatus === "upgrade_required" || syncStatus === "corrupted") return;
         if (typeof navigator !== "undefined" && navigator.onLine === false) {
             setIsOnline(false);
             return;

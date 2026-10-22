@@ -185,4 +185,76 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
         const legacyDeltas = await legacyProvider.pull("legacy-group");
         expect(legacyDeltas.find(d => d.collection === "categories")).toBeUndefined();
     });
+
+    it("hydrates from legacy v1 spreadsheet without Categories tab without throwing and seeds DEFAULT_CATEGORIES", async () => {
+        // Create an unmigrated legacy sheet in storage with NO Categories tab
+        const legacyStorage = new InMemoryAdapter();
+        // Setup initial tabs: Members, Expenses, Settlements (no Categories)
+        const legacyGroupId = await legacyStorage.createSpreadsheet("Legacy Group", ["Members", "Expenses", "Settlements"]);
+        await legacyStorage.appendValues(legacyGroupId, "Members!A1:E", [
+            ["userId", "email", "name", "role", "updatedAt"],
+            ["user-1", "alice@example.com", "Alice", "owner", new Date().toISOString()]
+        ]);
+        await legacyStorage.appendValues(legacyGroupId, "Expenses!A1:I", [
+            ["id", "date", "description", "amount", "paidByUserId", "category", "splits", "createdAt", "updatedAt"],
+            ["exp-1", "2026-01-01", "Dinner", "50", "user-1", "Food", JSON.stringify([{ userId: "user-1", amount: 50 }]), new Date().toISOString(), new Date().toISOString()]
+        ]);
+        await legacyStorage.appendValues(legacyGroupId, "Settlements!A1:G", [
+            ["id", "date", "fromUserId", "toUserId", "amount", "method", "updatedAt"]
+        ]);
+
+        // Mock batchGetValues to throw 400 Bad Request on Categories!A1:Z
+        const originalBatchGet = legacyStorage.batchGetValues.bind(legacyStorage);
+        legacyStorage.batchGetValues = async (id: string, ranges: string[]) => {
+            if (ranges.some(r => r.includes("Categories"))) {
+                throw new Error("Google API Error 400: Unable to parse range: Categories!A1:Z");
+            }
+            return originalBatchGet(id, ranges);
+        };
+
+        const legacyRepo = new LedgerRepository(legacyStorage, legacyGroupId, db);
+        const expenses = await legacyRepo.getExpenses();
+        expect(expenses).toHaveLength(1);
+        expect(expenses[0].id).toBe("exp-1");
+
+        const categories = await legacyRepo.getCategories();
+        expect(categories.length).toBeGreaterThanOrEqual(DEFAULT_CATEGORIES.length);
+        expect(categories.find(c => c.id === "food_dining")).toBeDefined();
+    });
+
+    it("CompositeCloudSyncProvider detects UPGRADE_REQUIRED via checkHealth and suspends sync", async () => {
+        const upgradeDriver: TabularStorageDriver = {
+            readTable: async () => [],
+            writeTable: async () => {},
+            checkHealth: async () => ({
+                spreadsheetId: "legacy-v1-sheet",
+                currentVersion: 1,
+                latestVersion: 2,
+                status: "UPGRADE_REQUIRED",
+                missingTabs: ["Categories"],
+                missingColumns: {},
+                canAutoMigrate: true,
+                lastModifiedTime: new Date().toISOString()
+            } as any)
+        };
+
+        const provider = new CompositeCloudSyncProvider({
+            tabularDriver: upgradeDriver
+        });
+        await provider.initialize();
+        provider.setActiveGroupId("legacy-v1-sheet");
+
+        const deltas = await provider.pull("legacy-v1-sheet");
+        expect(deltas).toEqual([]);
+        expect(provider.getStatus()).toBe("upgrade_required");
+
+        // Push should also be skipped when in upgrade_required status
+        await provider.push({
+            collection: "categories",
+            groupId: "legacy-v1-sheet",
+            documents: [{ id: "cat-1", name: "Custom" }]
+        });
+        // Status remains upgrade_required
+        expect(provider.getStatus()).toBe("upgrade_required");
+    });
 });

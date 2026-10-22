@@ -93,8 +93,7 @@ export class LedgerRepository {
                 const res = await this.storage.batchGetValues(this.groupId, [
                     "Members!A1:Z",
                     "Expenses!A1:Z",
-                    "Settlements!A1:Z",
-                    "Categories!A1:Z"
+                    "Settlements!A1:Z"
                 ]);
 
                 const memberRows = res[0]?.values || [];
@@ -145,7 +144,14 @@ export class LedgerRepository {
                     }
                 }
 
-                const categoryRows = res[3]?.values || [];
+                let categoryRows: any[][] = [];
+                try {
+                    const catRes = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
+                    categoryRows = catRes[0]?.values || [];
+                } catch {
+                    categoryRows = [];
+                }
+
                 if (categoryRows.length > 1) {
                     const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
                     const cDocs = categoryRows
@@ -165,28 +171,27 @@ export class LedgerRepository {
                     ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
                 }
             } else if (existingCategories.length === 0) {
+                let categoryRows: any[][] = [];
                 try {
                     const res = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
-                    const categoryRows = res[0]?.values || [];
-                    if (categoryRows.length > 1) {
-                        const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
-                        const cDocs = categoryRows
-                            .slice(1)
-                            .filter(nonEmptyRow)
-                            .map((r: any[], i: number) =>
-                                categoryToDoc(SheetDataMapper.mapToCategory(r, i + 2, cHeaders).entity, this.groupId)
-                            )
-                            .filter((d: any) => Boolean(d.categoryId));
-                        if (cDocs.length > 0) {
-                            await this.db.collections.categories.bulkUpsert(cDocs);
-                            ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
-                        }
-                    } else {
-                        const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
+                    categoryRows = res[0]?.values || [];
+                } catch {
+                    categoryRows = [];
+                }
+                if (categoryRows.length > 1) {
+                    const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
+                    const cDocs = categoryRows
+                        .slice(1)
+                        .filter(nonEmptyRow)
+                        .map((r: any[], i: number) =>
+                            categoryToDoc(SheetDataMapper.mapToCategory(r, i + 2, cHeaders).entity, this.groupId)
+                        )
+                        .filter((d: any) => Boolean(d.categoryId));
+                    if (cDocs.length > 0) {
                         await this.db.collections.categories.bulkUpsert(cDocs);
                         ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
                     }
-                } catch {
+                } else {
                     const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
                     await this.db.collections.categories.bulkUpsert(cDocs);
                     ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);

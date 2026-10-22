@@ -257,6 +257,26 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
         if (!this.initialized) return [];
         const targetGroupId = groupId ?? this.activeGroupId;
 
+        const isMockMode = typeof import.meta !== "undefined" && (import.meta as any).env && ((import.meta as any).env.VITE_USE_MOCK_STORAGE === "true" || (import.meta as any).env.VITE_USE_MOCK_STORAGE === "remote");
+        if (!isMockMode && targetGroupId && typeof (this.tabularDriver as any)?.checkHealth === "function") {
+            try {
+                const health = await (this.tabularDriver as any).checkHealth(targetGroupId);
+                if (health.status === "UPGRADE_REQUIRED") {
+                    this.setStatus("upgrade_required");
+                    return [];
+                }
+                if (health.status === "CORRUPTED" || health.status === "INCOMPATIBLE") {
+                    this.setStatus("corrupted");
+                    return [];
+                }
+            } catch (healthErr: any) {
+                if (healthErr?.name === "SchemaUpgradeRequiredError" || String(healthErr?.message || "").includes("upgrade")) {
+                    this.setStatus("upgrade_required");
+                    return [];
+                }
+            }
+        }
+
         this.setStatus("syncing");
         try {
             const results: SyncDeltaPayload[] = [];
@@ -301,6 +321,7 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     async push(payload: SyncDeltaPayload): Promise<void> {
         if (!this.initialized) return;
+        if (this.status === "upgrade_required" || this.status === "corrupted") return;
 
         this.setStatus("syncing");
         try {
@@ -395,6 +416,10 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     private handleSyncException(err: any): void {
         const msg = String(err?.message || err);
+        if (msg.includes("Categories") && (msg.includes("Unable to parse range") || msg.includes("400") || msg.includes("INVALID_ARGUMENT"))) {
+            this.setStatus("upgrade_required");
+            return;
+        }
         if (msg.includes("corruption") || msg.includes("missing required column") || err?.name === "SchemaCorruptedError") {
             this.setStatus("corrupted");
         } else if (msg.includes("upgrade") || err?.name === "SchemaUpgradeRequiredError") {

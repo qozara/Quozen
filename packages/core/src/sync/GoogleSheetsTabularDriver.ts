@@ -1,6 +1,6 @@
 import type { TabularStorageDriver, TabularRow, GoogleDriverOptions, GoogleHttpClient } from "./types";
 import type { IStorageLayer } from "../infrastructure/IStorageLayer";
-import { ValidationService, type SchemaStatusDTO } from "../schema/ValidationService";
+import { ValidationService, ValidationStatus, type SchemaStatusDTO } from "../schema/ValidationService";
 import { QuozenSchema } from "../schema/SchemaDefinition";
 
 export class GoogleSheetsTabularDriver implements TabularStorageDriver {
@@ -49,8 +49,17 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
 
     async readTable(documentId: string, tabName: string): Promise<TabularRow[]> {
         if (this.storageLayer) {
-            const res = await this.storageLayer.batchGetValues(documentId, [`${tabName}!A1:Z`]);
-            const values: any[][] = res[0]?.values || [];
+            let values: any[][] = [];
+            try {
+                const res = await this.storageLayer.batchGetValues(documentId, [`${tabName}!A1:Z`]);
+                values = res[0]?.values || [];
+            } catch (err: any) {
+                const msg = String(err?.message || err);
+                if (tabName === "Categories" && (msg.includes("Categories") || msg.includes("400"))) {
+                    return [];
+                }
+                throw err;
+            }
             if (values.length <= 1) return [];
             const sheetHeaders = (values[0] || []).map(h => String(h).trim());
             this.validateHeaders(tabName, sheetHeaders);
@@ -67,6 +76,9 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
         const headers = this.getAuthHeaders();
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${documentId}/values/${encodeURIComponent(tabName)}!A1:Z`;
         const res = await this.client.fetch(url, { method: "GET", headers });
+        if (tabName === "Categories" && res.status === 400) {
+            return [];
+        }
         await this.handleResponseErrors(res, `reading table "${tabName}" from document ${documentId}`);
 
         const json = (await res.json()) as any;
@@ -191,6 +203,19 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
     }
 
     async checkHealth(documentId: string): Promise<SchemaStatusDTO> {
+        const token = this.getAccessToken?.();
+        if (!token) {
+            return {
+                spreadsheetId: documentId,
+                currentVersion: QuozenSchema.version,
+                latestVersion: QuozenSchema.version,
+                status: ValidationStatus.READY,
+                missingTabs: [],
+                missingColumns: {},
+                canAutoMigrate: false,
+                lastModifiedTime: new Date().toISOString()
+            };
+        }
         const svc = new ValidationService(this.getAccessToken);
         return await svc.checkHealth(documentId);
     }
