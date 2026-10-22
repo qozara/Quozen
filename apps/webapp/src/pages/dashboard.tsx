@@ -7,9 +7,9 @@ import { Label } from "@/components/ui/label";
 import SettlementModal from "@/components/settlement-modal";
 import { useState, useMemo } from "react";
 import {
-  Utensils, Car, Bed, ShoppingBag, Gamepad2, MoreHorizontal,
   Wallet, Handshake, ChevronDown, ArrowRight, Banknote, User, Check, Pencil
 } from "lucide-react";
+import { CategoryIcon } from "@/components/category-icon";
 import { quozen } from "@/lib/storage";
 import { useNavigate } from "react-router-dom";
 import {
@@ -231,17 +231,6 @@ export default function Dashboard() {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 5);
   }, [expenses, settlements]);
-
-  const getExpenseIcon = (category: string) => {
-    switch (category?.toLowerCase()) {
-      case "food": case "food & dining": return Utensils;
-      case "transportation": return Car;
-      case "accommodation": return Bed;
-      case "shopping": return ShoppingBag;
-      case "entertainment": return Gamepad2;
-      default: return MoreHorizontal;
-    }
-  };
 
   const settlementSuggestion = useMemo(() => ledger?.getSettleUpSuggestion(effectiveUserId), [ledger, effectiveUserId]);
 
@@ -518,7 +507,6 @@ export default function Dashboard() {
 
                       const e = item as Expense;
                       const paidByUser = getUserById(e.paidByUserId);
-                      const Icon = getExpenseIcon(e.category);
                       const status = ledger?.getExpenseStatus(e.id, effectiveUserId) || { status: 'none' };
 
                       return (
@@ -526,7 +514,7 @@ export default function Dashboard() {
                           <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center space-x-3">
                               <div className="w-10 h-10 bg-secondary rounded-full flex items-center justify-center border border-border">
-                                <Icon className="w-5 h-5 text-muted-foreground" />
+                                <CategoryIcon categoryId={e.category} categories={ledger?.categories} className="w-5 h-5 text-muted-foreground" />
                               </div>
                               <div>
                                 <p className="font-medium text-foreground text-sm">{e.description}</p>

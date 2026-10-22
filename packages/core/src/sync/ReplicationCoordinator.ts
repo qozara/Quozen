@@ -2,7 +2,7 @@ import type { QuozenDatabase } from "../db";
 import type { CloudSyncProvider, SyncStatus } from "./types";
 import { BehaviorSubject, type Observable, type Subscription } from "rxjs";
 
-export const SYNCABLE_COLLECTIONS = ["user_settings", "expenses", "settlements", "members"] as const;
+export const SYNCABLE_COLLECTIONS = ["user_settings", "members", "categories", "expenses", "settlements"] as const;
 
 function parseTimestamp(val?: string | number | null): number {
     if (!val) return 0;

@@ -5,7 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Expense, Member } from "@quozen/core";
+import { Expense, Member, ExpenseCategory, DEFAULT_CATEGORIES, resolveCategory } from "@quozen/core";
+import { CategoryIcon } from "@/components/category-icon";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useOptionalAuth } from "@/context/auth-provider";
@@ -36,6 +37,7 @@ interface ExpenseSplit {
 interface ExpenseFormProps {
   initialData?: Partial<Expense>;
   users: Member[];
+  categories?: ExpenseCategory[];
   currentUserId: string;
   onSubmit: (data: Partial<Expense>) => void;
   isPending: boolean;
@@ -43,18 +45,28 @@ interface ExpenseFormProps {
   isDrawer?: boolean; // New prop
 }
 
-export default function ExpenseForm({ initialData, users, currentUserId, onSubmit, isPending, isDrawer }: ExpenseFormProps) {
+export default function ExpenseForm({ initialData, users, categories, currentUserId, onSubmit, isPending, isDrawer }: ExpenseFormProps) {
   const { toast } = useToast();
   const { t } = useTranslation();
   const auth = useOptionalAuth();
   const authUser = auth?.user;
 
+  const availableCategories = (categories && categories.length > 0) ? categories : DEFAULT_CATEGORIES;
+  const initialCatId = initialData?.category
+    ? resolveCategory(initialData.category, availableCategories)?.id || initialData.category
+    : "";
+
   const [description, setDescription] = useState(initialData?.description || "");
   const [amount, setAmount] = useState(initialData?.amount?.toString() || "");
   const [paidBy, setPaidBy] = useState(initialData?.paidByUserId || (initialData as any)?.paidBy || currentUserId);
-  const [category, setCategory] = useState(initialData?.category || "");
+  const [category, setCategory] = useState(initialCatId);
   const [date, setDate] = useState(initialData?.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
   const [splits, setSplits] = useState<ExpenseSplit[]>([]);
+
+  const handleCategoryChange = (val: string) => {
+    const resolved = resolveCategory(val, availableCategories);
+    setCategory(resolved ? resolved.id : val);
+  };
 
   useEffect(() => {
     if (!initialData && currentUserId) {
@@ -240,10 +252,17 @@ export default function ExpenseForm({ initialData, users, currentUserId, onSubmi
         </div>
         <div>
           <Label htmlFor="category">{t("expenseForm.category")} *</Label>
-          <Select value={category} onValueChange={setCategory}>
+          <Select value={category} onValueChange={handleCategoryChange}>
             <SelectTrigger data-testid="select-category"><SelectValue placeholder={t("expenseForm.selectCategory")} /></SelectTrigger>
             <SelectContent>
-              {["Food & Dining", "Transportation", "Accommodation", "Entertainment", "Shopping", "Other"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              {availableCategories.map(c => (
+                <SelectItem key={c.id} value={c.id}>
+                  <div className="flex items-center gap-2">
+                    <CategoryIcon categoryId={c.id} className="w-4 h-4 text-muted-foreground" />
+                    <span>{c.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

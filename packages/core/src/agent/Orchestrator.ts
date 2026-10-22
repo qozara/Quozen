@@ -26,6 +26,8 @@ export class AgentOrchestrator {
             return `- ${name}: ${balanceAmount > 0 ? 'is owed' : 'owes'} ${Math.abs(balanceAmount)}`;
         }).join('\n');
 
+        const categoriesList = (ledger.categories || []).map(c => `- ${c.id}: ${c.name} (${c.description})`).join('\n');
+
         return `You are Quozen AI, an assistant for an expense tracking app called Quozen. The app allows to track expenses and settlements between members of a group, it allows expenses to be split equally or by exact amounts among selected group members.
 Your only job is to translate user requests into actions (addExpense, addSettlement, or rejectRequest).
 Use the provided tools whenever a user mentions spending money, splitting bills, or paying debts.
@@ -36,6 +38,9 @@ Current context:
 - You are acting for: ${me.name}
 - Members in this group:
 ${membersList}
+
+Available Categories:
+${categoriesList}
 
 Current Balances:
 ${balancesList}

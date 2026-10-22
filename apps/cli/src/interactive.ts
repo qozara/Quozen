@@ -175,12 +175,17 @@ export async function startInteractive() {
                         type: 'select',
                         name: 'category',
                         message: 'Category',
-                        choices: [
-                            { title: 'Food', value: 'Food' },
-                            { title: 'Transport', value: 'Transportation' },
-                            { title: 'Accommodation', value: 'Accommodation' },
-                            { title: 'Other', value: 'Other' }
-                        ]
+                        choices: (ledger.categories && ledger.categories.length > 0 ? ledger.categories : [
+                            { id: 'food_dining', name: 'Food & Dining' },
+                            { id: 'transportation', name: 'Transportation' },
+                            { id: 'accommodation', name: 'Accommodation' },
+                            { id: 'entertainment', name: 'Entertainment' },
+                            { id: 'shopping', name: 'Shopping' },
+                            { id: 'other', name: 'Other' }
+                        ]).map((c: any) => ({
+                            title: c.description ? `${c.name} (${c.description})` : c.name,
+                            value: c.id
+                        }))
                     },
                     {
                         type: 'select',

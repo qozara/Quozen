@@ -14,12 +14,15 @@ import { RxDBQueryBuilderPlugin } from "rxdb/plugins/query-builder";
 import {
     userSettingsSchema,
     expenseSchema,
+    expenseMigrationStrategies,
     settlementSchema,
     memberSchema,
+    categorySchema,
     type UserSettingsDocType,
     type ExpenseDocType,
     type SettlementDocType,
-    type MemberDocType
+    type MemberDocType,
+    type CategoryDocType
 } from "./schemas";
 
 addRxPlugin(RxDBMigrationSchemaPlugin);
@@ -33,6 +36,7 @@ export type QuozenDatabaseCollections = {
     expenses: RxCollection<ExpenseDocType>;
     settlements: RxCollection<SettlementDocType>;
     members: RxCollection<MemberDocType>;
+    categories: RxCollection<CategoryDocType>;
 };
 
 export type QuozenDatabase = RxDatabase<QuozenDatabaseCollections>;
@@ -61,13 +65,17 @@ export async function createQuozenDatabase(options?: QuozenDatabaseOptions): Pro
             schema: userSettingsSchema
         },
         expenses: {
-            schema: expenseSchema
+            schema: expenseSchema,
+            migrationStrategies: expenseMigrationStrategies
         },
         settlements: {
             schema: settlementSchema
         },
         members: {
             schema: memberSchema
+        },
+        categories: {
+            schema: categorySchema
         }
     });
 

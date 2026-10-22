@@ -1,11 +1,12 @@
 import { IStorageLayer } from "./IStorageLayer";
 import { Group, User, Member } from "../domain/models";
-import { UserSettings, CachedGroup, QUOZEN_PREFIX, SETTINGS_FILE_NAME, REQUIRED_SHEETS, MemberInput } from "../types";
+import { UserSettings, CachedGroup, QUOZEN_PREFIX, SETTINGS_FILE_NAME, REQUIRED_SHEETS, GROUP_SHEETS, MemberInput } from "../types";
+import { DEFAULT_CATEGORIES } from "../domain/categories";
 import { SheetDataMapper } from "./SheetDataMapper";
 import { LedgerRepository } from "./LedgerRepository";
 import { ValidationService, ValidationStatus } from "../schema/ValidationService";
 import type { QuozenDatabase } from "../db";
-import { userSettingsToDoc, docToUserSettings, memberToDoc } from "../db/schemas";
+import { userSettingsToDoc, docToUserSettings, memberToDoc, categoryToDoc } from "../db/schemas";
 import type { BlobStorageDriver } from "../sync/types";
 import { isNetworkError } from "../sync/CompositeCloudSyncProvider";
 import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
@@ -232,7 +233,7 @@ export class GroupRepository {
 
     async create(name: string, members: MemberInput[] = []): Promise<Group> {
         const title = `${QUOZEN_PREFIX}${name}`;
-        const fileId = await this.storage.createSpreadsheet(title, [...REQUIRED_SHEETS], { quozen_type: 'group', version: '1.0' });
+        const fileId = await this.storage.createSpreadsheet(title, [...GROUP_SHEETS], { quozen_type: 'group', version: '1.0' });
 
         const nowIso = new Date().toISOString();
         const initialMembers = [
@@ -250,11 +251,21 @@ export class GroupRepository {
             initialMembers.push([memberId, member.email || "", memberName, "member", nowIso]);
         }
 
+        const initialCategories = DEFAULT_CATEGORIES.map(c => [
+            c.id,
+            c.name,
+            c.icon,
+            c.description,
+            nowIso
+        ]);
+
         const dataToUpdate = [
             { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
             { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
             { range: "Members!A1", values: [["userId", "email", "name", "role", "joinedAt"]] },
-            { range: "Members!A2", values: initialMembers }
+            { range: "Members!A2", values: initialMembers },
+            { range: "Categories!A1", values: [["id", "name", "icon", "description", "updatedAt"]] },
+            { range: "Categories!A2", values: initialCategories }
         ];
 
         await this.storage.batchUpdateValues(fileId, dataToUpdate);
@@ -275,6 +286,10 @@ export class GroupRepository {
             );
             await this.db.members.bulkUpsert(memberDocs);
             ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, memberDocs);
+
+            const categoryDocs = DEFAULT_CATEGORIES.map(cat => categoryToDoc(cat, fileId));
+            await this.db.collections.categories.bulkUpsert(categoryDocs);
+            ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, categoryDocs);
         }
 
         if (this.getToken && this.getToken()) {

@@ -1,8 +1,9 @@
 import { LedgerRepository } from "../infrastructure/LedgerRepository";
-import { User, Expense, Settlement, Member } from "../domain/models";
+import { User, Expense, Settlement, Member, ExpenseCategory } from "../domain/models";
 import { CreateExpenseDTO, UpdateExpenseDTO, CreateSettlementDTO, UpdateSettlementDTO } from "../domain/dtos";
 import { Ledger } from "../domain/Ledger";
-import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError } from "../errors";
+import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError, InvalidCategoryError } from "../errors";
+import { resolveCategory, DEFAULT_CATEGORY_ID, DEFAULT_CATEGORIES } from "../domain/categories";
 import { distributeAmount } from "./index";
 import { ValidationService, ValidationStatus } from "../schema/ValidationService";
 
@@ -119,11 +120,23 @@ export class LedgerService {
             throw new Error("Splits mismatch");
         }
 
+        const categories = typeof this.repo.getCategories === "function"
+            ? await this.repo.getCategories()
+            : DEFAULT_CATEGORIES;
+        let resolvedCategory = DEFAULT_CATEGORY_ID;
+        if (payload.category) {
+            const matched = resolveCategory(payload.category, categories);
+            if (!matched) {
+                throw new InvalidCategoryError(`Category "${payload.category}" is invalid or not available in this group.`);
+            }
+            resolvedCategory = matched.id;
+        }
+
         const expense: Expense = {
             id: crypto.randomUUID(),
             description: payload.description,
             amount: payload.amount,
-            category: payload.category,
+            category: resolvedCategory,
             date: new Date(payload.date),
             paidByUserId: payload.paidByUserId,
             splits: splits,
@@ -148,6 +161,18 @@ export class LedgerService {
             throw new ConflictError("Data has been modified by another user.");
         }
 
+        let newCategory = current.category;
+        if (payload.category !== undefined) {
+            const categories = typeof this.repo.getCategories === "function"
+            ? await this.repo.getCategories()
+            : DEFAULT_CATEGORIES;
+            const matched = resolveCategory(payload.category, categories);
+            if (!matched) {
+                throw new InvalidCategoryError(`Category "${payload.category}" is invalid or not available in this group.`);
+            }
+            newCategory = matched.id;
+        }
+
         // Validate splits mismatch if amount or splits are updated
         const newAmount = payload.amount ?? current.amount;
         const newSplits = payload.splits ?? current.splits;
@@ -166,7 +191,7 @@ export class LedgerService {
             ...current,
             description: payload.description ?? current.description,
             amount: payload.amount ?? current.amount,
-            category: payload.category ?? current.category,
+            category: newCategory,
             date: payload.date ? new Date(payload.date) : current.date,
             paidByUserId: payload.paidByUserId ?? current.paidByUserId,
             splits: payload.splits ?? current.splits,
@@ -282,12 +307,21 @@ export class LedgerService {
         return true;
     }
 
+    async getCategories(): Promise<ExpenseCategory[]> {
+        return typeof this.repo.getCategories === "function"
+            ? this.repo.getCategories()
+            : Promise.resolve(DEFAULT_CATEGORIES);
+    }
+
     async getLedger(): Promise<Ledger> {
         await this.ensureSchemaHealth();
 
-        const expenses = await this.repo.getExpenses();
-        const settlements = await this.repo.getSettlements();
-        const members = await this.repo.getMembers();
+        const [expenses, settlements, members, categories] = await Promise.all([
+            this.repo.getExpenses(),
+            this.repo.getSettlements(),
+            this.repo.getMembers(),
+            typeof this.repo.getCategories === "function" ? this.repo.getCategories() : Promise.resolve(DEFAULT_CATEGORIES)
+        ]);
 
         const effectiveAccountId = await this.resolveEffectiveAccountId();
         const hasLinkedAccount = Boolean(
@@ -316,6 +350,6 @@ export class LedgerService {
             }
         }
 
-        return new Ledger({ expenses, settlements, members });
+        return new Ledger({ expenses, settlements, members, categories });
     }
 }

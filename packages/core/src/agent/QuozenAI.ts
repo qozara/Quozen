@@ -1,7 +1,8 @@
 import { QuozenClient } from '../QuozenClient';
 import { AiProvider } from '@qozara/ai-client';
 import { AgentOrchestrator } from './Orchestrator';
-import { agentTools } from './tools';
+import { buildAgentTools } from './tools';
+import { resolveCategory, DEFAULT_CATEGORY_ID } from '../domain/categories';
 import { distributeAmount } from '../finance';
 
 export class QuozenAI {
@@ -48,7 +49,7 @@ export class QuozenAI {
             const response = await this.provider.chat({
                 messages: [{ role: 'user', content: prompt }],
                 systemPrompt,
-                tools: agentTools
+                tools: buildAgentTools(ledger.categories)
             });
 
             if (response.error) {
@@ -93,8 +94,9 @@ export class QuozenAI {
 
                 if (toolName === 'addexpense') {
                     if (!args.date) args.date = new Date();
-                    if (!args.category) args.category = "Other";
-                    if (!args.description) args.description = args.category !== "Other" ? args.category : "AI Expense";
+                    const resolvedCat = resolveCategory(args.category, ledger.categories);
+                    args.category = resolvedCat ? resolvedCat.id : DEFAULT_CATEGORY_ID;
+                    if (!args.description) args.description = args.category !== DEFAULT_CATEGORY_ID ? args.category : "AI Expense";
 
                     if (args.amount !== undefined) args.amount = Number(args.amount) || 0;
                     if (args.paidByUserId) args.paidByUserId = resolveId(args.paidByUserId);

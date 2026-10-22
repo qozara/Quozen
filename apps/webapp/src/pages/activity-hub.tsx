@@ -205,6 +205,7 @@ export default function ActivityHub() {
                         <ExpensesList
                             expenses={filteredExpenses}
                             members={members}
+                            categories={ledger?.categories}
                             isLoading={isLoading}
                         />
                     </div>

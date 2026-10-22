@@ -1,5 +1,6 @@
 import type { RxJsonSchema, DeepReadonlyObject } from "rxdb";
 import type { Expense, Settlement, Member, UserSettings, ExpenseSplit, CachedGroup } from "../../domain/models";
+import { type ExpenseCategory, normalizeLegacyCategory } from "../../domain/categories";
 
 export interface UserSettingsDocType {
     id: string;
@@ -52,6 +53,18 @@ export interface MemberDocType {
     deletedAt?: string | null;
 }
 
+export interface CategoryDocType {
+    id: string; // Composite `${groupId}_${categoryId}`
+    groupId: string;
+    categoryId: string;
+    name: string;
+    icon: string;
+    description: string;
+    sortOrder: number;
+    updatedAt: string;
+    deletedAt?: string | null;
+}
+
 export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
     title: "user_settings",
     version: 0,
@@ -99,7 +112,7 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
 
 export const expenseSchema: RxJsonSchema<ExpenseDocType> = {
     title: "expenses",
-    version: 0,
+    version: 1,
     description: "Group expense records partitioned by groupId",
     primaryKey: "id",
     type: "object",
@@ -139,6 +152,15 @@ export const expenseSchema: RxJsonSchema<ExpenseDocType> = {
         "updatedAt"
     ],
     indexes: ["groupId", ["groupId", "date"]]
+};
+
+export const expenseMigrationStrategies = {
+    1: (oldDoc: any) => {
+        return {
+            ...oldDoc,
+            category: normalizeLegacyCategory(oldDoc.category)
+        };
+    }
 };
 
 export const settlementSchema: RxJsonSchema<SettlementDocType> = {
@@ -182,6 +204,27 @@ export const memberSchema: RxJsonSchema<MemberDocType> = {
     },
     required: ["id", "groupId", "userId", "name", "role", "joinedAt", "updatedAt"],
     indexes: ["groupId", ["groupId", "userId"]]
+};
+
+export const categorySchema: RxJsonSchema<CategoryDocType> = {
+    title: "categories",
+    version: 0,
+    description: "Group expense categories partitioned by groupId",
+    primaryKey: "id",
+    type: "object",
+    properties: {
+        id: { type: "string", maxLength: 200 },
+        groupId: { type: "string", maxLength: 100 },
+        categoryId: { type: "string", maxLength: 100 },
+        name: { type: "string" },
+        icon: { type: "string" },
+        description: { type: "string" },
+        sortOrder: { type: "number" },
+        updatedAt: { type: "string" },
+        deletedAt: { type: ["string", "null"] }
+    },
+    required: ["id", "groupId", "categoryId", "name", "icon", "description", "updatedAt"],
+    indexes: ["groupId", ["groupId", "categoryId"]]
 };
 
 // --- Domain <-> RxDB Document Mappers ---
@@ -333,4 +376,37 @@ export function docToUserSettings(doc: UserSettingsDocType | DeepReadonlyObject<
         settings.encryptedApiKey = doc.encryptedApiKey;
     }
     return settings;
+}
+
+export function categoryToDoc(category: ExpenseCategory, groupId: string): CategoryDocType {
+    const nowIso = new Date().toISOString();
+    const updatedIso = category.updatedAt ? safeIsoString(category.updatedAt, nowIso) : nowIso;
+    return {
+        id: `${groupId}_${category.id}`,
+        groupId,
+        categoryId: category.id,
+        name: category.name || "",
+        icon: category.icon || "tag",
+        description: category.description || "",
+        sortOrder: typeof category.sortOrder === "number" ? category.sortOrder : 0,
+        updatedAt: updatedIso,
+        deletedAt: category.deletedAt ? safeIsoString(category.deletedAt, updatedIso) : null
+    };
+}
+
+export function docToCategory(doc: CategoryDocType | DeepReadonlyObject<CategoryDocType>): ExpenseCategory {
+    const cat: ExpenseCategory = {
+        id: doc.categoryId || doc.id.split("_").slice(1).join("_"),
+        name: doc.name,
+        icon: doc.icon,
+        description: doc.description,
+        sortOrder: doc.sortOrder
+    };
+    if (doc.updatedAt) {
+        cat.updatedAt = new Date(doc.updatedAt);
+    }
+    if (doc.deletedAt) {
+        cat.deletedAt = new Date(doc.deletedAt);
+    }
+    return cat;
 }

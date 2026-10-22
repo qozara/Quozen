@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { useAppContext } from "@/context/app-context";
@@ -39,6 +39,13 @@ export default function SchemaRemediationModal() {
       toast({ variant: "destructive", title: t("common.error"), description: err.message || t("schemaRemediation.errorDesc") });
     }
   });
+
+  // Auto-upgrade on group open when migration is required
+  useEffect(() => {
+    if (schemaErrorStatus === 'UPGRADE_REQUIRED' && activeGroupId && !isRepairing) {
+      repair();
+    }
+  }, [schemaErrorStatus, activeGroupId]);
 
   if (!schemaErrorStatus) return null;
 

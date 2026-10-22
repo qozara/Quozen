@@ -5,6 +5,7 @@ import {
 } from "@qozara/gdocs-schema";
 import { QuozenSchema } from "./SchemaDefinition";
 import { migrations } from "./migrations/index";
+import { ensureCategoriesTab } from "./migrations/categoriesTab";
 import { ConflictError } from "../errors";
 
 export enum ValidationStatus {
@@ -92,7 +93,13 @@ export class ValidationService {
         let canAutoMigrate = false;
 
         if (!result.valid) {
-            if (currentVersion > 0 && currentVersion < QuozenSchema.version) {
+            const errors = result.errors || [];
+            const onlyCategoriesMissing = errors.length > 0 && errors.every((err: string) => err.includes('"Categories"'));
+
+            if (onlyCategoriesMissing && currentVersion < QuozenSchema.version) {
+                status = ValidationStatus.UPGRADE_REQUIRED;
+                canAutoMigrate = true;
+            } else if (currentVersion > 0 && currentVersion < QuozenSchema.version) {
                 status = ValidationStatus.UPGRADE_REQUIRED;
                 canAutoMigrate = true;
             } else {
@@ -112,7 +119,7 @@ export class ValidationService {
         };
     }
 
-    public async initializeFile(spreadsheetId: string): Promise<void> {
+    public async initializeFile(spreadsheetId: string, version: number = QuozenSchema.version): Promise<void> {
         // Create _migrations tab if not exists
         try {
             const addResult = await this.client.batchUpdate(spreadsheetId, [
@@ -140,7 +147,7 @@ export class ValidationService {
                             },
                             {
                                 values: [
-                                    { userEnteredValue: { numberValue: QuozenSchema.version } },
+                                    { userEnteredValue: { numberValue: version } },
                                     { userEnteredValue: { stringValue: new Date().toISOString() } },
                                 ],
                             },
@@ -180,6 +187,11 @@ export class ValidationService {
 
         const metadata = await this.client.getSpreadsheet(spreadsheetId);
         const sheets = metadata.sheets || [];
+
+        // If Categories tab is missing, initialize it
+        if (!sheets.some((s: any) => s.properties?.title === "Categories")) {
+            await ensureCategoriesTab(this.client, spreadsheetId);
+        }
 
         const tabsToFetch: string[] = QuozenSchema.tabs
             .filter((t: any) => (sheets as any[]).some((s: any) => s.properties?.title === t.name))

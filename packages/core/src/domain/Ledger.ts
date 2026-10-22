@@ -1,10 +1,12 @@
-import { Expense, Settlement, Member } from "./models";
+import { Expense, Settlement, Member, ExpenseCategory } from "./models";
+import { DEFAULT_CATEGORIES } from "./categories";
 import { calculateBalances, calculateTotalSpent, getExpenseUserStatus, suggestSettlementStrategy, ExpenseUserStatus } from "../finance";
 
 export interface LedgerData {
     expenses: Expense[];
     settlements: Settlement[];
     members: Member[];
+    categories?: ExpenseCategory[];
 }
 
 export class Ledger {
@@ -15,6 +17,18 @@ export class Ledger {
     get members(): Member[] { return this.data.members; }
     get expenses(): Expense[] { return this.data.expenses; }
     get settlements(): Settlement[] { return this.data.settlements; }
+    get categories(): ExpenseCategory[] { return this.data.categories || DEFAULT_CATEGORIES; }
+
+    getCategory(id: string): ExpenseCategory | undefined {
+        return this.categories.find(c => c.id === id);
+    }
+
+    getInvalidCategoryExpenseIds(): string[] {
+        const validIds = new Set(this.categories.map(c => c.id));
+        return this.data.expenses
+            .filter(e => !validIds.has(e.category))
+            .map(e => e.id);
+    }
 
     getBalances(): Record<string, number> {
         if (!this._balances) {

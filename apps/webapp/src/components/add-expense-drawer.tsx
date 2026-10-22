@@ -72,6 +72,7 @@ export default function AddExpenseDrawer() {
                 <div className="flex-1 overflow-y-auto px-4 pb-0">
                     <ExpenseForm
                         users={users}
+                        categories={ledger?.categories}
                         currentUserId={currentUserId}
                         isPending={expenseMutation.isPending}
                         onSubmit={(data) => expenseMutation.mutate(data)}

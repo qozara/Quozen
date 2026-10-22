@@ -23,7 +23,7 @@ export interface UpdateGroupDTO {
 export interface CreateExpenseDTO {
     description: string;
     amount: number;
-    category: string;
+    category?: string;
     date: Date;
     paidByUserId: string;
     splits?: ExpenseSplit[];

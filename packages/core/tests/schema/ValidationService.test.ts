@@ -84,6 +84,20 @@ describe("ValidationService", () => {
         expect(result.status).toBe(ValidationStatus.CORRUPTED);
     });
 
+    it("returns UPGRADE_REQUIRED for legacy file (v0) if only Categories tab is missing", async () => {
+        mockValidator.validateStructure.mockResolvedValue({
+            valid: false,
+            errors: ['Tab "Categories" is missing']
+        });
+        mockClient.getFileAppProperties.mockResolvedValueOnce({
+            appProperties: { quozen_schema_version: "0" }
+        });
+
+        const result = await service.checkHealth("file123");
+        expect(result.status).toBe(ValidationStatus.UPGRADE_REQUIRED);
+        expect(result.canAutoMigrate).toBe(true);
+    });
+
     it("initializes file and updates metadata", async () => {
         await service.initializeFile("file123");
         expect(mockClient.batchUpdate).toHaveBeenCalled();
