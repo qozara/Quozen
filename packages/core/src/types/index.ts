@@ -8,7 +8,7 @@ export const SCHEMAS = {
 export const QUOZEN_PREFIX = "Quozen - ";
 export const SETTINGS_FILE_NAME = "quozen-settings.json";
 export const REQUIRED_SHEETS = ["Expenses", "Settlements", "Members"] as const;
-export const GROUP_SHEETS = [...REQUIRED_SHEETS, "Categories"] as const;
+export const GROUP_SHEETS = [...REQUIRED_SHEETS, "Categories", "_migrations"] as const;
 
 export type SchemaType = keyof typeof SCHEMAS;
 

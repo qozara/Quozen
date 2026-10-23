@@ -1,10 +1,11 @@
 import { IStorageLayer } from "./IStorageLayer";
 import { Group, User, Member } from "../domain/models";
-import { UserSettings, CachedGroup, QUOZEN_PREFIX, SETTINGS_FILE_NAME, REQUIRED_SHEETS, GROUP_SHEETS, MemberInput } from "../types";
+import { UserSettings, CachedGroup, QUOZEN_PREFIX, SETTINGS_FILE_NAME, REQUIRED_SHEETS, GROUP_SHEETS, MemberInput, SCHEMAS } from "../types";
 import { DEFAULT_CATEGORIES } from "../domain/categories";
 import { SheetDataMapper } from "./SheetDataMapper";
 import { LedgerRepository } from "./LedgerRepository";
 import { ValidationService, ValidationStatus } from "../schema/ValidationService";
+import { QuozenSchema } from "../schema/SchemaDefinition";
 import type { QuozenDatabase } from "../db";
 import { userSettingsToDoc, docToUserSettings, memberToDoc, categoryToDoc } from "../db/schemas";
 import type { BlobStorageDriver } from "../sync/types";
@@ -233,7 +234,11 @@ export class GroupRepository {
 
     async create(name: string, members: MemberInput[] = []): Promise<Group> {
         const title = `${QUOZEN_PREFIX}${name}`;
-        const fileId = await this.storage.createSpreadsheet(title, [...GROUP_SHEETS], { quozen_type: 'group', version: '1.0' });
+        const fileId = await this.storage.createSpreadsheet(title, [...GROUP_SHEETS], {
+            quozen_type: 'group',
+            version: '1.0',
+            quozen_schema_version: String(QuozenSchema.version)
+        });
 
         const nowIso = new Date().toISOString();
         const initialMembers = [
@@ -254,18 +259,21 @@ export class GroupRepository {
         const initialCategories = DEFAULT_CATEGORIES.map(c => [
             c.id,
             c.name,
-            c.icon,
-            c.description,
-            nowIso
+            c.icon || "",
+            c.description || "",
+            nowIso,
+            ""
         ]);
 
         const dataToUpdate = [
-            { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
-            { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
-            { range: "Members!A1", values: [["userId", "email", "name", "role", "joinedAt"]] },
+            { range: "Expenses!A1", values: [[...SCHEMAS.Expenses]] },
+            { range: "Settlements!A1", values: [[...SCHEMAS.Settlements]] },
+            { range: "Members!A1", values: [[...SCHEMAS.Members]] },
             { range: "Members!A2", values: initialMembers },
-            { range: "Categories!A1", values: [["id", "name", "icon", "description", "updatedAt"]] },
-            { range: "Categories!A2", values: initialCategories }
+            { range: "Categories!A1", values: [[...SCHEMAS.Categories]] },
+            { range: "Categories!A2", values: initialCategories },
+            { range: "_migrations!A1", values: [["version", "migrated_at"]] },
+            { range: "_migrations!A2", values: [[QuozenSchema.version, nowIso]] }
         ];
 
         await this.storage.batchUpdateValues(fileId, dataToUpdate);

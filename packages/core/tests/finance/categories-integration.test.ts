@@ -49,10 +49,10 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
         );
 
         // Verify spreadsheet values in memory adapter
-        const res = await storage.batchGetValues(groupId, ["Categories!A1:E7"]);
+        const res = await storage.batchGetValues(groupId, ["Categories!A1:F7"]);
         const rows = res[0]?.values || [];
         expect(rows.length).toBeGreaterThanOrEqual(7); // 1 header + 6 categories
-        expect(rows[0]).toEqual(["id", "name", "icon", "description", "updatedAt"]);
+        expect(rows[0]).toEqual(["id", "name", "icon", "description", "updatedAt", "deletedAt"]);
     });
 
     it("adds expense with valid category ID", async () => {

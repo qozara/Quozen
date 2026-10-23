@@ -102,6 +102,7 @@ export class ValidationService {
             quozen_validation_time: new Date().toISOString(),
             quozen_type: "group",
             version: "1.0",
+            quozen_schema_version: String(QuozenSchema.version),
         };
         await this.client.updateFileAppProperties(spreadsheetId, properties).catch(() => {});
     }
