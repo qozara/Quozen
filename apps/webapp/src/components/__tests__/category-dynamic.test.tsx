@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 import {
   CategoryIcon,
@@ -165,6 +165,58 @@ describe("Dynamic Categories UI", () => {
 
       // Ensure no default categories like "food_dining" or "other" were injected
       expect(screen.queryByText("Food & Dining")).not.toBeInTheDocument();
+    });
+
+    it("always preselects a category for a new expense so the dropdown is not empty", () => {
+      render(
+        <ExpenseForm
+          users={mockUsers}
+          categories={dynamicCategories}
+          currentUserId="user-1"
+          onSubmit={vi.fn()}
+          isPending={false}
+          isDrawer={true}
+        />
+      );
+
+      const selects = screen.getAllByTestId("mock-category-select");
+      const categorySelect = selects[1] as HTMLSelectElement;
+
+      // Must not be empty string
+      expect(categorySelect.value).toBe("office_supplies");
+    });
+
+    it("allows immediate submission of a new expense without touching category dropdown", () => {
+      const mockSubmit = vi.fn();
+      render(
+        <ExpenseForm
+          users={mockUsers}
+          categories={dynamicCategories}
+          currentUserId="user-1"
+          onSubmit={mockSubmit}
+          isPending={false}
+          isDrawer={true}
+        />
+      );
+
+      fireEvent.change(screen.getByTestId("input-expense-description"), {
+        target: { value: "Team Coffee" },
+      });
+      fireEvent.change(screen.getByTestId("input-expense-amount"), {
+        target: { value: "15" },
+      });
+
+      // Submit directly without interacting with category dropdown
+      const form = screen.getByTestId("form-expense");
+      fireEvent.submit(form);
+
+      expect(mockSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: "Team Coffee",
+          amount: 15,
+          category: "office_supplies",
+        })
+      );
     });
   });
 });

@@ -54,7 +54,7 @@ export default function ExpenseForm({ initialData, users, categories, currentUse
   const availableCategories = categories !== undefined ? categories : DEFAULT_CATEGORIES;
   const initialCatId = initialData?.category
     ? resolveCategory(initialData.category, availableCategories)?.id || initialData.category
-    : "";
+    : (categories && categories.length > 0 ? categories[0].id : "");
 
   const displayCategories = useMemo(() => {
     if (!initialCatId || availableCategories.some(c => c.id === initialCatId)) {
@@ -77,6 +77,13 @@ export default function ExpenseForm({ initialData, users, categories, currentUse
   const [category, setCategory] = useState(initialCatId);
   const [date, setDate] = useState(initialData?.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
   const [splits, setSplits] = useState<ExpenseSplit[]>([]);
+
+  useEffect(() => {
+    // When logging a new expense and group categories are available, ensure a category is always pre-selected
+    if (!initialData && categories && categories.length > 0 && (!category || !categories.some(c => c.id === category))) {
+      setCategory(categories[0].id);
+    }
+  }, [category, categories, initialData]);
 
   const handleCategoryChange = (val: string) => {
     const resolved = resolveCategory(val, displayCategories);
