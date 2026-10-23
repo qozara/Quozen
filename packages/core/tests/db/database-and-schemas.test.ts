@@ -207,13 +207,20 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
                     { properties: { title: "_migrations", sheetId: 5 } }
                 ]
             }),
-            batchGet: vi.fn().mockResolvedValue({
-                valueRanges: [
-                    { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] }, // missing 'amount'
-                    { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
-                    { values: [["userId", "email", "name", "role", "joinedAt"]] },
-                    { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] }
-                ]
+            batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) => {
+                if (ranges && ranges[0] && ranges[0].includes("_migrations")) {
+                    return Promise.resolve({
+                        valueRanges: [{ values: [["2", "2026-01-01T00:00:00Z"]] }]
+                    });
+                }
+                return Promise.resolve({
+                    valueRanges: [
+                        { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] }, // missing 'amount'
+                        { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
+                        { values: [["userId", "email", "name", "role", "joinedAt"]] },
+                        { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] }
+                    ]
+                });
             }),
             batchUpdate: vi.fn().mockResolvedValue({})
         };

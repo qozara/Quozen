@@ -109,6 +109,7 @@ export class ValidationService {
         let currentVersion = 0;
         let lastModifiedTime = new Date().toISOString();
         let appProps: any = null;
+        let parsedAppVersion = 0;
 
         try {
             const res = await this.client.getFileAppProperties(spreadsheetId) as any;
@@ -116,6 +117,7 @@ export class ValidationService {
             if (res.modifiedTime) lastModifiedTime = res.modifiedTime;
             const parsed = parseInt(appProps?.quozen_schema_version || "0", 10);
             if (!isNaN(parsed) && parsed > 0) {
+                parsedAppVersion = parsed;
                 currentVersion = parsed;
             }
         } catch {
@@ -126,30 +128,46 @@ export class ValidationService {
         try {
             const metadata = await this.client.getSpreadsheet(spreadsheetId);
             const sheets = metadata.sheets || [];
-            const sheetTitles = new Set(sheets.map((s: any) => s.properties?.title).filter(Boolean));
-            const hasMigrationsTab = sheetTitles.has("_migrations");
-            const hasBaselineSheets = REQUIRED_SHEETS.every(t => sheetTitles.has(t));
+            const sheetTitles = new Set<string>(sheets.map((s: any) => String(s.properties?.title || "").trim()));
+            const sheetTitlesLower = new Set<string>(Array.from(sheetTitles).map((t: string) => t.toLowerCase()));
+
+            const hasMigrationsTab = sheetTitlesLower.has("_migrations");
+            const hasBaselineSheets = REQUIRED_SHEETS.every((t: string) => sheetTitlesLower.has(t.toLowerCase()));
 
             if (hasMigrationsTab && typeof this.client.batchGet === "function") {
-                const migrationsRes = await this.client.batchGet(spreadsheetId, ["_migrations!A2:B"]);
-                const rows = migrationsRes?.valueRanges?.[0]?.values || [];
-                let maxMigratedVersion = 0;
-                for (const row of rows) {
-                    const v = parseInt(row[0], 10);
-                    if (!isNaN(v) && v > maxMigratedVersion) {
-                        maxMigratedVersion = v;
+                try {
+                    const migrationsRes = await this.client.batchGet(spreadsheetId, ["_migrations!A2:B"]);
+                    const rows = migrationsRes?.valueRanges?.[0]?.values || [];
+                    let maxMigratedVersion = 0;
+                    for (const row of rows) {
+                        const v = parseInt(row[0], 10);
+                        if (!isNaN(v) && v > maxMigratedVersion) {
+                            maxMigratedVersion = v;
+                        }
                     }
+                    if (maxMigratedVersion > 0) {
+                        currentVersion = maxMigratedVersion;
+                    } else {
+                        currentVersion = 1;
+                    }
+                    if (currentVersion !== parsedAppVersion) {
+                        await this.client.updateFileAppProperties(spreadsheetId, {
+                            quozen_schema_version: currentVersion.toString()
+                        }).catch(() => {});
+                    }
+                } catch {
+                    currentVersion = hasBaselineSheets ? 1 : 0;
                 }
-                if (maxMigratedVersion > currentVersion) {
-                    currentVersion = maxMigratedVersion;
+            } else if (!hasMigrationsTab) {
+                // If there is no _migrations tab, the spreadsheet has NEVER been migrated to v2+.
+                // Even if Drive appProperties previously had a stale quozen_schema_version >= 2,
+                // the physical spreadsheet is at version 1 (or 0 if empty).
+                currentVersion = (hasBaselineSheets || sheets.length > 0) ? 1 : 0;
+                if (currentVersion !== parsedAppVersion) {
                     await this.client.updateFileAppProperties(spreadsheetId, {
                         quozen_schema_version: currentVersion.toString()
                     }).catch(() => {});
                 }
-            } else if (hasBaselineSheets && currentVersion === 0) {
-                // Spreadsheet contains baseline sheets (Expenses, Members, Settlements) but lacks _migrations tab:
-                // This is a pre-migration legacy Quozen group created in Schema Version 1.
-                currentVersion = 1;
             }
         } catch {
             // Ignore if metadata or _migrations tab is missing or unreadable
@@ -348,6 +366,12 @@ export class ValidationService {
             if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
                 throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
             }
+        }
+
+        try {
+            await this.createBackup(spreadsheetId);
+        } catch {
+            // Proceed if backup is unsupported in mock environment
         }
 
         await this.migrationManager.runMigrations(spreadsheetId, migrations);

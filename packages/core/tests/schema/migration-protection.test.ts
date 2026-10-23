@@ -61,6 +61,78 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         expect(health.latestVersion).toBe(QuozenSchema.version);
     });
 
+    it("identifies legacy spreadsheet lacking _migrations tab as UPGRADE_REQUIRED even if Drive appProperties has stale quozen_schema_version=2", async () => {
+        mockClient = {
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "2" } }), // Stale metadata from previous attempt
+            updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            getSpreadsheet: vi.fn().mockResolvedValue({
+                sheets: [
+                    { properties: { title: "Expenses" } },
+                    { properties: { title: "Settlements" } },
+                    { properties: { title: "Members" } }
+                ]
+            }),
+            batchGet: vi.fn().mockRejectedValue(new Error("Google API 400: Unable to parse range: _migrations!A2:B")),
+            batchUpdate: vi.fn().mockResolvedValue({})
+        };
+
+        mockValidator = {
+            validateStructure: vi.fn().mockResolvedValue({
+                valid: false,
+                errors: ['Tab "Categories" is missing']
+            })
+        };
+
+        const service = new ValidationService(() => "test-token");
+        (service as any).client = mockClient;
+        (service as any).validator = mockValidator;
+
+        const health = await service.checkHealth("stale-appprops-group");
+
+        // MUST reconcile against physical sheet: no _migrations tab means it was NEVER migrated!
+        // It must be UPGRADE_REQUIRED, NEVER CORRUPTED!
+        expect(health.status).toBe(ValidationStatus.UPGRADE_REQUIRED);
+        expect(health.canAutoMigrate).toBe(true);
+        expect(health.currentVersion).toBe(1);
+        expect(mockClient.updateFileAppProperties).toHaveBeenCalledWith(
+            "stale-appprops-group",
+            expect.objectContaining({ quozen_schema_version: "1" })
+        );
+    });
+
+    it("identifies spreadsheet with case-insensitive sheet titles (e.g. expenses, members, settlements) lacking _migrations as UPGRADE_REQUIRED", async () => {
+        mockClient = {
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
+            updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            getSpreadsheet: vi.fn().mockResolvedValue({
+                sheets: [
+                    { properties: { title: "expenses " } },
+                    { properties: { title: "Settlements" } },
+                    { properties: { title: "MEMBERS" } }
+                ]
+            }),
+            batchGet: vi.fn().mockRejectedValue(new Error("Google API 400: Unable to parse range: _migrations!A2:B")),
+            batchUpdate: vi.fn().mockResolvedValue({})
+        };
+
+        mockValidator = {
+            validateStructure: vi.fn().mockResolvedValue({
+                valid: false,
+                errors: ['Tab "Categories" is missing']
+            })
+        };
+
+        const service = new ValidationService(() => "test-token");
+        (service as any).client = mockClient;
+        (service as any).validator = mockValidator;
+
+        const health = await service.checkHealth("case-insensitive-group");
+
+        expect(health.status).toBe(ValidationStatus.UPGRADE_REQUIRED);
+        expect(health.canAutoMigrate).toBe(true);
+        expect(health.currentVersion).toBe(1);
+    });
+
     it("identifies spreadsheet with _migrations at version 1 as UPGRADE_REQUIRED, NEVER as CORRUPTED", async () => {
         mockClient = {
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "1" } }),
@@ -345,6 +417,32 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         await service.repairFile("ski-trip-sheet");
 
         expect(createBackupSpy).toHaveBeenCalledWith("ski-trip-sheet");
+    });
+
+    it("creates a safety backup with spreadsheet title in Google Drive before migrating", async () => {
+        const service = new ValidationService(() => "test-token");
+        const createBackupSpy = vi.fn().mockResolvedValue("backup-copy-id-789");
+        vi.spyOn(service, "checkHealth").mockResolvedValue({
+            spreadsheetId: "test-sheet",
+            currentVersion: 1,
+            latestVersion: QuozenSchema.version,
+            status: ValidationStatus.UPGRADE_REQUIRED,
+            missingTabs: ["Categories"],
+            missingColumns: {},
+            canAutoMigrate: true,
+            lastModifiedTime: new Date().toISOString()
+        });
+
+        vi.spyOn(service, "createBackup").mockImplementation(createBackupSpy);
+        (service as any).migrationManager = {
+            runMigrations: vi.fn().mockResolvedValue({ success: true, applied: [2] })
+        };
+        (service as any).client = {
+            updateFileAppProperties: vi.fn().mockResolvedValue({})
+        };
+
+        await expect(service.migrateFile("test-sheet")).resolves.not.toThrow();
+        expect(createBackupSpy).toHaveBeenCalledWith("test-sheet");
     });
 
     it("createBackup uses spreadsheet title and timestamp to name backup file in Google Drive", async () => {
