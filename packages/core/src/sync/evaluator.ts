@@ -16,6 +16,7 @@ export type ProviderDiagnosticKey =
     | "throttled"
     | "corrupted"
     | "upgrade_required"
+    | "incompatible"
     | "error"
     | "disconnected";
 
@@ -66,7 +67,8 @@ export function resolveUXStatus(params: ResolveUXStatusParams): UXSyncState {
         status === "throttled" ||
         status === "error" ||
         status === "corrupted" ||
-        status === "upgrade_required"
+        status === "upgrade_required" ||
+        status === "incompatible"
     ) {
         return "warning";
     }
@@ -101,6 +103,7 @@ export function resolveProviderDiagnostic(
         providerStatus === "throttled" ||
         providerStatus === "corrupted" ||
         providerStatus === "upgrade_required" ||
+        providerStatus === "incompatible" ||
         providerStatus === "error"
     ) {
         return providerStatus;

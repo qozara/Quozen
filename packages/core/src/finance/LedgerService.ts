@@ -2,7 +2,7 @@ import { LedgerRepository } from "../infrastructure/LedgerRepository";
 import { User, Expense, Settlement, Member, ExpenseCategory } from "../domain/models";
 import { CreateExpenseDTO, UpdateExpenseDTO, CreateSettlementDTO, UpdateSettlementDTO } from "../domain/dtos";
 import { Ledger } from "../domain/Ledger";
-import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError, InvalidCategoryError } from "../errors";
+import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError, SchemaIncompatibleError, InvalidCategoryError } from "../errors";
 import { resolveCategory, DEFAULT_CATEGORY_ID, DEFAULT_CATEGORIES } from "../domain/categories";
 import { distributeAmount } from "./index";
 import { ValidationService, ValidationStatus } from "../schema/ValidationService";
@@ -52,7 +52,10 @@ export class LedgerService {
             throw new SchemaCorruptedError();
         }
 
-        if (health.status === ValidationStatus.CORRUPTED || health.status === ValidationStatus.INCOMPATIBLE) {
+        if (health.status === ValidationStatus.INCOMPATIBLE) {
+            throw new SchemaIncompatibleError();
+        }
+        if (health.status === ValidationStatus.CORRUPTED) {
             throw new SchemaCorruptedError();
         }
         if (health.status === ValidationStatus.UPGRADE_REQUIRED) {

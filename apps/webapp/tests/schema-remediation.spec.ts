@@ -57,12 +57,29 @@ test.describe('Schema Remediation', () => {
         // Click repair
         await page.getByRole('button', { name: 'Attempt Repair' }).click();
 
-        // Wait a short moment to let the mutation begin, then unroute so that invalidateQueries() uses the global abort
-        await page.waitForTimeout(500);
-        await page.unroute('https://*.googleapis.com/**');
-
         // Should disappear
-        await expect(page.getByText('Group File Corrupted')).not.toBeVisible({ timeout: 10000 });
+        await expect(page.getByText('Group File Corrupted')).not.toBeVisible({ timeout: 15000 });
         await expect(page.getByText('Group schema updated successfully').first()).toBeVisible();
+
+        await page.unroute('https://*.googleapis.com/**');
+    });
+
+    test('should show app update required modal when schema is incompatible with older client', async ({ page }) => {
+        await page.goto('/groups');
+        await ensureLoggedIn(page);
+
+        // Dispatch INCOMPATIBLE schema error event
+        await page.evaluate(() => {
+            window.dispatchEvent(new CustomEvent('schema-error', { detail: 'INCOMPATIBLE' }));
+        });
+
+        // The modal should appear with "App Update Required" and action buttons
+        await expect(page.getByText('App Update Required')).toBeVisible({ timeout: 10000 });
+        await expect(page.getByRole('button', { name: 'Refresh App' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Reset App (Clear Local Data)' })).toBeVisible();
+
+        // Dismiss modal
+        await page.getByRole('button', { name: 'Dismiss' }).click();
+        await expect(page.getByText('App Update Required')).not.toBeVisible();
     });
 });

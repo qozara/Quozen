@@ -26,6 +26,13 @@ export class SchemaUpgradeRequiredError extends Error {
     }
 }
 
+export class SchemaIncompatibleError extends Error {
+    constructor(message = "The underlying spreadsheet schema was created or upgraded by a newer version of Quozen. Please update or reinstall the app.") {
+        super(message);
+        this.name = "SchemaIncompatibleError";
+    }
+}
+
 export class InvalidCategoryError extends Error {
     constructor(message = "Invalid category.") {
         super(message);

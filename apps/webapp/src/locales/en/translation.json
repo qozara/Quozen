@@ -341,11 +341,15 @@
     "schemaRemediation": {
         "upgradeRequiredTitle": "Format Upgrade Required",
         "corruptedTitle": "Group File Corrupted",
+        "incompatibleTitle": "App Update Required",
         "upgradeRequiredDesc": "This group uses an older data format and needs to be upgraded before you can continue.",
         "corruptedDesc": "We detected that required tabs or columns are missing from the group's Google Sheet. We can attempt to repair it.",
+        "incompatibleDesc": "This group uses a newer format than your app supports. Please refresh to load the latest version, or reset the app from zero.",
         "working": "Working...",
         "upgradeNow": "Upgrade Now",
         "attemptRepair": "Attempt Repair",
+        "refreshApp": "Refresh App",
+        "resetApp": "Reset App (Clear Local Data)",
         "dismiss": "Dismiss",
         "successDesc": "Group schema updated successfully.",
         "errorDesc": "Failed to fix schema."
@@ -375,6 +379,7 @@
             "throttled": "Rate limit reached — retrying soon",
             "corrupted": "Spreadsheet structure needs repair",
             "upgrade_required": "Spreadsheet format upgrade required",
+            "incompatible": "App update required — group uses newer format",
             "error": "Sync failed — will retry automatically",
             "disconnected": "Not connected"
         }

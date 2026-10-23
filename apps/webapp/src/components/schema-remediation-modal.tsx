@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
 import { useToast } from "@/hooks/use-toast";
 import { useTranslation } from "react-i18next";
+import { destroyQuozenDatabase } from "@quozen/core";
 
 export default function SchemaRemediationModal() {
   const { activeGroupId, schemaErrorStatus, setSchemaErrorStatus } = useAppContext();
@@ -46,6 +47,46 @@ export default function SchemaRemediationModal() {
     }
   });
 
+  const handleRefresh = async () => {
+    if ('serviceWorker' in navigator) {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const r of registrations) {
+          await r.update();
+        }
+      } catch {
+        // ignore
+      }
+    }
+    window.location.reload();
+  };
+
+  const handleResetApp = async () => {
+    try {
+      if (quozen.db) {
+        await destroyQuozenDatabase(quozen.db);
+      }
+      localStorage.clear();
+      sessionStorage.clear();
+      if ('caches' in window) {
+        const cacheKeys = await caches.keys();
+        for (const key of cacheKeys) {
+          await caches.delete(key);
+        }
+      }
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const r of registrations) {
+          await r.unregister();
+        }
+      }
+    } catch (err) {
+      console.warn("Reset app error:", err);
+    } finally {
+      window.location.href = '/login';
+    }
+  };
+
   // Auto-upgrade on group open when migration is required
   useEffect(() => {
     if (schemaErrorStatus === 'UPGRADE_REQUIRED' && activeGroupId && !isRepairing) {
@@ -62,19 +103,41 @@ export default function SchemaRemediationModal() {
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>
-            {schemaErrorStatus === 'UPGRADE_REQUIRED' ? t("schemaRemediation.upgradeRequiredTitle") : t("schemaRemediation.corruptedTitle")}
+            {schemaErrorStatus === 'UPGRADE_REQUIRED' 
+              ? t("schemaRemediation.upgradeRequiredTitle") 
+              : schemaErrorStatus === 'INCOMPATIBLE'
+                ? t("schemaRemediation.incompatibleTitle")
+                : t("schemaRemediation.corruptedTitle")}
           </DrawerTitle>
           <DrawerDescription>
             {schemaErrorStatus === 'UPGRADE_REQUIRED' 
               ? t("schemaRemediation.upgradeRequiredDesc")
-              : t("schemaRemediation.corruptedDesc")}
+              : schemaErrorStatus === 'INCOMPATIBLE'
+                ? t("schemaRemediation.incompatibleDesc")
+                : t("schemaRemediation.corruptedDesc")}
           </DrawerDescription>
         </DrawerHeader>
         <DrawerFooter>
-          <Button onClick={() => repair()} disabled={isRepairing}>
-            {isRepairing ? t("schemaRemediation.working") : (schemaErrorStatus === 'UPGRADE_REQUIRED' ? t("schemaRemediation.upgradeNow") : t("schemaRemediation.attemptRepair"))}
-          </Button>
-          <Button variant="outline" onClick={() => setSchemaErrorStatus(null)}>{t("schemaRemediation.dismiss")}</Button>
+          {schemaErrorStatus === 'INCOMPATIBLE' ? (
+            <>
+              <Button onClick={handleRefresh}>
+                {t("schemaRemediation.refreshApp")}
+              </Button>
+              <Button variant="destructive" onClick={handleResetApp}>
+                {t("schemaRemediation.resetApp")}
+              </Button>
+              <Button variant="outline" onClick={() => setSchemaErrorStatus(null)}>
+                {t("schemaRemediation.dismiss")}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => repair()} disabled={isRepairing}>
+                {isRepairing ? t("schemaRemediation.working") : (schemaErrorStatus === 'UPGRADE_REQUIRED' ? t("schemaRemediation.upgradeNow") : t("schemaRemediation.attemptRepair"))}
+              </Button>
+              <Button variant="outline" onClick={() => setSchemaErrorStatus(null)}>{t("schemaRemediation.dismiss")}</Button>
+            </>
+          )}
         </DrawerFooter>
       </DrawerContent>
     </Drawer>

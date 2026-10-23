@@ -76,7 +76,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
 export function AuthenticatedApp() {
   const [activeGroupId, setActiveGroupIdState] = useState("");
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
-  const [schemaErrorStatus, setSchemaErrorStatus] = useState<'CORRUPTED' | 'UPGRADE_REQUIRED' | null>(null);
+  const [schemaErrorStatus, setSchemaErrorStatus] = useState<'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | null>(null);
 
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
   const navigate = useNavigate();

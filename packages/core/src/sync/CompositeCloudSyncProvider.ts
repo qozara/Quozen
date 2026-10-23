@@ -266,13 +266,25 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                     this.setStatus("upgrade_required");
                     return [];
                 }
-                if (health.status === "CORRUPTED" || health.status === "INCOMPATIBLE") {
+                if (health.status === "INCOMPATIBLE") {
+                    this.setStatus("incompatible");
+                    return [];
+                }
+                if (health.status === "CORRUPTED") {
                     this.setStatus("corrupted");
                     return [];
                 }
             } catch (healthErr: any) {
+                if (healthErr?.name === "SchemaIncompatibleError") {
+                    this.setStatus("incompatible");
+                    return [];
+                }
                 if (healthErr?.name === "SchemaUpgradeRequiredError" || String(healthErr?.message || "").includes("upgrade")) {
                     this.setStatus("upgrade_required");
+                    return [];
+                }
+                if (healthErr?.name === "SchemaCorruptedError") {
+                    this.setStatus("corrupted");
                     return [];
                 }
             }
@@ -324,7 +336,7 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     async push(payload: SyncDeltaPayload): Promise<void> {
         if (!this.initialized) return;
-        if (this.status === "upgrade_required" || this.status === "corrupted") return;
+        if (this.status === "upgrade_required" || this.status === "corrupted" || this.status === "incompatible") return;
 
         this.setStatus("syncing");
         try {
@@ -420,6 +432,10 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     private handleSyncException(err: any): void {
         const msg = String(err?.message || err);
+        if (err?.name === "SchemaIncompatibleError" || msg.includes("incompatible")) {
+            this.setStatus("incompatible");
+            return;
+        }
         if (err instanceof TableNotFoundError || err?.name === "TableNotFoundError") {
             this.setStatus("upgrade_required");
             return;

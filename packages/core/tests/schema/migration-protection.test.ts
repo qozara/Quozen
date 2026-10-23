@@ -7,6 +7,9 @@ import { ReplicationCoordinator } from "../../src/sync/ReplicationCoordinator";
 import { CompositeCloudSyncProvider } from "../../src/sync/CompositeCloudSyncProvider";
 import { TabularStorageDriver } from "../../src/sync/types";
 import { getRxStorageMemory } from "rxdb/plugins/storage-memory";
+import { SchemaIncompatibleError } from "../../src/errors";
+import { LedgerService } from "../../src/finance/LedgerService";
+import { resolveUXStatus, resolveProviderDiagnostic } from "../../src/sync/evaluator";
 
 describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", () => {
     let mockClient: any;
@@ -214,5 +217,158 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         expect(pushSpy).not.toHaveBeenCalled();
 
         await destroyQuozenDatabase(db);
+    });
+
+    it("identifies spreadsheet with version higher than app version as INCOMPATIBLE, skipping validateStructure", async () => {
+        const higherVersion = QuozenSchema.version + 1; // e.g. 3 when app is 2
+        mockClient = {
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: String(higherVersion) } }),
+            updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            getSpreadsheet: vi.fn().mockResolvedValue({
+                sheets: [
+                    { properties: { title: "Expenses" } },
+                    { properties: { title: "Settlements" } },
+                    { properties: { title: "Members" } },
+                    { properties: { title: "Categories" } },
+                    { properties: { title: "FutureTab" } },
+                    { properties: { title: "_migrations" } }
+                ]
+            }),
+            batchGet: vi.fn().mockResolvedValue({
+                valueRanges: [{ values: [["version", "migrated_at"], [String(higherVersion), "2027-01-01"]] }]
+            }),
+            batchUpdate: vi.fn().mockResolvedValue({})
+        };
+
+        mockValidator = {
+            validateStructure: vi.fn()
+        };
+
+        const service = new ValidationService(() => "test-token");
+        (service as any).client = mockClient;
+        (service as any).validator = mockValidator;
+
+        const health = await service.checkHealth("future-group-999");
+
+        // MUST be INCOMPATIBLE, NOT CORRUPTED and NOT UPGRADE_REQUIRED!
+        expect(health.status).toBe(ValidationStatus.INCOMPATIBLE);
+        expect(health.canAutoMigrate).toBe(false);
+        expect(health.currentVersion).toBe(higherVersion);
+        expect(health.latestVersion).toBe(QuozenSchema.version);
+
+        // Validator must NOT have been called! (Preventing accidental repair/downgrade of newer schema)
+        expect(mockValidator.validateStructure).not.toHaveBeenCalled();
+    });
+
+    it("repairFile and migrateFile throw SchemaIncompatibleError when spreadsheet schema is higher than app version", async () => {
+        const higherVersion = QuozenSchema.version + 1;
+        const service = new ValidationService(() => "test-token");
+        vi.spyOn(service, "checkHealth").mockResolvedValue({
+            spreadsheetId: "future-sheet",
+            currentVersion: higherVersion,
+            latestVersion: QuozenSchema.version,
+            status: ValidationStatus.INCOMPATIBLE,
+            missingTabs: [],
+            missingColumns: {},
+            canAutoMigrate: false,
+            lastModifiedTime: new Date().toISOString()
+        });
+
+        await expect(service.repairFile("future-sheet")).rejects.toThrow(SchemaIncompatibleError);
+        await expect(service.migrateFile("future-sheet")).rejects.toThrow(SchemaIncompatibleError);
+    });
+
+    it("LedgerService.ensureSchemaHealth throws SchemaIncompatibleError when status is INCOMPATIBLE", async () => {
+        const service = new ValidationService(() => "test-token");
+        vi.spyOn(service, "checkHealth").mockResolvedValue({
+            spreadsheetId: "future-sheet",
+            currentVersion: QuozenSchema.version + 1,
+            latestVersion: QuozenSchema.version,
+            status: ValidationStatus.INCOMPATIBLE,
+            missingTabs: [],
+            missingColumns: {},
+            canAutoMigrate: false,
+            lastModifiedTime: new Date().toISOString()
+        });
+
+        const mockRepo: any = {
+            hasLocalDb: () => false,
+            getMembers: vi.fn().mockResolvedValue([{ userId: "u1", role: "admin" }]),
+            getExpenses: vi.fn().mockResolvedValue([])
+        };
+
+        const ledgerService = new LedgerService(mockRepo, { id: "u1", name: "User 1", email: "u1@test.com" }, service, "future-sheet");
+
+        await expect(ledgerService.getLedger()).rejects.toThrow(SchemaIncompatibleError);
+    });
+
+    it("creates a safety backup with spreadsheet title in Google Drive before repairing", async () => {
+        const service = new ValidationService(() => "test-token");
+        const createBackupSpy = vi.fn().mockResolvedValue("backup-copy-id");
+        const mockClient = {
+            getFileAppProperties: vi.fn().mockResolvedValue({
+                appProperties: { quozen_schema_version: String(QuozenSchema.version) }
+            }),
+            updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            getSpreadsheet: vi.fn().mockResolvedValue({
+                properties: { title: "Ski Trip 2026" },
+                sheets: [
+                    { properties: { sheetId: 10, title: "Expenses" } },
+                    { properties: { sheetId: 11, title: "Settlements" } },
+                    { properties: { sheetId: 12, title: "Members" } },
+                    { properties: { sheetId: 13, title: "Categories" } }
+                ]
+            }),
+            batchGet: vi.fn().mockResolvedValue({
+                valueRanges: [
+                    { values: [["id", "description", "amount", "category", "date", "paidByUserId", "splits", "createdAt", "updatedAt"]] },
+                    { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes", "updatedAt"]] },
+                    { values: [["userId", "email", "name", "role", "joinedAt", "updatedAt"]] },
+                    { values: [["id", "name", "icon", "description", "updatedAt"]] }
+                ]
+            }),
+            batchUpdate: vi.fn().mockResolvedValue({}),
+            createBackup: createBackupSpy
+        };
+        (service as any).client = mockClient;
+        vi.spyOn(service, "checkHealth").mockResolvedValue({
+            spreadsheetId: "ski-trip-sheet",
+            currentVersion: QuozenSchema.version,
+            latestVersion: QuozenSchema.version,
+            status: ValidationStatus.CORRUPTED,
+            missingTabs: [],
+            missingColumns: {},
+            canAutoMigrate: false,
+            lastModifiedTime: new Date().toISOString()
+        });
+
+        await service.repairFile("ski-trip-sheet");
+
+        expect(createBackupSpy).toHaveBeenCalledWith("ski-trip-sheet");
+    });
+
+    it("createBackup uses spreadsheet title and timestamp to name backup file in Google Drive", async () => {
+        const service = new ValidationService(() => "test-token");
+        const requestSpy = vi.fn().mockResolvedValue({ id: "drive-copy-file-123" });
+        const mockClient = {
+            request: requestSpy,
+            getSpreadsheet: vi.fn().mockResolvedValue({
+                properties: { title: "Vacation Trip" }
+            })
+        };
+        (service as any).client = mockClient;
+
+        const backupId = await service.createBackup("spreadsheet-xyz");
+        expect(backupId).toBe("drive-copy-file-123");
+        expect(requestSpy).toHaveBeenCalledTimes(1);
+        const [calledUrl, calledInit] = requestSpy.mock.calls[0];
+        expect(calledUrl).toBe("https://www.googleapis.com/drive/v3/files/spreadsheet-xyz/copy");
+        const body = JSON.parse(calledInit.body);
+        expect(body.name).toMatch(/^Backup of Vacation Trip - \d{4}-\d{2}-\d{2}T/);
+    });
+
+    it("Sync evaluator correctly maps incompatible provider status to warning and diagnostic", () => {
+        expect(resolveUXStatus({ isOnline: true, providerConnected: true, providerStatus: "incompatible" })).toBe("warning");
+        expect(resolveProviderDiagnostic(true, true, "incompatible")).toBe("incompatible");
     });
 });

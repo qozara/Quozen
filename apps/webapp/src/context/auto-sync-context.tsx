@@ -150,6 +150,8 @@ export function AutoSyncProvider({
                     window.dispatchEvent(new CustomEvent("schema-error", { detail: "CORRUPTED" }));
                 } else if (newStatus === "upgrade_required") {
                     window.dispatchEvent(new CustomEvent("schema-error", { detail: "UPGRADE_REQUIRED" }));
+                } else if (newStatus === "incompatible") {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "INCOMPATIBLE" }));
                 } else if (newStatus === "auth_failed") {
                     toast({
                         title: t("sync.cloudSyncFailedTitle"),

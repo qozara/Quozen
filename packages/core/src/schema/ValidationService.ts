@@ -6,7 +6,7 @@ import {
 import { QuozenSchema } from "./SchemaDefinition";
 import { migrations } from "./migrations/index";
 import { ensureCategoriesTab } from "./migrations/categoriesTab";
-import { ConflictError } from "../errors";
+import { ConflictError, SchemaIncompatibleError } from "../errors";
 import { REQUIRED_SHEETS } from "../types";
 
 export enum ValidationStatus {
@@ -50,6 +50,59 @@ export class ValidationService {
         });
         this.validator = new SchemaValidator(this.client);
         this.migrationManager = new MigrationManager(this.client);
+    }
+
+    public async createBackup(spreadsheetId: string, customName?: string): Promise<string> {
+        let title = spreadsheetId;
+        try {
+            const meta = await this.client.getSpreadsheet(spreadsheetId);
+            if (meta?.properties?.title) {
+                title = meta.properties.title;
+            }
+        } catch {
+            // Fallback to spreadsheetId if title cannot be fetched
+        }
+
+        const name = customName || `Backup of ${title} - ${new Date().toISOString()}`;
+        let backupId = "";
+        let alreadyNamed = false;
+
+        if (typeof (this.client as any).createBackup === "function") {
+            try {
+                backupId = await (this.client as any).createBackup(spreadsheetId);
+            } catch (err) {
+                console.warn("Google Drive safety backup creation failed:", err);
+                throw err;
+            }
+        } else if (typeof (this.client as any).request === "function") {
+            try {
+                const copyUrl = `https://www.googleapis.com/drive/v3/files/${spreadsheetId}/copy`;
+                const result = await (this.client as any).request(copyUrl, {
+                    method: "POST",
+                    body: JSON.stringify({ name })
+                });
+                backupId = result.id;
+                alreadyNamed = true;
+            } catch (err) {
+                console.warn("Google Drive safety backup creation failed via request:", err);
+                throw err;
+            }
+        }
+
+        // Ensure backup copy has human-readable title in Google Drive
+        if (backupId && !alreadyNamed && typeof (this.client as any).request === "function") {
+            try {
+                const patchUrl = `https://www.googleapis.com/drive/v3/files/${backupId}`;
+                await (this.client as any).request(patchUrl, {
+                    method: "PATCH",
+                    body: JSON.stringify({ name })
+                });
+            } catch {
+                // Non-critical
+            }
+        }
+
+        return backupId;
     }
 
     public async checkHealth(spreadsheetId: string): Promise<SchemaStatusDTO> {
@@ -107,14 +160,19 @@ export class ValidationService {
         let missingTabs: string[] = [];
         let missingColumns: Record<string, string[]> = {};
 
-        if (currentVersion < QuozenSchema.version) {
+        if (currentVersion > QuozenSchema.version) {
+            // Spreadsheet was created or migrated by a newer version of Quozen.
+            // Client app code is outdated: DO NOT validate structure, repair, or auto-migrate!
+            status = ValidationStatus.INCOMPATIBLE;
+            canAutoMigrate = false;
+        } else if (currentVersion < QuozenSchema.version) {
             // Spreadsheet migration version is behind the app's schema version.
             // This is strictly an UPGRADE_REQUIRED state that can be auto-migrated.
             // Under NO circumstance should this be marked as CORRUPTED!
             status = ValidationStatus.UPGRADE_REQUIRED;
             canAutoMigrate = true;
         } else {
-            // Migration version matches (or exceeds) the app's expected schema version.
+            // Migration version matches the app's expected schema version.
             // Validate structure to check for manual tampering/deletions.
             const result = await this.validator.validateStructure(spreadsheetId, QuozenSchema);
             if (!result.valid) {
@@ -187,18 +245,11 @@ export class ValidationService {
     }
 
     public async repairFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
-        // If spreadsheet schema version is known to be behind the app, it must be migrated, not repaired!
-        let isOutdated = false;
-        try {
-            const propsRes = await this.client.getFileAppProperties(spreadsheetId) as any;
-            const v = parseInt(propsRes?.appProperties?.quozen_schema_version || "0", 10);
-            if (!isNaN(v) && v > 0 && v < QuozenSchema.version) {
-                isOutdated = true;
-            }
-        } catch {
-            // Ignore
+        const health = await this.checkHealth(spreadsheetId);
+        if (health.status === ValidationStatus.INCOMPATIBLE) {
+            throw new SchemaIncompatibleError("Cannot repair spreadsheet: the schema is from a newer version of Quozen.");
         }
-        if (isOutdated) {
+        if (health.status === ValidationStatus.UPGRADE_REQUIRED) {
             return this.migrateFile(spreadsheetId, expectedLastModified);
         }
 
@@ -211,12 +262,10 @@ export class ValidationService {
             }
         }
 
-        if (typeof (this.client as any).createBackup === "function") {
-            try {
-                await (this.client as any).createBackup(spreadsheetId);
-            } catch {
-                // Proceed if backup is unsupported in mock environment
-            }
+        try {
+            await this.createBackup(spreadsheetId);
+        } catch {
+            // Proceed if backup is unsupported in mock environment
         }
 
         const metadata = await this.client.getSpreadsheet(spreadsheetId);
@@ -287,6 +336,11 @@ export class ValidationService {
     }
 
     public async migrateFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
+        const health = await this.checkHealth(spreadsheetId);
+        if (health.status === ValidationStatus.INCOMPATIBLE) {
+            throw new SchemaIncompatibleError("Cannot migrate spreadsheet: the schema is from a newer version of Quozen.");
+        }
+
         if (expectedLastModified) {
             const res = await this.client.getFileAppProperties(spreadsheetId) as any;
             const currentModified = res.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;

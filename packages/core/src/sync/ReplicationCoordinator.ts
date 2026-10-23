@@ -96,7 +96,7 @@ export class ReplicationCoordinator {
     public async sync(groupId?: string): Promise<void> {
         if (!this.provider.isInitialized()) return;
         const currentStatus = this.provider.getStatus();
-        if (currentStatus === "upgrade_required" || currentStatus === "corrupted") return;
+        if (currentStatus === "upgrade_required" || currentStatus === "corrupted" || currentStatus === "incompatible") return;
         if (this.isSyncing) {
             this.hasPendingSync = true;
             if (groupId !== undefined) {
@@ -122,7 +122,7 @@ export class ReplicationCoordinator {
     private async runSyncCycle(groupId?: string): Promise<void> {
         const payloads = await this.provider.pull(groupId);
         const currentStatus = this.provider.getStatus();
-        if (currentStatus === "upgrade_required" || currentStatus === "corrupted") {
+        if (currentStatus === "upgrade_required" || currentStatus === "corrupted" || currentStatus === "incompatible") {
             return;
         }
 
