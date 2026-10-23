@@ -1,5 +1,5 @@
 import { GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
-import { DEFAULT_CATEGORIES } from "../../domain/categories";
+import { DEFAULT_CATEGORIES, resolveCategory } from "../../domain/categories";
 
 export const CATEGORIES_TAB_HEADERS = ["id", "name", "icon", "description", "updatedAt", "deletedAt"];
 
@@ -60,12 +60,67 @@ export async function ensureCategoriesTab(
             }
         });
     } else {
-        // Tab exists with some data: verify which default categories are missing
-        const existingIds = new Set(
-            rows.slice(1).map((r: any[]) => String(r[0] || "").trim())
-        );
+        // Deduplicate any duplicate restored categories that match canonical categories
+        const defaultMap = new Map(DEFAULT_CATEGORIES.map(c => [c.id, c]));
+        const rowsToDelete: number[] = []; // 0-based row indices in spreadsheet
+        const keptIds = new Set<string>();
 
-        const missingDefaults = DEFAULT_CATEGORIES.filter(c => !existingIds.has(c.id));
+        // Row 0 is header
+        for (let rIdx = 1; rIdx < rows.length; rIdx++) {
+            const row = rows[rIdx];
+            const catId = String(row[0] || "").trim();
+            const desc = String(row[3] || "").trim();
+
+            if (!catId) {
+                rowsToDelete.push(rIdx);
+                continue;
+            }
+
+            const isDefault = defaultMap.has(catId as any);
+            if (isDefault) {
+                if (keptIds.has(catId)) {
+                    rowsToDelete.push(rIdx);
+                } else {
+                    keptIds.add(catId);
+                }
+            } else if (desc === "Restored category") {
+                // Check if this restored category is a duplicate of a default category
+                const matched = resolveCategory(catId, DEFAULT_CATEGORIES);
+                if (matched && keptIds.has(matched.id)) {
+                    rowsToDelete.push(rIdx);
+                } else if (matched) {
+                    rowsToDelete.push(rIdx);
+                } else if (keptIds.has(catId.toLowerCase())) {
+                    rowsToDelete.push(rIdx);
+                } else {
+                    keptIds.add(catId);
+                }
+            } else {
+                if (keptIds.has(catId)) {
+                    rowsToDelete.push(rIdx);
+                } else {
+                    keptIds.add(catId);
+                }
+            }
+        }
+
+        // Delete duplicates in reverse order so row indices don't shift
+        for (let i = rowsToDelete.length - 1; i >= 0; i--) {
+            const rowIndex = rowsToDelete[i];
+            requests.push({
+                deleteDimension: {
+                    range: {
+                        sheetId,
+                        dimension: "ROWS",
+                        startIndex: rowIndex,
+                        endIndex: rowIndex + 1
+                    }
+                }
+            });
+        }
+
+        // Tab exists: verify which default categories are missing
+        const missingDefaults = DEFAULT_CATEGORIES.filter(c => !keptIds.has(c.id));
         if (missingDefaults.length > 0) {
             const rowsToAppend = missingDefaults.map(c => ({
                 values: [

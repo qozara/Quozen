@@ -79,6 +79,17 @@ class FakeGoogleSheetsClient {
                     });
                     this.cellData.set(title, rows);
                 }
+            } else if (req.deleteDimension && req.deleteDimension.range?.dimension === "ROWS") {
+                const sheetId = req.deleteDimension.range.sheetId;
+                const sheet = this.sheets.find(s => s.properties.sheetId === sheetId);
+                if (sheet) {
+                    const title = sheet.properties.title;
+                    const rows = this.cellData.get(title) || [];
+                    const start = req.deleteDimension.range.startIndex;
+                    const end = req.deleteDimension.range.endIndex;
+                    rows.splice(start, end - start);
+                    this.cellData.set(title, rows);
+                }
             }
         }
         return { replies };
@@ -176,5 +187,39 @@ describe("Schema Migration 2: Add Categories Tab and Normalize Expenses", () => 
         await migration_2.up(client as any, "spreadsheet-123");
         const expenseRows = client.cellData.get("Expenses") || [];
         expect(expenseRows[1][1]).toBe("food_dining");
+    });
+
+    it("cleans up duplicate restored categories if present in Categories tab", async () => {
+        const nowIso = "2026-02-01T00:00:00.000Z";
+        const client = new FakeGoogleSheetsClient(
+            ["Expenses", "Settlements", "Members", "Categories"],
+            {
+                Expenses: [
+                    ["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"],
+                    ["e1", "2026-01-01", "Dinner", 50, "u1", "Food & Dining", "[]", "{}"]
+                ],
+                Categories: [
+                    ["id", "name", "icon", "description", "updatedAt", "deletedAt"],
+                    ["food_dining", "Food & Dining", "utensils", "Restaurants, groceries, drinks", nowIso, ""],
+                    ["transportation", "Transportation", "car", "Taxis, fuel, public transit, flights", nowIso, ""],
+                    ["accommodation", "Accommodation", "bed", "Hotels, rentals, lodging", nowIso, ""],
+                    ["entertainment", "Entertainment", "gamepad-2", "Activities, tickets, leisure", nowIso, ""],
+                    ["shopping", "Shopping", "shopping-bag", "General purchases", nowIso, ""],
+                    ["other", "Other", "more-horizontal", "Anything else", nowIso, ""],
+                    ["Accommodation", "Accommodation", "tag", "Restored category", nowIso, ""],
+                    ["Food & Dining", "Food & dining", "tag", "Restored category", nowIso, ""],
+                    ["Shopping", "Shopping", "tag", "Restored category", nowIso, ""],
+                    ["Transportation", "Transportation", "tag", "Restored category", nowIso, ""]
+                ]
+            }
+        );
+
+        await migration_2.up(client as any, "spreadsheet-123");
+
+        const categoryRows = client.cellData.get("Categories") || [];
+        // Should only have 7 rows (header + 6 defaults), duplicate Restored category rows cleaned up
+        expect(categoryRows.length).toBe(7);
+        const categoryIds = categoryRows.slice(1).map(r => r[0]);
+        expect(categoryIds).toEqual(DEFAULT_CATEGORIES.map(c => c.id));
     });
 });

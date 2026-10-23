@@ -239,4 +239,154 @@ describe("WP3: RxDB Schema, Categories Collection, v0->v1 Migration & Self-Heali
         const secondResult = await CategoryIntegrityReconciler.reconcile(db, groupId);
         expect(secondResult.restoredCategories).toHaveLength(0);
     });
+
+    it("CategoryIntegrityReconciler normalizes legacy category names in expenses to canonical IDs without creating duplicate Restored category entries", async () => {
+        db = await createQuozenDatabase({
+            name: `test_reconcile_legacy_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            storage: getRxStorageMemory()
+        });
+
+        const nowIso = new Date().toISOString();
+        const groupId = "group-legacy-cat";
+
+        // Seed default categories
+        const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, groupId));
+        await db.collections.categories.bulkUpsert(cDocs);
+
+        // Insert expenses with legacy title-case categories as found in pre-migrated sheets
+        await db.expenses.insert({
+            id: "exp-legacy-food",
+            groupId,
+            description: "Dinner",
+            amount: 50,
+            category: "Food & Dining", // Legacy title case
+            date: nowIso,
+            paidByUserId: "u1",
+            splits: [{ userId: "u1", amount: 50 }],
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null
+        });
+
+        await db.expenses.insert({
+            id: "exp-legacy-trans",
+            groupId,
+            description: "Taxi",
+            amount: 30,
+            category: "Transportation", // Legacy title case
+            date: nowIso,
+            paidByUserId: "u1",
+            splits: [{ userId: "u1", amount: 30 }],
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null
+        });
+
+        await db.expenses.insert({
+            id: "exp-legacy-accom",
+            groupId,
+            description: "Hotel",
+            amount: 100,
+            category: "Accommodation", // Legacy title case
+            date: nowIso,
+            paidByUserId: "u1",
+            splits: [{ userId: "u1", amount: 100 }],
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null
+        });
+
+        await db.expenses.insert({
+            id: "exp-legacy-shop",
+            groupId,
+            description: "Mall",
+            amount: 40,
+            category: "Shopping", // Legacy title case
+            date: nowIso,
+            paidByUserId: "u1",
+            splits: [{ userId: "u1", amount: 40 }],
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null
+        });
+
+        // Run reconciliation
+        const result = await CategoryIntegrityReconciler.reconcile(db, groupId);
+
+        // Must NOT restore duplicates
+        expect(result.restoredCategories).toEqual([]);
+        expect(result.healedExpensesCount).toBe(4);
+
+        // Verify expenses were normalized to canonical IDs
+        const expFood = await db.expenses.findOne("exp-legacy-food").exec();
+        expect(expFood?.category).toBe("food_dining");
+
+        const expTrans = await db.expenses.findOne("exp-legacy-trans").exec();
+        expect(expTrans?.category).toBe("transportation");
+
+        const expAccom = await db.expenses.findOne("exp-legacy-accom").exec();
+        expect(expAccom?.category).toBe("accommodation");
+
+        const expShop = await db.expenses.findOne("exp-legacy-shop").exec();
+        expect(expShop?.category).toBe("shopping");
+
+        // Verify no duplicate categories exist
+        const allCats = await db.collections.categories.find({ selector: { groupId, deletedAt: null } }).exec();
+        expect(allCats.length).toBe(DEFAULT_CATEGORIES.length);
+        const restoredCats = allCats.filter(c => c.description === "Restored category");
+        expect(restoredCats).toHaveLength(0);
+    });
+
+    it("CategoryIntegrityReconciler cleans up existing duplicate categories and re-points expenses", async () => {
+        db = await createQuozenDatabase({
+            name: `test_reconcile_dedup_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            storage: getRxStorageMemory()
+        });
+
+        const nowIso = new Date().toISOString();
+        const groupId = "group-dedup";
+
+        // Seed default categories
+        const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, groupId));
+        await db.collections.categories.bulkUpsert(cDocs);
+
+        // Simulate duplicate restored categories already present in database (user's reported scenario)
+        const duplicateDocs = [
+            categoryToDoc({ id: "Food & Dining", name: "Food & dining", icon: "tag", description: "Restored category" }, groupId),
+            categoryToDoc({ id: "Accommodation", name: "Accommodation", icon: "tag", description: "Restored category" }, groupId),
+            categoryToDoc({ id: "Transportation", name: "Transportation", icon: "tag", description: "Restored category" }, groupId),
+            categoryToDoc({ id: "Shopping", name: "Shopping", icon: "tag", description: "Restored category" }, groupId)
+        ];
+        await db.collections.categories.bulkUpsert(duplicateDocs);
+
+        // Expenses pointing to the duplicate category IDs
+        await db.expenses.insert({
+            id: "exp-1",
+            groupId,
+            description: "Dinner",
+            amount: 50,
+            category: "Food & Dining",
+            date: nowIso,
+            paidByUserId: "u1",
+            splits: [{ userId: "u1", amount: 50 }],
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null
+        });
+
+        // Run reconciliation
+        const result = await CategoryIntegrityReconciler.reconcile(db, groupId);
+
+        // Expense should be remapped to canonical id
+        const exp = await db.expenses.findOne("exp-1").exec();
+        expect(exp?.category).toBe("food_dining");
+
+        // Duplicate categories should be soft-deleted (deletedAt != null)
+        const activeCats = await db.collections.categories.find({ selector: { groupId, deletedAt: null } }).exec();
+        expect(activeCats.length).toBe(DEFAULT_CATEGORIES.length);
+        expect(activeCats.some(c => c.categoryId === "Food & Dining")).toBe(false);
+
+        const dupDoc = await db.collections.categories.findOne(`${groupId}_Food & Dining`).exec();
+        expect(dupDoc?.deletedAt).not.toBeNull();
+    });
 });

@@ -210,8 +210,12 @@ export function resolveCategory(
     const byId = list.find(c => c.id === trimmed);
     if (byId) return byId;
 
-    // 2. Case-insensitive name match
+    // 2. Case-insensitive ID match
     const lower = trimmed.toLowerCase();
+    const byIdLower = list.find(c => c.id.toLowerCase() === lower);
+    if (byIdLower) return byIdLower;
+
+    // 3. Case-insensitive name match
     const byName = list.find(
         c => c.name.toLowerCase() === lower
     );
@@ -223,7 +227,7 @@ export function resolveCategory(
     );
     if (byNameClean) return byNameClean;
 
-    // 3. Fallback to synonym match
+    // 4. Fallback to synonym match
     if (cleanInput in SYNONYMS) {
         const synonymId = SYNONYMS[cleanInput];
         const bySynonym = list.find(c => c.id === synonymId);
