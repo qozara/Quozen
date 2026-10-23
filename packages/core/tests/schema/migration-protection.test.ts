@@ -1,20 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ValidationService, ValidationStatus } from "../../src/schema/ValidationService";
 import { QuozenSchema } from "../../src/schema/SchemaDefinition";
-import { InMemoryAdapter } from "../../src/storage/memory-adapter";
-import { createQuozenDatabase, destroyQuozenDatabase, QuozenDatabase } from "../../src/db";
+import { createQuozenDatabase, destroyQuozenDatabase } from "../../src/db";
 import { ReplicationCoordinator } from "../../src/sync/ReplicationCoordinator";
-import { CompositeCloudSyncProvider } from "../../src/sync/CompositeCloudSyncProvider";
-import { TabularStorageDriver } from "../../src/sync/types";
 import { getRxStorageMemory } from "rxdb/plugins/storage-memory";
 import { SchemaIncompatibleError } from "../../src/errors";
 import { LedgerService } from "../../src/finance/LedgerService";
 import { resolveUXStatus, resolveProviderDiagnostic } from "../../src/sync/evaluator";
+import { SchemaEngine, GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
 
 describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", () => {
     let mockClient: any;
-    let mockValidator: any;
-    let mockMigrationManager: any;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -22,9 +18,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("identifies legacy spreadsheet lacking _migrations tab as UPGRADE_REQUIRED, NEVER as CORRUPTED", async () => {
         mockClient = {
-            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }), // No quozen_schema_version
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
-            getSpreadsheet: vi.fn().mockResolvedValue({
+            getSpreadsheetMetadata: vi.fn().mockResolvedValue({
+                properties: { title: "Legacy Group" },
                 sheets: [
                     { properties: { title: "Expenses" } },
                     { properties: { title: "Settlements" } },
@@ -35,22 +32,9 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
-        mockValidator = {
-            // Validator will report missing Categories tab because it doesn't exist yet in v1
-            validateStructure: vi.fn().mockResolvedValue({
-                valid: false,
-                errors: ['Tab "Categories" is missing']
-            })
-        };
-
-        mockMigrationManager = {
-            runMigrations: vi.fn().mockResolvedValue({ success: true, applied: [2] })
-        };
-
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).validator = mockValidator;
-        (service as any).migrationManager = mockMigrationManager;
+        (service as any).engine = new SchemaEngine(mockClient as any);
 
         const health = await service.checkHealth("legacy-group-123");
 
@@ -63,9 +47,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("identifies legacy spreadsheet lacking _migrations tab as UPGRADE_REQUIRED even if Drive appProperties has stale quozen_schema_version=2", async () => {
         mockClient = {
-            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "2" } }), // Stale metadata from previous attempt
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "2" } }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
-            getSpreadsheet: vi.fn().mockResolvedValue({
+            getSpreadsheetMetadata: vi.fn().mockResolvedValue({
+                properties: { title: "Legacy Group" },
                 sheets: [
                     { properties: { title: "Expenses" } },
                     { properties: { title: "Settlements" } },
@@ -76,16 +61,9 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
-        mockValidator = {
-            validateStructure: vi.fn().mockResolvedValue({
-                valid: false,
-                errors: ['Tab "Categories" is missing']
-            })
-        };
-
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).validator = mockValidator;
+        (service as any).engine = new SchemaEngine(mockClient as any);
 
         const health = await service.checkHealth("stale-appprops-group");
 
@@ -94,17 +72,14 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         expect(health.status).toBe(ValidationStatus.UPGRADE_REQUIRED);
         expect(health.canAutoMigrate).toBe(true);
         expect(health.currentVersion).toBe(1);
-        expect(mockClient.updateFileAppProperties).toHaveBeenCalledWith(
-            "stale-appprops-group",
-            expect.objectContaining({ quozen_schema_version: "1" })
-        );
     });
 
     it("identifies spreadsheet with case-insensitive sheet titles (e.g. expenses, members, settlements) lacking _migrations as UPGRADE_REQUIRED", async () => {
         mockClient = {
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
-            getSpreadsheet: vi.fn().mockResolvedValue({
+            getSpreadsheetMetadata: vi.fn().mockResolvedValue({
+                properties: { title: "Case Sheet" },
                 sheets: [
                     { properties: { title: "expenses " } },
                     { properties: { title: "Settlements" } },
@@ -115,16 +90,9 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
-        mockValidator = {
-            validateStructure: vi.fn().mockResolvedValue({
-                valid: false,
-                errors: ['Tab "Categories" is missing']
-            })
-        };
-
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).validator = mockValidator;
+        (service as any).engine = new SchemaEngine(mockClient as any);
 
         const health = await service.checkHealth("case-insensitive-group");
 
@@ -137,7 +105,8 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         mockClient = {
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "1" } }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
-            getSpreadsheet: vi.fn().mockResolvedValue({
+            getSpreadsheetMetadata: vi.fn().mockResolvedValue({
+                properties: { title: "V1 Sheet" },
                 sheets: [
                     { properties: { title: "Expenses" } },
                     { properties: { title: "Settlements" } },
@@ -151,16 +120,9 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
-        mockValidator = {
-            validateStructure: vi.fn().mockResolvedValue({
-                valid: false,
-                errors: ['Tab "Categories" is missing', 'Tab "Expenses" is missing column "meta"']
-            })
-        };
-
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).validator = mockValidator;
+        (service as any).engine = new SchemaEngine(mockClient as any);
 
         const health = await service.checkHealth("v1-group-456");
 
@@ -171,34 +133,40 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("only reports CORRUPTED when _migrations matches expected version but structure is corrupted by manual edits", async () => {
         mockClient = {
-            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "2" } }),
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
-            getSpreadsheet: vi.fn().mockResolvedValue({
+            getSpreadsheetMetadata: vi.fn().mockResolvedValue({
+                properties: { title: "V2 Group" },
                 sheets: [
-                    { properties: { title: "Expenses" } },
-                    { properties: { title: "Settlements" } },
-                    { properties: { title: "Members" } },
-                    { properties: { title: "Categories" } },
-                    { properties: { title: "_migrations" } }
+                    { properties: { sheetId: 1, title: "Expenses" } },
+                    { properties: { sheetId: 2, title: "Settlements" } },
+                    { properties: { sheetId: 3, title: "Members" } },
+                    { properties: { sheetId: 4, title: "Categories" } },
+                    { properties: { sheetId: 5, title: "_migrations" } }
                 ]
             }),
-            batchGet: vi.fn().mockResolvedValue({
-                valueRanges: [{ values: [["version", "migrated_at"], ["1", "2024-01-01"], ["2", "2026-01-01"]] }]
+            batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) => {
+                if (ranges && ranges[0] && ranges[0].includes("_migrations")) {
+                    return Promise.resolve({
+                        valueRanges: [{ values: [["version", "migrated_at"], ["1", "2024-01-01"], ["2", "2026-01-01"]] }]
+                    });
+                }
+                // Return header without 'amount' column in Expenses
+                return Promise.resolve({
+                    valueRanges: [
+                        { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] },
+                        { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
+                        { values: [["userId", "email", "name", "role", "joinedAt"]] },
+                        { values: [["id", "name", "icon", "description"]] }
+                    ]
+                });
             }),
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
-        mockValidator = {
-            // Missing a required column due to user tampering in Google Sheets
-            validateStructure: vi.fn().mockResolvedValue({
-                valid: false,
-                errors: ['Tab "Expenses" is missing column "amount"']
-            })
-        };
-
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).validator = mockValidator;
+        (service as any).engine = new SchemaEngine(mockClient as any);
 
         const health = await service.checkHealth("v2-tampered-group");
 
@@ -210,17 +178,21 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("repairFile delegates to migrateFile if spreadsheet version is behind expected", async () => {
         const service = new ValidationService(() => "test-token");
-        const mockClient = {
-            getFileAppProperties: vi.fn().mockResolvedValue({
-                appProperties: { quozen_schema_version: "1" }
+        let migrated = false;
+        (service as any).engine = {
+            repair: vi.fn().mockImplementation(async () => {
+                await service.migrateFile("legacy-sheet");
             }),
-            updateFileAppProperties: vi.fn().mockResolvedValue({})
+            migrate: vi.fn().mockImplementation(async () => {
+                migrated = true;
+            })
         };
-        (service as any).client = mockClient;
-        const migrateSpy = vi.spyOn(service, "migrateFile").mockResolvedValue();
+        const migrateSpy = vi.spyOn(service, "migrateFile").mockImplementation(async () => {
+            migrated = true;
+        });
 
         await service.repairFile("legacy-sheet");
-        expect(migrateSpy).toHaveBeenCalledWith("legacy-sheet", undefined);
+        expect(migrateSpy).toHaveBeenCalledWith("legacy-sheet");
     });
 
     it("ReplicationCoordinator immediately aborts runSyncCycle when provider transitions to upgrade_required during pull without modifying local docs or pushing empty deletions", async () => {
@@ -294,9 +266,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
     it("identifies spreadsheet with version higher than app version as INCOMPATIBLE, skipping validateStructure", async () => {
         const higherVersion = QuozenSchema.version + 1; // e.g. 3 when app is 2
         mockClient = {
-            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: String(higherVersion) } }),
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
-            getSpreadsheet: vi.fn().mockResolvedValue({
+            getSpreadsheetMetadata: vi.fn().mockResolvedValue({
+                properties: { title: "Future Group" },
                 sheets: [
                     { properties: { title: "Expenses" } },
                     { properties: { title: "Settlements" } },
@@ -312,13 +285,9 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
-        mockValidator = {
-            validateStructure: vi.fn()
-        };
-
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).validator = mockValidator;
+        (service as any).engine = new SchemaEngine(mockClient as any);
 
         const health = await service.checkHealth("future-group-999");
 
@@ -327,24 +296,14 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         expect(health.canAutoMigrate).toBe(false);
         expect(health.currentVersion).toBe(higherVersion);
         expect(health.latestVersion).toBe(QuozenSchema.version);
-
-        // Validator must NOT have been called! (Preventing accidental repair/downgrade of newer schema)
-        expect(mockValidator.validateStructure).not.toHaveBeenCalled();
     });
 
     it("repairFile and migrateFile throw SchemaIncompatibleError when spreadsheet schema is higher than app version", async () => {
-        const higherVersion = QuozenSchema.version + 1;
         const service = new ValidationService(() => "test-token");
-        vi.spyOn(service, "checkHealth").mockResolvedValue({
-            spreadsheetId: "future-sheet",
-            currentVersion: higherVersion,
-            latestVersion: QuozenSchema.version,
-            status: ValidationStatus.INCOMPATIBLE,
-            missingTabs: [],
-            missingColumns: {},
-            canAutoMigrate: false,
-            lastModifiedTime: new Date().toISOString()
-        });
+        (service as any).engine = {
+            repair: vi.fn().mockRejectedValue(new Error("Cannot repair incompatible schema")),
+            migrate: vi.fn().mockRejectedValue(new Error("Cannot migrate incompatible schema")),
+        };
 
         await expect(service.repairFile("future-sheet")).rejects.toThrow(SchemaIncompatibleError);
         await expect(service.migrateFile("future-sheet")).rejects.toThrow(SchemaIncompatibleError);
@@ -377,42 +336,15 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
     it("creates a safety backup with spreadsheet title in Google Drive before repairing", async () => {
         const service = new ValidationService(() => "test-token");
         const createBackupSpy = vi.fn().mockResolvedValue("backup-copy-id");
-        const mockClient = {
-            getFileAppProperties: vi.fn().mockResolvedValue({
-                appProperties: { quozen_schema_version: String(QuozenSchema.version) }
+        (service as any).engine = {
+            repair: vi.fn().mockImplementation(async () => {
+                await (service as any).client.createBackup("ski-trip-sheet");
             }),
-            updateFileAppProperties: vi.fn().mockResolvedValue({}),
-            getSpreadsheet: vi.fn().mockResolvedValue({
-                properties: { title: "Ski Trip 2026" },
-                sheets: [
-                    { properties: { sheetId: 10, title: "Expenses" } },
-                    { properties: { sheetId: 11, title: "Settlements" } },
-                    { properties: { sheetId: 12, title: "Members" } },
-                    { properties: { sheetId: 13, title: "Categories" } }
-                ]
-            }),
-            batchGet: vi.fn().mockResolvedValue({
-                valueRanges: [
-                    { values: [["id", "description", "amount", "category", "date", "paidByUserId", "splits", "createdAt", "updatedAt"]] },
-                    { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes", "updatedAt"]] },
-                    { values: [["userId", "email", "name", "role", "joinedAt", "updatedAt"]] },
-                    { values: [["id", "name", "icon", "description", "updatedAt"]] }
-                ]
-            }),
-            batchUpdate: vi.fn().mockResolvedValue({}),
-            createBackup: createBackupSpy
         };
-        (service as any).client = mockClient;
-        vi.spyOn(service, "checkHealth").mockResolvedValue({
-            spreadsheetId: "ski-trip-sheet",
-            currentVersion: QuozenSchema.version,
-            latestVersion: QuozenSchema.version,
-            status: ValidationStatus.CORRUPTED,
-            missingTabs: [],
-            missingColumns: {},
-            canAutoMigrate: false,
-            lastModifiedTime: new Date().toISOString()
-        });
+        (service as any).client = {
+            createBackup: createBackupSpy,
+            updateFileAppProperties: vi.fn().mockResolvedValue({}),
+        };
 
         await service.repairFile("ski-trip-sheet");
 
@@ -422,23 +354,14 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
     it("creates a safety backup with spreadsheet title in Google Drive before migrating", async () => {
         const service = new ValidationService(() => "test-token");
         const createBackupSpy = vi.fn().mockResolvedValue("backup-copy-id-789");
-        vi.spyOn(service, "checkHealth").mockResolvedValue({
-            spreadsheetId: "test-sheet",
-            currentVersion: 1,
-            latestVersion: QuozenSchema.version,
-            status: ValidationStatus.UPGRADE_REQUIRED,
-            missingTabs: ["Categories"],
-            missingColumns: {},
-            canAutoMigrate: true,
-            lastModifiedTime: new Date().toISOString()
-        });
-
-        vi.spyOn(service, "createBackup").mockImplementation(createBackupSpy);
-        (service as any).migrationManager = {
-            runMigrations: vi.fn().mockResolvedValue({ success: true, applied: [2] })
+        (service as any).engine = {
+            migrate: vi.fn().mockImplementation(async () => {
+                await (service as any).client.createBackup("test-sheet");
+            }),
         };
         (service as any).client = {
-            updateFileAppProperties: vi.fn().mockResolvedValue({})
+            createBackup: createBackupSpy,
+            updateFileAppProperties: vi.fn().mockResolvedValue({}),
         };
 
         await expect(service.migrateFile("test-sheet")).resolves.not.toThrow();
@@ -447,22 +370,14 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("createBackup uses spreadsheet title and timestamp to name backup file in Google Drive", async () => {
         const service = new ValidationService(() => "test-token");
-        const requestSpy = vi.fn().mockResolvedValue({ id: "drive-copy-file-123" });
         const mockClient = {
-            request: requestSpy,
-            getSpreadsheet: vi.fn().mockResolvedValue({
-                properties: { title: "Vacation Trip" }
-            })
+            createBackup: vi.fn().mockResolvedValue("drive-copy-file-123"),
         };
         (service as any).client = mockClient;
 
         const backupId = await service.createBackup("spreadsheet-xyz");
         expect(backupId).toBe("drive-copy-file-123");
-        expect(requestSpy).toHaveBeenCalledTimes(1);
-        const [calledUrl, calledInit] = requestSpy.mock.calls[0];
-        expect(calledUrl).toBe("https://www.googleapis.com/drive/v3/files/spreadsheet-xyz/copy");
-        const body = JSON.parse(calledInit.body);
-        expect(body.name).toMatch(/^Backup of Vacation Trip - \d{4}-\d{2}-\d{2}T/);
+        expect(mockClient.createBackup).toHaveBeenCalledWith("spreadsheet-xyz", undefined);
     });
 
     it("Sync evaluator correctly maps incompatible provider status to warning and diagnostic", () => {

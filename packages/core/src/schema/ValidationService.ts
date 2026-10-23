@@ -1,279 +1,63 @@
 import {
-    SchemaValidator,
-    MigrationManager,
+    SchemaEngine,
     GoogleSheetsFetchClient,
+    ValidationStatus,
+    type SchemaStatusDTO as GDocsSchemaStatusDTO,
 } from "@qozara/gdocs-schema";
 import { QuozenSchema } from "./SchemaDefinition";
 import { migrations } from "./migrations/index";
-import { ensureCategoriesTab } from "./migrations/categoriesTab";
 import { ConflictError, SchemaIncompatibleError } from "../errors";
-import { REQUIRED_SHEETS } from "../types";
 
-export enum ValidationStatus {
-    READY = "READY",
-    UPGRADE_REQUIRED = "UPGRADE_REQUIRED",
-    CORRUPTED = "CORRUPTED",
-    INCOMPATIBLE = "INCOMPATIBLE",
-}
+export { ValidationStatus };
 
-export interface SchemaStatusDTO {
-    spreadsheetId: string;
-    currentVersion: number;
-    latestVersion: number;
-    status: ValidationStatus;
-    missingTabs: string[];
-    missingColumns: Record<string, string[]>;
-    canAutoMigrate: boolean;
+export interface SchemaStatusDTO extends Omit<GDocsSchemaStatusDTO, "lastModifiedTime"> {
     lastModifiedTime: string;
 }
 
 export class ValidationService {
-    private client: GoogleSheetsFetchClient;
-    private validator: SchemaValidator;
-    private migrationManager: MigrationManager;
+    public readonly client: GoogleSheetsFetchClient;
+    public readonly engine: SchemaEngine;
 
     constructor(getToken: () => string | null) {
         const token = getToken();
         if (!token) throw new Error("ValidationService requires a valid Google access token.");
-        
+
         this.client = new GoogleSheetsFetchClient({
             accessToken: token,
             fetchImpl: async (url: string | Request | URL, init?: RequestInit) => {
                 const finalInit = init ? { ...init } : {};
-                if (finalInit.method === 'GET' && finalInit.headers) {
+                if (finalInit.method === "GET" && finalInit.headers) {
                     const headers = new Headers(finalInit.headers as any);
-                    headers.delete('Content-Type');
+                    headers.delete("Content-Type");
                     finalInit.headers = headers;
                 }
                 return globalThis.fetch(url, finalInit);
-            }
+            },
         });
-        this.validator = new SchemaValidator(this.client);
-        this.migrationManager = new MigrationManager(this.client);
+        this.engine = new SchemaEngine(this.client);
     }
 
     public async createBackup(spreadsheetId: string, customName?: string): Promise<string> {
-        let title = spreadsheetId;
-        try {
-            const meta = await this.client.getSpreadsheet(spreadsheetId);
-            if (meta?.properties?.title) {
-                title = meta.properties.title;
-            }
-        } catch {
-            // Fallback to spreadsheetId if title cannot be fetched
-        }
-
-        const name = customName || `Backup of ${title} - ${new Date().toISOString()}`;
-        let backupId = "";
-        let alreadyNamed = false;
-
-        if (typeof (this.client as any).createBackup === "function") {
-            try {
-                backupId = await (this.client as any).createBackup(spreadsheetId);
-            } catch (err) {
-                console.warn("Google Drive safety backup creation failed:", err);
-                throw err;
-            }
-        } else if (typeof (this.client as any).request === "function") {
-            try {
-                const copyUrl = `https://www.googleapis.com/drive/v3/files/${spreadsheetId}/copy`;
-                const result = await (this.client as any).request(copyUrl, {
-                    method: "POST",
-                    body: JSON.stringify({ name })
-                });
-                backupId = result.id;
-                alreadyNamed = true;
-            } catch (err) {
-                console.warn("Google Drive safety backup creation failed via request:", err);
-                throw err;
-            }
-        }
-
-        // Ensure backup copy has human-readable title in Google Drive
-        if (backupId && !alreadyNamed && typeof (this.client as any).request === "function") {
-            try {
-                const patchUrl = `https://www.googleapis.com/drive/v3/files/${backupId}`;
-                await (this.client as any).request(patchUrl, {
-                    method: "PATCH",
-                    body: JSON.stringify({ name })
-                });
-            } catch {
-                // Non-critical
-            }
-        }
-
-        return backupId;
+        return this.client.createBackup(spreadsheetId, customName);
     }
 
     public async checkHealth(spreadsheetId: string): Promise<SchemaStatusDTO> {
-        let currentVersion = 0;
-        let lastModifiedTime = new Date().toISOString();
-        let appProps: any = null;
-        let parsedAppVersion = 0;
-
-        try {
-            const res = await this.client.getFileAppProperties(spreadsheetId) as any;
-            appProps = res.appProperties;
-            if (res.modifiedTime) lastModifiedTime = res.modifiedTime;
-            const parsed = parseInt(appProps?.quozen_schema_version || "0", 10);
-            if (!isNaN(parsed) && parsed > 0) {
-                parsedAppVersion = parsed;
-                currentVersion = parsed;
-            }
-        } catch {
-            // Ignore error
-        }
-
-        // Two-way reconciliation: inspect spreadsheet sheets metadata and _migrations tab
-        try {
-            const metadata = await this.client.getSpreadsheet(spreadsheetId);
-            const sheets = metadata.sheets || [];
-            const sheetTitles = new Set<string>(sheets.map((s: any) => String(s.properties?.title || "").trim()));
-            const sheetTitlesLower = new Set<string>(Array.from(sheetTitles).map((t: string) => t.toLowerCase()));
-
-            const hasMigrationsTab = sheetTitlesLower.has("_migrations");
-            const hasBaselineSheets = REQUIRED_SHEETS.every((t: string) => sheetTitlesLower.has(t.toLowerCase()));
-
-            if (hasMigrationsTab && typeof this.client.batchGet === "function") {
-                try {
-                    const migrationsRes = await this.client.batchGet(spreadsheetId, ["_migrations!A2:B"]);
-                    const rows = migrationsRes?.valueRanges?.[0]?.values || [];
-                    let maxMigratedVersion = 0;
-                    for (const row of rows) {
-                        const v = parseInt(row[0], 10);
-                        if (!isNaN(v) && v > maxMigratedVersion) {
-                            maxMigratedVersion = v;
-                        }
-                    }
-                    if (maxMigratedVersion > 0) {
-                        currentVersion = maxMigratedVersion;
-                    } else {
-                        currentVersion = 1;
-                    }
-                    if (currentVersion !== parsedAppVersion) {
-                        await this.client.updateFileAppProperties(spreadsheetId, {
-                            quozen_schema_version: currentVersion.toString()
-                        }).catch(() => {});
-                    }
-                } catch {
-                    currentVersion = hasBaselineSheets ? 1 : 0;
-                }
-            } else if (!hasMigrationsTab) {
-                // If there is no _migrations tab, the spreadsheet has NEVER been migrated to v2+.
-                // Even if Drive appProperties previously had a stale quozen_schema_version >= 2,
-                // the physical spreadsheet is at version 1 (or 0 if empty).
-                currentVersion = (hasBaselineSheets || sheets.length > 0) ? 1 : 0;
-                if (currentVersion !== parsedAppVersion) {
-                    await this.client.updateFileAppProperties(spreadsheetId, {
-                        quozen_schema_version: currentVersion.toString()
-                    }).catch(() => {});
-                }
-            }
-        } catch {
-            // Ignore if metadata or _migrations tab is missing or unreadable
-        }
-
-        let status = ValidationStatus.READY;
-        let canAutoMigrate = false;
-        let missingTabs: string[] = [];
-        let missingColumns: Record<string, string[]> = {};
-
-        if (currentVersion > QuozenSchema.version) {
-            // Spreadsheet was created or migrated by a newer version of Quozen.
-            // Client app code is outdated: DO NOT validate structure, repair, or auto-migrate!
-            status = ValidationStatus.INCOMPATIBLE;
-            canAutoMigrate = false;
-        } else if (currentVersion < QuozenSchema.version) {
-            // Spreadsheet migration version is behind the app's schema version.
-            // This is strictly an UPGRADE_REQUIRED state that can be auto-migrated.
-            // Under NO circumstance should this be marked as CORRUPTED!
-            status = ValidationStatus.UPGRADE_REQUIRED;
-            canAutoMigrate = true;
-        } else {
-            // Migration version matches the app's expected schema version.
-            // Validate structure to check for manual tampering/deletions.
-            const result = await this.validator.validateStructure(spreadsheetId, QuozenSchema);
-            if (!result.valid) {
-                status = ValidationStatus.CORRUPTED;
-                missingTabs = (result as any).missingTabs || [];
-                missingColumns = (result as any).missingColumns || {};
-            } else {
-                status = ValidationStatus.READY;
-            }
-        }
-
+        const result = await this.engine.checkHealth(spreadsheetId, QuozenSchema);
         return {
-            spreadsheetId,
-            currentVersion,
-            latestVersion: QuozenSchema.version,
-            status,
-            missingTabs,
-            missingColumns,
-            canAutoMigrate,
-            lastModifiedTime
+            ...result,
+            lastModifiedTime: result.lastModifiedTime || new Date().toISOString(),
         };
     }
 
     public async initializeFile(spreadsheetId: string, version: number = QuozenSchema.version): Promise<void> {
-        // Create _migrations tab if not exists
-        try {
-            const addResult = await this.client.batchUpdate(spreadsheetId, [
-                {
-                    addSheet: {
-                        properties: {
-                            title: '_migrations',
-                            hidden: true,
-                        },
-                    },
-                },
-            ]);
-
-            const migrationsSheetId = addResult.replies[0].addSheet.properties.sheetId;
-
-            await this.client.batchUpdate(spreadsheetId, [
-                {
-                    updateCells: {
-                        rows: [
-                            {
-                                values: [
-                                    { userEnteredValue: { stringValue: 'version' } },
-                                    { userEnteredValue: { stringValue: 'migrated_at' } },
-                                ],
-                            },
-                            {
-                                values: [
-                                    { userEnteredValue: { numberValue: version } },
-                                    { userEnteredValue: { stringValue: new Date().toISOString() } },
-                                ],
-                            },
-                        ],
-                        fields: 'userEnteredValue',
-                        range: {
-                            sheetId: migrationsSheetId,
-                            startRowIndex: 0,
-                            startColumnIndex: 0,
-                        },
-                    },
-                },
-            ]);
-        } catch (e: any) {
-             // Ignore if it already exists or if adding fails because it exists
-        }
+        await this.engine.initializeFile(spreadsheetId, version);
         await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
     }
 
     public async repairFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
-        const health = await this.checkHealth(spreadsheetId);
-        if (health.status === ValidationStatus.INCOMPATIBLE) {
-            throw new SchemaIncompatibleError("Cannot repair spreadsheet: the schema is from a newer version of Quozen.");
-        }
-        if (health.status === ValidationStatus.UPGRADE_REQUIRED) {
-            return this.migrateFile(spreadsheetId, expectedLastModified);
-        }
-
         if (expectedLastModified) {
-            const res = await this.client.getFileAppProperties(spreadsheetId) as any;
-            const currentModified = res.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
+            const res = (await this.client.getFileAppProperties(spreadsheetId)) as any;
+            const currentModified = res?.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
             const expectedModified = new Date(expectedLastModified).getTime();
             if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
                 throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
@@ -281,87 +65,20 @@ export class ValidationService {
         }
 
         try {
-            await this.createBackup(spreadsheetId);
-        } catch {
-            // Proceed if backup is unsupported in mock environment
-        }
-
-        const metadata = await this.client.getSpreadsheet(spreadsheetId);
-        const sheets = metadata.sheets || [];
-
-        // If Categories tab is missing, initialize it
-        if (!sheets.some((s: any) => s.properties?.title === "Categories")) {
-            await ensureCategoriesTab(this.client, spreadsheetId);
-        }
-
-        const tabsToFetch: string[] = QuozenSchema.tabs
-            .filter((t: any) => (sheets as any[]).some((s: any) => s.properties?.title === t.name))
-            .map((t: any) => t.name as string);
-
-        if (tabsToFetch.length > 0) {
-            const ranges = tabsToFetch.map(name => `${name}!1:1`);
-            const batchGetResult = await this.client.batchGet(spreadsheetId, ranges);
-            const valueRanges = batchGetResult.valueRanges || [];
-
-            const requests: any[] = [];
-
-            for (let i = 0; i < tabsToFetch.length; i++) {
-                const tabName = tabsToFetch[i];
-                const tabSchema = QuozenSchema.tabs.find((t: any) => t.name === tabName);
-                if (!tabSchema) continue;
-
-                const sheetId = sheets.find((s: any) => s.properties?.title === tabName)?.properties?.sheetId;
-                if (sheetId === undefined) continue;
-
-                const valueRange = valueRanges[i];
-                const rows = valueRange?.values || [];
-                const headers = rows[0] || [];
-                const headerSet = new Set(headers.map((h: any) => String(h).trim()));
-
-                const missingColumns = tabSchema.columns.filter((c: any) => !headerSet.has(c.name));
-
-                if (missingColumns.length > 0) {
-                    requests.push({
-                        appendDimension: {
-                            sheetId,
-                            dimension: 'COLUMNS',
-                            length: missingColumns.length,
-                        },
-                    });
-
-                    requests.push({
-                        updateCells: {
-                            rows: [{ values: missingColumns.map((col: any) => ({ userEnteredValue: { stringValue: col.name } })) }],
-                            fields: 'userEnteredValue',
-                            range: {
-                                sheetId,
-                                startRowIndex: 0,
-                                endRowIndex: 1,
-                                startColumnIndex: headers.length,
-                                endColumnIndex: headers.length + missingColumns.length,
-                            },
-                        },
-                    });
-                }
+            await this.engine.repair(spreadsheetId, QuozenSchema, undefined, migrations);
+            await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
+        } catch (e: any) {
+            if (e?.message?.toLowerCase().includes("incompatible")) {
+                throw new SchemaIncompatibleError("Cannot repair spreadsheet: the schema is from a newer version of Quozen.");
             }
-
-            if (requests.length > 0) {
-                await this.client.batchUpdate(spreadsheetId, requests);
-            }
+            throw e;
         }
-
-        await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
     }
 
     public async migrateFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
-        const health = await this.checkHealth(spreadsheetId);
-        if (health.status === ValidationStatus.INCOMPATIBLE) {
-            throw new SchemaIncompatibleError("Cannot migrate spreadsheet: the schema is from a newer version of Quozen.");
-        }
-
         if (expectedLastModified) {
-            const res = await this.client.getFileAppProperties(spreadsheetId) as any;
-            const currentModified = res.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
+            const res = (await this.client.getFileAppProperties(spreadsheetId)) as any;
+            const currentModified = res?.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
             const expectedModified = new Date(expectedLastModified).getTime();
             if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
                 throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
@@ -369,24 +86,23 @@ export class ValidationService {
         }
 
         try {
-            await this.createBackup(spreadsheetId);
-        } catch {
-            // Proceed if backup is unsupported in mock environment
+            await this.engine.migrate(spreadsheetId, QuozenSchema, migrations);
+            await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
+        } catch (e: any) {
+            if (e?.message?.toLowerCase().includes("incompatible")) {
+                throw new SchemaIncompatibleError("Cannot migrate spreadsheet: the schema is from a newer version of Quozen.");
+            }
+            throw e;
         }
-
-        await this.migrationManager.runMigrations(spreadsheetId, migrations);
-        await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
     }
 
     public async updateFileMetadata(spreadsheetId: string, status: ValidationStatus): Promise<void> {
         const properties = {
             quozen_validation_status: status,
             quozen_validation_time: new Date().toISOString(),
-            quozen_schema_version: QuozenSchema.version.toString(),
-            // Ensure quozen_type and version for general compat
             quozen_type: "group",
             version: "1.0",
         };
-        await this.client.updateFileAppProperties(spreadsheetId, properties);
+        await this.client.updateFileAppProperties(spreadsheetId, properties).catch(() => {});
     }
 }

@@ -53,7 +53,7 @@ test.describe('Schema Remediation', () => {
             } else if (url.includes('/batchUpdate')) {
                 body = { replies: [{ addSheet: { properties: { sheetId: 100 } } }] };
             } else if (url.includes('fields=appProperties')) {
-                body = { appProperties: { quozen_schema_version: '2', quozen_validation_status: 'READY' } };
+                body = { appProperties: { quozen_validation_status: 'READY' } };
             } else if (url.includes('/spreadsheets/')) {
                 body = {
                     properties: { title: 'Corrupted Trip' },

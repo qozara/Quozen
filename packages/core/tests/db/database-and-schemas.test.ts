@@ -194,8 +194,9 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
     });
 
     it("creates a safety backup before repairing a spreadsheet when createBackup is available", async () => {
+        let repaired = false;
         const mockClient = {
-            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "2" }, modifiedTime: "2026-01-01T00:00:00Z" }),
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {}, modifiedTime: "2026-01-01T00:00:00Z" }),
             updateFileAppProperties: vi.fn().mockResolvedValue(undefined),
             createBackup: vi.fn().mockResolvedValue("backup-file-id-123"),
             getSpreadsheet: vi.fn().mockResolvedValue({
@@ -213,21 +214,28 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
                         valueRanges: [{ values: [["2", "2026-01-01T00:00:00Z"]] }]
                     });
                 }
+                const expenseHeaders = repaired
+                    ? ["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]
+                    : ["id", "date", "description", "paidBy", "category", "splits", "meta"];
                 return Promise.resolve({
                     valueRanges: [
-                        { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] }, // missing 'amount'
+                        { values: [expenseHeaders] },
                         { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
                         { values: [["userId", "email", "name", "role", "joinedAt"]] },
                         { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] }
                     ]
                 });
             }),
-            batchUpdate: vi.fn().mockResolvedValue({})
+            batchUpdate: vi.fn().mockImplementation(() => {
+                repaired = true;
+                return Promise.resolve({});
+            })
         };
 
         vi.spyOn(GoogleSheetsFetchClient.prototype, "getFileAppProperties").mockImplementation(mockClient.getFileAppProperties);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "createBackup").mockImplementation(mockClient.createBackup);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "getSpreadsheet").mockImplementation(mockClient.getSpreadsheet);
+        vi.spyOn(GoogleSheetsFetchClient.prototype, "getSpreadsheetMetadata").mockImplementation(mockClient.getSpreadsheet);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "batchGet").mockImplementation(mockClient.batchGet);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "batchUpdate").mockImplementation(mockClient.batchUpdate);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "updateFileAppProperties").mockImplementation(mockClient.updateFileAppProperties);
@@ -235,7 +243,7 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
         const service = new ValidationService(() => "valid-token");
         await service.repairFile("sheet-123");
 
-        expect(mockClient.createBackup).toHaveBeenCalledWith("sheet-123");
+        expect(mockClient.createBackup).toHaveBeenCalledWith("sheet-123", undefined);
         expect(mockClient.batchUpdate).toHaveBeenCalled();
 
         vi.restoreAllMocks();

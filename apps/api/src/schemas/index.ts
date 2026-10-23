@@ -110,7 +110,7 @@ export const SchemaStatusDTOSchema = z.object({
     missingTabs: z.array(z.string()),
     missingColumns: z.record(z.array(z.string())),
     canAutoMigrate: z.boolean(),
-    lastModifiedTime: z.string(),
+    lastModifiedTime: z.string().optional(),
 }).openapi('SchemaStatusDTO');
 
 export const MigrateRequestSchema = z.object({

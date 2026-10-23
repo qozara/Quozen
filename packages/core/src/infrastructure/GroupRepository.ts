@@ -415,20 +415,6 @@ export class GroupRepository {
 
         const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
 
-        // If it's valid but missing version info, auto-initialize
-        if (validation.valid && validation.status === ValidationStatus.READY && this.getToken && this.getToken()) {
-            try {
-                const metaForInit = await this.storage.getFile(spreadsheetId, { fields: "appProperties" });
-                const currentVersion = parseInt(metaForInit.appProperties?.quozen_schema_version || "0", 10);
-                if (currentVersion === 0) {
-                     const validationSvc = new ValidationService(this.getToken);
-                     await validationSvc.initializeFile(spreadsheetId);
-                }
-            } catch (e) {
-                console.warn("Failed to initialize legacy file schema", e);
-            }
-        }
-
         const settings = await this.getSettings();
         const existingCachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
         const linkedAccountId = options?.accountId || existingCachedGroup?.accountId || this.accountIdCache.get(spreadsheetId);
