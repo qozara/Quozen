@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import React from "react";
 import {
   CategoryIcon,
   getCategoryIconComponent,
@@ -8,7 +7,8 @@ import {
   getCategoryDisplayName
 } from "../category-icon";
 import ExpenseForm from "../expense-form";
-import { Coffee, Plane, Heart, Utensils, Tag, Member } from "lucide-react";
+import { Coffee, Plane, Heart, Tag } from "lucide-react";
+import type { Member } from "@quozen/core";
 
 vi.mock("react-router-dom", () => ({
   useNavigate: () => vi.fn(),
