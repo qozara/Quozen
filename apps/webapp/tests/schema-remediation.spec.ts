@@ -54,6 +54,24 @@ test.describe('Schema Remediation', () => {
                 body = { replies: [{ addSheet: { properties: { sheetId: 100 } } }] };
             } else if (url.includes('fields=appProperties')) {
                 body = { appProperties: { quozen_validation_status: 'READY' } };
+            } else if (url.includes('values:batchGet')) {
+                const urlObj = new URL(url);
+                const requestedRanges = urlObj.searchParams.getAll('ranges');
+                const valueRanges = requestedRanges.map(range => {
+                    if (range.includes('_migrations')) {
+                        return { range, values: [['version', 'migrated_at'], ['2', new Date().toISOString()]] };
+                    } else if (range.includes('Expenses')) {
+                        return { range, values: [['id', 'date', 'description', 'amount', 'paidBy', 'category', 'splits', 'meta']] };
+                    } else if (range.includes('Settlements')) {
+                        return { range, values: [['id', 'date', 'fromUserId', 'toUserId', 'amount', 'method', 'notes']] };
+                    } else if (range.includes('Members')) {
+                        return { range, values: [['userId', 'email', 'name', 'role', 'joinedAt']] };
+                    } else if (range.includes('Categories')) {
+                        return { range, values: [['id', 'name', 'icon', 'description', 'updatedAt', 'deletedAt']] };
+                    }
+                    return { range, values: [] };
+                });
+                body = { valueRanges };
             } else if (url.includes('/spreadsheets/')) {
                 body = {
                     properties: { title: 'Corrupted Trip' },
