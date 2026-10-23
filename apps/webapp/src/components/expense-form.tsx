@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Expense, Member, ExpenseCategory, DEFAULT_CATEGORIES, resolveCategory } from "@quozen/core";
+import { Expense, Member, ExpenseCategory, DEFAULT_CATEGORIES, resolveCategory, humanizeCategoryId } from "@quozen/core";
 import { CategoryIcon } from "@/components/category-icon";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
@@ -51,10 +51,25 @@ export default function ExpenseForm({ initialData, users, categories, currentUse
   const auth = useOptionalAuth();
   const authUser = auth?.user;
 
-  const availableCategories = (categories && categories.length > 0) ? categories : DEFAULT_CATEGORIES;
+  const availableCategories = categories !== undefined ? categories : DEFAULT_CATEGORIES;
   const initialCatId = initialData?.category
     ? resolveCategory(initialData.category, availableCategories)?.id || initialData.category
     : "";
+
+  const displayCategories = useMemo(() => {
+    if (!initialCatId || availableCategories.some(c => c.id === initialCatId)) {
+      return availableCategories;
+    }
+    return [
+      ...availableCategories,
+      {
+        id: initialCatId,
+        name: humanizeCategoryId(initialCatId),
+        icon: "tag",
+        description: "",
+      },
+    ];
+  }, [availableCategories, initialCatId]);
 
   const [description, setDescription] = useState(initialData?.description || "");
   const [amount, setAmount] = useState(initialData?.amount?.toString() || "");
@@ -64,7 +79,7 @@ export default function ExpenseForm({ initialData, users, categories, currentUse
   const [splits, setSplits] = useState<ExpenseSplit[]>([]);
 
   const handleCategoryChange = (val: string) => {
-    const resolved = resolveCategory(val, availableCategories);
+    const resolved = resolveCategory(val, displayCategories);
     setCategory(resolved ? resolved.id : val);
   };
 
@@ -255,10 +270,10 @@ export default function ExpenseForm({ initialData, users, categories, currentUse
           <Select value={category} onValueChange={handleCategoryChange}>
             <SelectTrigger data-testid="select-category"><SelectValue placeholder={t("expenseForm.selectCategory")} /></SelectTrigger>
             <SelectContent>
-              {availableCategories.map(c => (
+              {displayCategories.map(c => (
                 <SelectItem key={c.id} value={c.id}>
                   <div className="flex items-center gap-2">
-                    <CategoryIcon categoryId={c.id} className="w-4 h-4 text-muted-foreground" />
+                    <CategoryIcon iconName={c.icon} categoryId={c.id} categories={displayCategories} className="w-4 h-4 text-muted-foreground" />
                     <span>{c.name}</span>
                   </div>
                 </SelectItem>
