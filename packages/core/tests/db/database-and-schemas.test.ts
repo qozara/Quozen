@@ -195,26 +195,30 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
 
     it("creates a safety backup before repairing a spreadsheet when createBackup is available", async () => {
         const mockClient = {
-            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {}, modifiedTime: "2026-01-01T00:00:00Z" }),
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "2" }, modifiedTime: "2026-01-01T00:00:00Z" }),
             updateFileAppProperties: vi.fn().mockResolvedValue(undefined),
             createBackup: vi.fn().mockResolvedValue("backup-file-id-123"),
             getSpreadsheet: vi.fn().mockResolvedValue({
                 sheets: [
                     { properties: { title: "Expenses", sheetId: 1 } },
                     { properties: { title: "Settlements", sheetId: 2 } },
-                    { properties: { title: "Members", sheetId: 3 } }
+                    { properties: { title: "Members", sheetId: 3 } },
+                    { properties: { title: "Categories", sheetId: 4 } },
+                    { properties: { title: "_migrations", sheetId: 5 } }
                 ]
             }),
             batchGet: vi.fn().mockResolvedValue({
                 valueRanges: [
                     { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] }, // missing 'amount'
                     { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
-                    { values: [["userId", "email", "name", "role", "joinedAt"]] }
+                    { values: [["userId", "email", "name", "role", "joinedAt"]] },
+                    { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] }
                 ]
             }),
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
+        vi.spyOn(GoogleSheetsFetchClient.prototype, "getFileAppProperties").mockImplementation(mockClient.getFileAppProperties);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "createBackup").mockImplementation(mockClient.createBackup);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "getSpreadsheet").mockImplementation(mockClient.getSpreadsheet);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "batchGet").mockImplementation(mockClient.batchGet);

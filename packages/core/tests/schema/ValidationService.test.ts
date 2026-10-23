@@ -25,7 +25,7 @@ describe("ValidationService", () => {
         vi.clearAllMocks();
 
         mockClient = {
-            getFileAppProperties: vi.fn(),
+            getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "2" } }),
             updateFileAppProperties: vi.fn(),
             batchUpdate: vi.fn().mockResolvedValue({ replies: [{ addSheet: { properties: { sheetId: 123 } } }] }),
         };
@@ -76,9 +76,11 @@ describe("ValidationService", () => {
         (QuozenSchema as any).version = originalVersion;
     });
 
-    it("returns CORRUPTED if validator fails and version is unknown or empty", async () => {
+    it("returns CORRUPTED if validator fails and version matches current expected schema version", async () => {
         mockValidator.validateStructure.mockResolvedValue({ valid: false });
-        mockClient.getFileAppProperties.mockRejectedValue(new Error("No properties"));
+        mockClient.getFileAppProperties.mockResolvedValue({
+            appProperties: { quozen_schema_version: "2" }
+        });
 
         const result = await service.checkHealth("file123");
         expect(result.status).toBe(ValidationStatus.CORRUPTED);

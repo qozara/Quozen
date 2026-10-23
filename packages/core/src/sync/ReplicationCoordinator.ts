@@ -121,6 +121,11 @@ export class ReplicationCoordinator {
 
     private async runSyncCycle(groupId?: string): Promise<void> {
         const payloads = await this.provider.pull(groupId);
+        const currentStatus = this.provider.getStatus();
+        if (currentStatus === "upgrade_required" || currentStatus === "corrupted") {
+            return;
+        }
+
         const payloadMap = new Map(payloads.map(p => [p.collection, p]));
         const targetGroupId = groupId ?? (this.provider as any).getActiveGroupId?.() ?? undefined;
 
@@ -131,11 +136,10 @@ export class ReplicationCoordinator {
             const isGroupScoped = collectionName !== "user_settings";
             if (isGroupScoped && !targetGroupId) continue;
 
-            const payload = payloadMap.get(collectionName) || {
-                collection: collectionName,
-                groupId: targetGroupId,
-                documents: []
-            };
+            // Only process collections that the remote provider actually delivered in this cycle.
+            // If the provider didn't return a collection, NEVER assume remote deleted all items!
+            const payload = payloadMap.get(collectionName);
+            if (!payload) continue;
 
             // 1. Fetch all local documents (including soft-deleted tombstones where deletedAt != null)
             const localDocsRaw = isGroupScoped

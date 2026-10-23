@@ -7,6 +7,7 @@ import { QuozenSchema } from "./SchemaDefinition";
 import { migrations } from "./migrations/index";
 import { ensureCategoriesTab } from "./migrations/categoriesTab";
 import { ConflictError } from "../errors";
+import { REQUIRED_SHEETS } from "../types";
 
 export enum ValidationStatus {
     READY = "READY",
@@ -60,14 +61,23 @@ export class ValidationService {
             const res = await this.client.getFileAppProperties(spreadsheetId) as any;
             appProps = res.appProperties;
             if (res.modifiedTime) lastModifiedTime = res.modifiedTime;
-            currentVersion = parseInt(appProps?.quozen_schema_version || "0", 10);
-        } catch (e) {
+            const parsed = parseInt(appProps?.quozen_schema_version || "0", 10);
+            if (!isNaN(parsed) && parsed > 0) {
+                currentVersion = parsed;
+            }
+        } catch {
             // Ignore error
         }
 
-        // Two-way reconciliation: inspect _migrations tab in the spreadsheet if available
+        // Two-way reconciliation: inspect spreadsheet sheets metadata and _migrations tab
         try {
-            if (typeof this.client.batchGet === "function") {
+            const metadata = await this.client.getSpreadsheet(spreadsheetId);
+            const sheets = metadata.sheets || [];
+            const sheetTitles = new Set(sheets.map((s: any) => s.properties?.title).filter(Boolean));
+            const hasMigrationsTab = sheetTitles.has("_migrations");
+            const hasBaselineSheets = REQUIRED_SHEETS.every(t => sheetTitles.has(t));
+
+            if (hasMigrationsTab && typeof this.client.batchGet === "function") {
                 const migrationsRes = await this.client.batchGet(spreadsheetId, ["_migrations!A2:B"]);
                 const rows = migrationsRes?.valueRanges?.[0]?.values || [];
                 let maxMigratedVersion = 0;
@@ -83,27 +93,36 @@ export class ValidationService {
                         quozen_schema_version: currentVersion.toString()
                     }).catch(() => {});
                 }
+            } else if (hasBaselineSheets && currentVersion === 0) {
+                // Spreadsheet contains baseline sheets (Expenses, Members, Settlements) but lacks _migrations tab:
+                // This is a pre-migration legacy Quozen group created in Schema Version 1.
+                currentVersion = 1;
             }
         } catch {
-            // Ignore if _migrations tab is missing or unreadable
+            // Ignore if metadata or _migrations tab is missing or unreadable
         }
 
-        const result = await this.validator.validateStructure(spreadsheetId, QuozenSchema);
         let status = ValidationStatus.READY;
         let canAutoMigrate = false;
+        let missingTabs: string[] = [];
+        let missingColumns: Record<string, string[]> = {};
 
-        if (!result.valid) {
-            const errors = result.errors || [];
-            const onlyCategoriesMissing = errors.length > 0 && errors.every((err: string) => err.includes('"Categories"'));
-
-            if (onlyCategoriesMissing && currentVersion < QuozenSchema.version) {
-                status = ValidationStatus.UPGRADE_REQUIRED;
-                canAutoMigrate = true;
-            } else if (currentVersion > 0 && currentVersion < QuozenSchema.version) {
-                status = ValidationStatus.UPGRADE_REQUIRED;
-                canAutoMigrate = true;
-            } else {
+        if (currentVersion < QuozenSchema.version) {
+            // Spreadsheet migration version is behind the app's schema version.
+            // This is strictly an UPGRADE_REQUIRED state that can be auto-migrated.
+            // Under NO circumstance should this be marked as CORRUPTED!
+            status = ValidationStatus.UPGRADE_REQUIRED;
+            canAutoMigrate = true;
+        } else {
+            // Migration version matches (or exceeds) the app's expected schema version.
+            // Validate structure to check for manual tampering/deletions.
+            const result = await this.validator.validateStructure(spreadsheetId, QuozenSchema);
+            if (!result.valid) {
                 status = ValidationStatus.CORRUPTED;
+                missingTabs = (result as any).missingTabs || [];
+                missingColumns = (result as any).missingColumns || {};
+            } else {
+                status = ValidationStatus.READY;
             }
         }
 
@@ -112,8 +131,8 @@ export class ValidationService {
             currentVersion,
             latestVersion: QuozenSchema.version,
             status,
-            missingTabs: (result as any).missingTabs || [],
-            missingColumns: (result as any).missingColumns || {},
+            missingTabs,
+            missingColumns,
             canAutoMigrate,
             lastModifiedTime
         };
@@ -168,6 +187,21 @@ export class ValidationService {
     }
 
     public async repairFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
+        // If spreadsheet schema version is known to be behind the app, it must be migrated, not repaired!
+        let isOutdated = false;
+        try {
+            const propsRes = await this.client.getFileAppProperties(spreadsheetId) as any;
+            const v = parseInt(propsRes?.appProperties?.quozen_schema_version || "0", 10);
+            if (!isNaN(v) && v > 0 && v < QuozenSchema.version) {
+                isOutdated = true;
+            }
+        } catch {
+            // Ignore
+        }
+        if (isOutdated) {
+            return this.migrateFile(spreadsheetId, expectedLastModified);
+        }
+
         if (expectedLastModified) {
             const res = await this.client.getFileAppProperties(spreadsheetId) as any;
             const currentModified = res.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
