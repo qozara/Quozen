@@ -2,6 +2,7 @@ import type { TabularStorageDriver, TabularRow, GoogleDriverOptions, GoogleHttpC
 import type { IStorageLayer } from "../infrastructure/IStorageLayer";
 import { ValidationService, ValidationStatus, type SchemaStatusDTO } from "../schema/ValidationService";
 import { QuozenSchema } from "../schema/SchemaDefinition";
+import { TableNotFoundError } from "../errors";
 
 export class GoogleSheetsTabularDriver implements TabularStorageDriver {
     id = "google-sheets-tabular";
@@ -47,19 +48,29 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
         }
     }
 
+    private isMissingSheetError(status: number, message: string, tabName: string): boolean {
+        const lowerMsg = message.toLowerCase();
+        const lowerTab = tabName.toLowerCase();
+        return (
+            (status === 400 || status === 404) &&
+            (lowerMsg.includes("unable to parse range") || lowerMsg.includes("not found")) &&
+            lowerMsg.includes(lowerTab)
+        );
+    }
+
     async readTable(documentId: string, tabName: string): Promise<TabularRow[]> {
         if (this.storageLayer) {
-            let values: any[][] = [];
+            let res: any[];
             try {
-                const res = await this.storageLayer.batchGetValues(documentId, [`${tabName}!A1:Z`]);
-                values = res[0]?.values || [];
+                res = await this.storageLayer.batchGetValues(documentId, [`${tabName}!A1:Z`]);
             } catch (err: any) {
                 const msg = String(err?.message || err);
-                if (tabName === "Categories" && (msg.includes("Categories") || msg.includes("400"))) {
-                    return [];
+                if (this.isMissingSheetError(400, msg, tabName)) {
+                    throw new TableNotFoundError(tabName, `Tabular sheet "${tabName}" not found in document ${documentId}`);
                 }
                 throw err;
             }
+            const values: any[][] = res[0]?.values || [];
             if (values.length <= 1) return [];
             const sheetHeaders = (values[0] || []).map(h => String(h).trim());
             this.validateHeaders(tabName, sheetHeaders);
@@ -76,10 +87,16 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
         const headers = this.getAuthHeaders();
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${documentId}/values/${encodeURIComponent(tabName)}!A1:Z`;
         const res = await this.client.fetch(url, { method: "GET", headers });
-        if (tabName === "Categories" && res.status === 400) {
-            return [];
+        if (!res.ok) {
+            let errText = "";
+            try {
+                errText = await res.text();
+            } catch {}
+            if (this.isMissingSheetError(res.status, errText, tabName)) {
+                throw new TableNotFoundError(tabName, `Tabular sheet "${tabName}" not found in document ${documentId}`);
+            }
+            await this.handleResponseErrors(res, `reading table "${tabName}" from document ${documentId}`);
         }
-        await this.handleResponseErrors(res, `reading table "${tabName}" from document ${documentId}`);
 
         const json = (await res.json()) as any;
         const values: any[][] = json.values || [];
@@ -127,11 +144,28 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
 
         if (this.storageLayer) {
             // Check existing row count to clear trailing deleted rows if needed
-            const existing = await this.storageLayer.batchGetValues(documentId, [`${tabName}!A1:Z`]);
+            let existing: any[] = [];
+            try {
+                existing = await this.storageLayer.batchGetValues(documentId, [`${tabName}!A1:Z`]);
+            } catch (err: any) {
+                const msg = String(err?.message || err);
+                if (this.isMissingSheetError(400, msg, tabName)) {
+                    throw new TableNotFoundError(tabName, `Tabular sheet "${tabName}" not found in document ${documentId}`);
+                }
+                throw err;
+            }
             const existingRows = existing[0]?.values || [];
-            await this.storageLayer.batchUpdateValues(documentId, [
-                { range: `${tabName}!A1`, values: allValues }
-            ]);
+            try {
+                await this.storageLayer.batchUpdateValues(documentId, [
+                    { range: `${tabName}!A1`, values: allValues }
+                ]);
+            } catch (writeErr: any) {
+                const msg = String(writeErr?.message || writeErr);
+                if (this.isMissingSheetError(400, msg, tabName)) {
+                    throw new TableNotFoundError(tabName, `Tabular sheet "${tabName}" not found in document ${documentId}`);
+                }
+                throw writeErr;
+            }
             if (existingRows.length > allValues.length) {
                 try {
                     const sheetMeta = await this.storageLayer.getSpreadsheet(documentId, "sheets.properties");

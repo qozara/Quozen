@@ -39,3 +39,10 @@ export class CategoryInUseError extends Error {
         this.name = "CategoryInUseError";
     }
 }
+
+export class TableNotFoundError extends Error {
+    constructor(public readonly tabName: string, message?: string) {
+        super(message || `Tabular sheet "${tabName}" not found in spreadsheet.`);
+        this.name = "TableNotFoundError";
+    }
+}

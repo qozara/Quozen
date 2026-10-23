@@ -6,7 +6,7 @@ import { InMemoryAdapter } from "../../src/storage/memory-adapter";
 import { createQuozenDatabase, destroyQuozenDatabase, QuozenDatabase } from "../../src/db";
 import { User, ExpenseCategory } from "../../src/domain/models";
 import { DEFAULT_CATEGORIES } from "../../src/domain/categories";
-import { InvalidCategoryError } from "../../src/errors";
+import { InvalidCategoryError, TableNotFoundError } from "../../src/errors";
 import { CompositeCloudSyncProvider } from "../../src/sync/CompositeCloudSyncProvider";
 import { TabularStorageDriver, TabularRow } from "../../src/sync/types";
 
@@ -168,7 +168,7 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
         const legacyDriver: TabularStorageDriver = {
             readTable: async (gId: string, tabName: string) => {
                 if (tabName === "Categories") {
-                    throw new Error("Sheet not found: Categories");
+                    throw new TableNotFoundError(tabName);
                 }
                 return [];
             },
@@ -181,9 +181,10 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
         await legacyProvider.initialize();
         legacyProvider.setActiveGroupId("legacy-group");
 
-        // Should not throw, gracefully skips missing Categories tab
+        // Should not throw, gracefully marks upgrade_required on missing mapped table
         const legacyDeltas = await legacyProvider.pull("legacy-group");
         expect(legacyDeltas.find(d => d.collection === "categories")).toBeUndefined();
+        expect(legacyProvider.getStatus()).toBe("upgrade_required");
     });
 
     it("hydrates from legacy v1 spreadsheet without Categories tab without throwing and seeds DEFAULT_CATEGORIES", async () => {

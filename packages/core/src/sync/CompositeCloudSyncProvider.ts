@@ -9,6 +9,7 @@ import type {
     SyncStatus
 } from "./types";
 import { SETTINGS_FILE_NAME } from "../types";
+import { TableNotFoundError } from "../errors";
 import { SheetDataMapper, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP, DEFAULT_CATEGORY_MAP } from "../infrastructure/SheetDataMapper";
 import {
     expenseToDoc,
@@ -300,8 +301,10 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                                 .filter(d => Boolean(d.id) && (collection !== "members" || Boolean(d.userId)));
                             results.push({ collection, groupId: targetGroupId, documents });
                         } catch (tabErr: any) {
-                            if (collection === "categories" && String(tabErr?.message || "").includes("Categories")) {
-                                // Missing Categories tab on legacy sheet is non-blocking; background migration will initialize it
+                            if (tabErr instanceof TableNotFoundError || tabErr?.name === "TableNotFoundError") {
+                                // Missing table on unmigrated sheet -> signal upgrade_required
+                                this.setStatus("upgrade_required");
+                                return results;
                             } else {
                                 throw tabErr;
                             }
@@ -364,8 +367,8 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                 try {
                     existingRows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
                 } catch (readErr: any) {
-                    if (payload.collection === "categories" && String(readErr?.message || "").includes("Categories")) {
-                        // Remote sheet does not have Categories tab yet; skip push until migration runs
+                    if (readErr instanceof TableNotFoundError || readErr?.name === "TableNotFoundError") {
+                        this.setStatus("upgrade_required");
                         return;
                     }
                     throw readErr;
@@ -399,7 +402,8 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                 try {
                     await this.tabularDriver.writeTable(targetGroupId, route.tabName, headersToWrite, rows);
                 } catch (writeErr: any) {
-                    if (payload.collection === "categories" && String(writeErr?.message || "").includes("Categories")) {
+                    if (writeErr instanceof TableNotFoundError || writeErr?.name === "TableNotFoundError") {
+                        this.setStatus("upgrade_required");
                         return;
                     }
                     throw writeErr;
@@ -416,7 +420,7 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     private handleSyncException(err: any): void {
         const msg = String(err?.message || err);
-        if (msg.includes("Categories") && (msg.includes("Unable to parse range") || msg.includes("400") || msg.includes("INVALID_ARGUMENT"))) {
+        if (err instanceof TableNotFoundError || err?.name === "TableNotFoundError") {
             this.setStatus("upgrade_required");
             return;
         }
