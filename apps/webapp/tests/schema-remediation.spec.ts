@@ -46,11 +46,31 @@ test.describe('Schema Remediation', () => {
                 await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': '*', 'Access-Control-Allow-Headers': '*' } });
                 return;
             }
+            const url = route.request().url();
+            let body: any = {};
+            if (url.includes('/copy')) {
+                body = { id: 'mock-backup-copy-id' };
+            } else if (url.includes('/batchUpdate')) {
+                body = { replies: [{ addSheet: { properties: { sheetId: 100 } } }] };
+            } else if (url.includes('fields=appProperties')) {
+                body = { appProperties: { quozen_schema_version: '2', quozen_validation_status: 'READY' } };
+            } else if (url.includes('/spreadsheets/')) {
+                body = {
+                    properties: { title: 'Corrupted Trip' },
+                    sheets: [
+                        { properties: { sheetId: 0, title: 'Expenses' } },
+                        { properties: { sheetId: 1, title: 'Settlements' } },
+                        { properties: { sheetId: 2, title: 'Members' } },
+                        { properties: { sheetId: 3, title: 'Categories' } },
+                        { properties: { sheetId: 4, title: '_migrations' } }
+                    ]
+                };
+            }
             await route.fulfill({
                 status: 200,
                 headers: { 'Access-Control-Allow-Origin': '*' },
                 contentType: 'application/json',
-                body: JSON.stringify({})
+                body: JSON.stringify(body)
             });
         });
 

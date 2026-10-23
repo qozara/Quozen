@@ -280,56 +280,56 @@ export class ValidationService {
             .filter((t: any) => (sheets as any[]).some((s: any) => s.properties?.title === t.name))
             .map((t: any) => t.name as string);
 
-        if (tabsToFetch.length === 0) return;
+        if (tabsToFetch.length > 0) {
+            const ranges = tabsToFetch.map(name => `${name}!1:1`);
+            const batchGetResult = await this.client.batchGet(spreadsheetId, ranges);
+            const valueRanges = batchGetResult.valueRanges || [];
 
-        const ranges = tabsToFetch.map(name => `${name}!1:1`);
-        const batchGetResult = await this.client.batchGet(spreadsheetId, ranges);
-        const valueRanges = batchGetResult.valueRanges || [];
+            const requests: any[] = [];
 
-        const requests: any[] = [];
+            for (let i = 0; i < tabsToFetch.length; i++) {
+                const tabName = tabsToFetch[i];
+                const tabSchema = QuozenSchema.tabs.find((t: any) => t.name === tabName);
+                if (!tabSchema) continue;
 
-        for (let i = 0; i < tabsToFetch.length; i++) {
-            const tabName = tabsToFetch[i];
-            const tabSchema = QuozenSchema.tabs.find((t: any) => t.name === tabName);
-            if (!tabSchema) continue;
+                const sheetId = sheets.find((s: any) => s.properties?.title === tabName)?.properties?.sheetId;
+                if (sheetId === undefined) continue;
 
-            const sheetId = sheets.find((s: any) => s.properties?.title === tabName)?.properties?.sheetId;
-            if (sheetId === undefined) continue;
+                const valueRange = valueRanges[i];
+                const rows = valueRange?.values || [];
+                const headers = rows[0] || [];
+                const headerSet = new Set(headers.map((h: any) => String(h).trim()));
 
-            const valueRange = valueRanges[i];
-            const rows = valueRange?.values || [];
-            const headers = rows[0] || [];
-            const headerSet = new Set(headers.map((h: any) => String(h).trim()));
+                const missingColumns = tabSchema.columns.filter((c: any) => !headerSet.has(c.name));
 
-            const missingColumns = tabSchema.columns.filter((c: any) => !headerSet.has(c.name));
-
-            if (missingColumns.length > 0) {
-                requests.push({
-                    appendDimension: {
-                        sheetId,
-                        dimension: 'COLUMNS',
-                        length: missingColumns.length,
-                    },
-                });
-
-                requests.push({
-                    updateCells: {
-                        rows: [{ values: missingColumns.map((col: any) => ({ userEnteredValue: { stringValue: col.name } })) }],
-                        fields: 'userEnteredValue',
-                        range: {
+                if (missingColumns.length > 0) {
+                    requests.push({
+                        appendDimension: {
                             sheetId,
-                            startRowIndex: 0,
-                            endRowIndex: 1,
-                            startColumnIndex: headers.length,
-                            endColumnIndex: headers.length + missingColumns.length,
+                            dimension: 'COLUMNS',
+                            length: missingColumns.length,
                         },
-                    },
-                });
-            }
-        }
+                    });
 
-        if (requests.length > 0) {
-            await this.client.batchUpdate(spreadsheetId, requests);
+                    requests.push({
+                        updateCells: {
+                            rows: [{ values: missingColumns.map((col: any) => ({ userEnteredValue: { stringValue: col.name } })) }],
+                            fields: 'userEnteredValue',
+                            range: {
+                                sheetId,
+                                startRowIndex: 0,
+                                endRowIndex: 1,
+                                startColumnIndex: headers.length,
+                                endColumnIndex: headers.length + missingColumns.length,
+                            },
+                        },
+                    });
+                }
+            }
+
+            if (requests.length > 0) {
+                await this.client.batchUpdate(spreadsheetId, requests);
+            }
         }
 
         await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
