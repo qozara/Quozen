@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { GroupRepository } from '../../src/infrastructure/GroupRepository';
 import { InMemoryAdapter } from '../../src/storage/memory-adapter';
 import { User } from '../../src/domain/models';
@@ -199,5 +199,29 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
 
         const bobPermAfter = perms.find((p: any) => p.emailAddress === 'bob@example.com' && p.role === 'writer');
         expect(bobPermAfter).toBeDefined();
+    });
+
+    it('US-206: saveSettings passes activeGroupId to onMutation callback', async () => {
+        let notifiedGroupId: string | undefined = "not-called";
+        const repoWithMutation = new GroupRepository(
+            adapter as any,
+            user,
+            undefined,
+            { name: "testdb", user_settings: { upsert: vi.fn() } } as any,
+            undefined,
+            (groupId?: string) => {
+                notifiedGroupId = groupId;
+            }
+        );
+
+        await repoWithMutation.saveSettings({
+            version: 1,
+            activeGroupId: "group-xyz",
+            groupCache: [],
+            preferences: { defaultCurrency: "USD" },
+            lastUpdated: new Date().toISOString()
+        });
+
+        expect(notifiedGroupId).toBe("group-xyz");
     });
 });

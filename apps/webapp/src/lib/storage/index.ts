@@ -127,6 +127,9 @@ export const getQuozen = (): QuozenClient => {
     const hasDb = Boolean(cachedDb);
 
     if (!cachedClient || cachedUserKey !== userKey || cachedHasDb !== hasDb) {
+        if (cachedUserKey && cachedUserKey !== userKey && cachedSyncProvider) {
+            (cachedSyncProvider as any).setActiveGroupId?.(null);
+        }
         cachedUserKey = userKey;
         cachedHasDb = hasDb;
         cachedClient = new QuozenClient({

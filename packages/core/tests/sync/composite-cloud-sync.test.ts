@@ -230,4 +230,69 @@ describe("Phase 2: Composite Cloud Sync Provider & Storage Drivers (Quomida Patt
         expect(statuses).toContain("syncing");
         expect(provider.getStatus()).toBe("idle");
     });
+
+    it("pull() without groupId only pulls blob collections and does not call tabularDriver", async () => {
+        const mockBlobDriver = {
+            id: "mock-blob",
+            name: "Mock Blob",
+            readBlob: vi.fn().mockResolvedValue([
+                {
+                    id: "global_settings",
+                    version: 1,
+                    activeGroupId: "group-123",
+                    preferences: { defaultCurrency: "USD" },
+                    updatedAt: "2026-10-11T00:00:00.000Z"
+                }
+            ]),
+            writeBlob: vi.fn().mockResolvedValue(undefined)
+        };
+        const mockTabularDriver = {
+            id: "mock-tabular",
+            name: "Mock Tabular",
+            readTable: vi.fn(),
+            writeTable: vi.fn()
+        };
+
+        const provider = new CompositeCloudSyncProvider({
+            id: "test-composite",
+            name: "Test Composite Provider",
+            blobDriver: mockBlobDriver,
+            tabularDriver: mockTabularDriver,
+            activeGroupId: "stale-group-404"
+        });
+
+        await provider.initialize();
+        const pulled = await provider.pull(undefined);
+
+        expect(mockTabularDriver.readTable).not.toHaveBeenCalled();
+        expect(pulled.some(p => p.collection === "user_settings")).toBe(true);
+        expect(pulled.some(p => p.collection === "expenses")).toBe(false);
+    });
+
+    it("pull() gracefully handles 404 Not Found error without setting error status", async () => {
+        const mockBlobDriver = {
+            id: "mock-blob",
+            name: "Mock Blob",
+            readBlob: vi.fn().mockResolvedValue([]),
+            writeBlob: vi.fn()
+        };
+        const mockTabularDriver = {
+            id: "mock-tabular",
+            name: "Mock Tabular",
+            readTable: vi.fn().mockRejectedValue(new Error("GET https://sheets.googleapis.com/... 404 (Not Found)")),
+            writeTable: vi.fn()
+        };
+
+        const provider = new CompositeCloudSyncProvider({
+            id: "test-composite",
+            name: "Test Composite Provider",
+            blobDriver: mockBlobDriver,
+            tabularDriver: mockTabularDriver
+        });
+
+        await provider.initialize();
+        const pulled = await provider.pull("missing-group-404");
+
+        expect(provider.getStatus()).toBe("idle");
+    });
 });
