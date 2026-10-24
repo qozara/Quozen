@@ -7,8 +7,8 @@ export interface AppState {
   setActiveAccountId?: (accountId: string) => void;
   isAddExpenseOpen: boolean;
   setIsAddExpenseOpen: (isOpen: boolean) => void;
-  schemaErrorStatus: 'CORRUPTED' | 'UPGRADE_REQUIRED' | null;
-  setSchemaErrorStatus: (status: 'CORRUPTED' | 'UPGRADE_REQUIRED' | null) => void;
+  schemaErrorStatus: 'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | null;
+  setSchemaErrorStatus: (status: 'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | null) => void;
 }
 
 export const AppContext = createContext<AppState | undefined>(undefined);

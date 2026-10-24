@@ -49,6 +49,7 @@ Quozen divides remote persistence into two drivers according to natural domain b
                       │            RxDB Database Layer               │
                       │  Collections:                                │
                       │  • user_settings                             │
+                      │  • categories (tagged with groupId)          │
                       │  • expenses (tagged with groupId)            │
                       │  • settlements (tagged with groupId)         │
                       │  • members (tagged with groupId)             │

@@ -2,7 +2,7 @@ import type { QuozenDatabase } from "../db";
 import type { CloudSyncProvider, SyncStatus } from "./types";
 import { BehaviorSubject, type Observable, type Subscription } from "rxjs";
 
-export const SYNCABLE_COLLECTIONS = ["user_settings", "expenses", "settlements", "members"] as const;
+export const SYNCABLE_COLLECTIONS = ["user_settings", "members", "categories", "expenses", "settlements"] as const;
 
 function parseTimestamp(val?: string | number | null): number {
     if (!val) return 0;
@@ -95,6 +95,8 @@ export class ReplicationCoordinator {
 
     public async sync(groupId?: string): Promise<void> {
         if (!this.provider.isInitialized()) return;
+        const currentStatus = this.provider.getStatus();
+        if (currentStatus === "upgrade_required" || currentStatus === "corrupted" || currentStatus === "incompatible") return;
         if (this.isSyncing) {
             this.hasPendingSync = true;
             if (groupId !== undefined) {
@@ -119,6 +121,11 @@ export class ReplicationCoordinator {
 
     private async runSyncCycle(groupId?: string): Promise<void> {
         const payloads = await this.provider.pull(groupId);
+        const currentStatus = this.provider.getStatus();
+        if (currentStatus === "upgrade_required" || currentStatus === "corrupted" || currentStatus === "incompatible") {
+            return;
+        }
+
         const payloadMap = new Map(payloads.map(p => [p.collection, p]));
         const targetGroupId = groupId ?? (this.provider as any).getActiveGroupId?.() ?? undefined;
 
@@ -129,11 +136,10 @@ export class ReplicationCoordinator {
             const isGroupScoped = collectionName !== "user_settings";
             if (isGroupScoped && !targetGroupId) continue;
 
-            const payload = payloadMap.get(collectionName) || {
-                collection: collectionName,
-                groupId: targetGroupId,
-                documents: []
-            };
+            // Only process collections that the remote provider actually delivered in this cycle.
+            // If the provider didn't return a collection, NEVER assume remote deleted all items!
+            const payload = payloadMap.get(collectionName);
+            if (!payload) continue;
 
             // 1. Fetch all local documents (including soft-deleted tombstones where deletedAt != null)
             const localDocsRaw = isGroupScoped

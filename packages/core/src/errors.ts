@@ -25,3 +25,31 @@ export class SchemaUpgradeRequiredError extends Error {
         this.name = "SchemaUpgradeRequiredError";
     }
 }
+
+export class SchemaIncompatibleError extends Error {
+    constructor(message = "The underlying spreadsheet schema was created or upgraded by a newer version of Quozen. Please update or reinstall the app.") {
+        super(message);
+        this.name = "SchemaIncompatibleError";
+    }
+}
+
+export class InvalidCategoryError extends Error {
+    constructor(message = "Invalid category.") {
+        super(message);
+        this.name = "InvalidCategoryError";
+    }
+}
+
+export class CategoryInUseError extends Error {
+    constructor(message = "Category is in use by one or more expenses.") {
+        super(message);
+        this.name = "CategoryInUseError";
+    }
+}
+
+export class TableNotFoundError extends Error {
+    constructor(public readonly tabName: string, message?: string) {
+        super(message || `Tabular sheet "${tabName}" not found in spreadsheet.`);
+        this.name = "TableNotFoundError";
+    }
+}

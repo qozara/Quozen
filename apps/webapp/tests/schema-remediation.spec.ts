@@ -46,23 +46,78 @@ test.describe('Schema Remediation', () => {
                 await route.fulfill({ status: 204, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': '*', 'Access-Control-Allow-Headers': '*' } });
                 return;
             }
+            const url = route.request().url();
+            let body: any = {};
+            if (url.includes('/copy')) {
+                body = { id: 'mock-backup-copy-id' };
+            } else if (url.includes('/batchUpdate')) {
+                body = { replies: [{ addSheet: { properties: { sheetId: 100 } } }] };
+            } else if (url.includes('fields=appProperties')) {
+                body = { appProperties: { quozen_validation_status: 'READY' } };
+            } else if (url.includes('values:batchGet')) {
+                const urlObj = new URL(url);
+                const requestedRanges = urlObj.searchParams.getAll('ranges');
+                const valueRanges = requestedRanges.map(range => {
+                    if (range.includes('_migrations')) {
+                        return { range, values: [['version', 'migrated_at'], ['2', new Date().toISOString()]] };
+                    } else if (range.includes('Expenses')) {
+                        return { range, values: [['id', 'date', 'description', 'amount', 'paidBy', 'category', 'splits', 'meta']] };
+                    } else if (range.includes('Settlements')) {
+                        return { range, values: [['id', 'date', 'fromUserId', 'toUserId', 'amount', 'method', 'notes']] };
+                    } else if (range.includes('Members')) {
+                        return { range, values: [['userId', 'email', 'name', 'role', 'joinedAt']] };
+                    } else if (range.includes('Categories')) {
+                        return { range, values: [['id', 'name', 'icon', 'description', 'updatedAt', 'deletedAt']] };
+                    }
+                    return { range, values: [] };
+                });
+                body = { valueRanges };
+            } else if (url.includes('/spreadsheets/')) {
+                body = {
+                    properties: { title: 'Corrupted Trip' },
+                    sheets: [
+                        { properties: { sheetId: 0, title: 'Expenses' } },
+                        { properties: { sheetId: 1, title: 'Settlements' } },
+                        { properties: { sheetId: 2, title: 'Members' } },
+                        { properties: { sheetId: 3, title: 'Categories' } },
+                        { properties: { sheetId: 4, title: '_migrations' } }
+                    ]
+                };
+            }
             await route.fulfill({
                 status: 200,
                 headers: { 'Access-Control-Allow-Origin': '*' },
                 contentType: 'application/json',
-                body: JSON.stringify({})
+                body: JSON.stringify(body)
             });
         });
 
         // Click repair
         await page.getByRole('button', { name: 'Attempt Repair' }).click();
 
-        // Wait a short moment to let the mutation begin, then unroute so that invalidateQueries() uses the global abort
-        await page.waitForTimeout(500);
-        await page.unroute('https://*.googleapis.com/**');
-
         // Should disappear
-        await expect(page.getByText('Group File Corrupted')).not.toBeVisible({ timeout: 10000 });
+        await expect(page.getByText('Group File Corrupted')).not.toBeVisible({ timeout: 15000 });
         await expect(page.getByText('Group schema updated successfully').first()).toBeVisible();
+
+        await page.unroute('https://*.googleapis.com/**');
+    });
+
+    test('should show app update required modal when schema is incompatible with older client', async ({ page }) => {
+        await page.goto('/groups');
+        await ensureLoggedIn(page);
+
+        // Dispatch INCOMPATIBLE schema error event
+        await page.evaluate(() => {
+            window.dispatchEvent(new CustomEvent('schema-error', { detail: 'INCOMPATIBLE' }));
+        });
+
+        // The modal should appear with "App Update Required" and action buttons
+        await expect(page.getByText('App Update Required')).toBeVisible({ timeout: 10000 });
+        await expect(page.getByRole('button', { name: 'Refresh App' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Reset App (Clear Local Data)' })).toBeVisible();
+
+        // Dismiss modal
+        await page.getByRole('button', { name: 'Dismiss' }).click();
+        await expect(page.getByText('App Update Required')).not.toBeVisible();
     });
 });

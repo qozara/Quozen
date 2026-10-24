@@ -1,4 +1,4 @@
-import { Expense, Settlement, Member, ExpenseSplit } from "../domain/models";
+import { Expense, Settlement, Member, ExpenseSplit, ExpenseCategory } from "../domain/models";
 
 export interface SheetRow<T> {
     entity: T;
@@ -9,7 +9,8 @@ export const SCHEMAS = {
     EXPENSES: 'Expenses!A:Z',
     SETTLEMENTS: 'Settlements!A:Z',
     GROUPS: 'Groups!A:Z',
-    METADATA: 'Metadata!A:B'
+    METADATA: 'Metadata!A:B',
+    CATEGORIES: 'Categories!A:Z'
 };
 
 export type HeaderMap = Record<string, number>;
@@ -17,6 +18,7 @@ export type HeaderMap = Record<string, number>;
 export const DEFAULT_EXPENSE_MAP: HeaderMap = { id: 0, date: 1, description: 2, amount: 3, paidBy: 4, category: 5, splits: 6, meta: 7 };
 export const DEFAULT_SETTLEMENT_MAP: HeaderMap = { id: 0, date: 1, fromUserId: 2, toUserId: 3, amount: 4, method: 5, notes: 6 };
 export const DEFAULT_MEMBER_MAP: HeaderMap = { userId: 0, email: 1, name: 2, role: 3, joinedAt: 4 };
+export const DEFAULT_CATEGORY_MAP: HeaderMap = { id: 0, name: 1, icon: 2, description: 3, updatedAt: 4, deletedAt: 5 };
 
 
 function getHeaderIndex(headerMap: HeaderMap, key: string, fallbackIndex?: number): number | undefined {
@@ -308,6 +310,55 @@ export class SheetDataMapper {
         setCol('updatedAt', updatedIso);
         if (member.deletedAt) {
             setCol('deletedAt', safeIso(member.deletedAt, updatedIso));
+        }
+
+        return row;
+    }
+
+    static mapToCategory(row: any[], rowIndex: number, headerMap: HeaderMap = DEFAULT_CATEGORY_MAP): SheetRow<ExpenseCategory> {
+        const id = row[getHeaderIndex(headerMap, 'id', 0)!];
+        const name = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'name', 1)!]);
+        const icon = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'icon', 2)!]);
+        const description = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'description', 3)!]);
+        const updatedAtCol = row[getHeaderIndex(headerMap, 'updatedAt', 4)!];
+        const deletedAtCol = row[getHeaderIndex(headerMap, 'deletedAt', 5)!];
+
+        const updatedAt = updatedAtCol ? safeDate(updatedAtCol) : undefined;
+        const deletedAt = deletedAtCol ? safeDate(deletedAtCol) : undefined;
+
+        const category: ExpenseCategory = {
+            id: id ? String(id).trim() : "",
+            name: name || "",
+            icon: icon || "",
+            description: description || "",
+            updatedAt,
+            deletedAt
+        };
+
+        return { entity: category, rowIndex };
+    }
+
+    static mapFromCategory(category: ExpenseCategory, headerMap: HeaderMap = DEFAULT_CATEGORY_MAP): any[] {
+        let maxIdx = 0;
+        for (const idx of Object.values(headerMap)) {
+            if (idx > maxIdx) maxIdx = idx;
+        }
+        const row = new Array(maxIdx + 1).fill("");
+
+        const setCol = (key: string, val: any) => {
+            const idx = getHeaderIndex(headerMap, key);
+            if (idx !== undefined) row[idx] = val;
+        };
+
+        const updatedIso = category.updatedAt ? safeIso(category.updatedAt) : new Date().toISOString();
+
+        setCol('id', sanitizeSheetValue(category.id));
+        setCol('name', sanitizeSheetValue(category.name));
+        setCol('icon', sanitizeSheetValue(category.icon || ""));
+        setCol('description', sanitizeSheetValue(category.description || ""));
+        setCol('updatedAt', updatedIso);
+        if (category.deletedAt) {
+            setCol('deletedAt', safeIso(category.deletedAt, updatedIso));
         }
 
         return row;

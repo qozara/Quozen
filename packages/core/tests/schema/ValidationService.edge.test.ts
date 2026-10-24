@@ -81,7 +81,7 @@ describe("Migrations & Schema Edge Cases", () => {
         
         await repo.importGroup("legacy123");
 
-        expect(ValidationService.prototype.initializeFile).toHaveBeenCalledWith("legacy123");
+        expect(ValidationService.prototype.checkHealth).toHaveBeenCalledWith("legacy123");
         
         const settings = await repo.getSettings();
         expect(settings.activeGroupId).toBe("legacy123");

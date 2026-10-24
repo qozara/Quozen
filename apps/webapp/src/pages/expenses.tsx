@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Utensils, Car, Bed, ShoppingBag,
-  Gamepad2, MoreHorizontal, Trash2, Receipt, Plus, MoreVertical, Edit
+  Trash2, Receipt, Plus, MoreVertical, Edit
 } from "lucide-react";
+import { CategoryIcon, getCategoryBadgeColor, getCategoryDisplayName } from "@/components/category-icon";
 import { quozen } from "@/lib/storage";
 import { useNavigate } from "react-router-dom";
 import {
@@ -27,6 +27,7 @@ import {
   Ledger,
   Expense,
   Member,
+  ExpenseCategory,
   formatCurrency
 } from "@quozen/core";
 
@@ -45,10 +46,11 @@ import {
 interface ExpensesListProps {
   expenses: Expense[];
   members: Member[];
+  categories?: ExpenseCategory[];
   isLoading?: boolean;
 }
 
-export default function ExpensesList({ expenses = [], members = [], isLoading = false }: ExpensesListProps) {
+export default function ExpensesList({ expenses = [], members = [], categories = [], isLoading = false }: ExpensesListProps) {
   const { activeGroupId, currentUserId, setIsAddExpenseOpen } = useAppContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -90,29 +92,7 @@ export default function ExpensesList({ expenses = [], members = [], isLoading = 
 
   const getUserById = (id: string) => members.find(u => u.userId === id);
 
-  const getExpenseIcon = (category: string) => {
-    switch (category?.toLowerCase()) {
-      case "food": case "food & dining": return Utensils;
-      case "transportation": return Car;
-      case "accommodation": return Bed;
-      case "shopping": return ShoppingBag;
-      case "entertainment": return Gamepad2;
-      default: return MoreHorizontal;
-    }
-  };
-
-  const getCategoryColor = (category: string) => {
-    switch (category?.toLowerCase()) {
-      case "food": case "food & dining": return "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300";
-      case "transportation": return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300";
-      case "accommodation": return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300";
-      case "shopping": return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300";
-      case "entertainment": return "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300";
-      default: return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
-    }
-  };
-
-  const ledgerObj = useMemo(() => new Ledger({ expenses, members, settlements: [] }), [expenses, members]);
+  const ledgerObj = useMemo(() => new Ledger({ expenses, members, settlements: [], categories }), [expenses, members, categories]);
 
   if (isLoading) {
     return (
@@ -146,7 +126,6 @@ export default function ExpensesList({ expenses = [], members = [], isLoading = 
     <div className="px-4 pb-4 space-y-3">
       {expenses.map((expense) => {
         const paidByUser = getUserById(expense.paidByUserId);
-        const Icon = getExpenseIcon(expense.category);
         const status = ledgerObj.getExpenseStatus(expense.id, currentUserId);
 
         return (
@@ -155,7 +134,7 @@ export default function ExpensesList({ expenses = [], members = [], isLoading = 
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-3">
                   <div className="w-12 h-12 bg-secondary/50 rounded-xl flex items-center justify-center border border-border shrink-0">
-                    <Icon className="w-6 h-6 text-muted-foreground" />
+                    <CategoryIcon categoryId={expense.category} categories={categories} className="w-6 h-6 text-muted-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-foreground line-clamp-1 text-sm">{expense.description}</h3>
@@ -163,8 +142,8 @@ export default function ExpensesList({ expenses = [], members = [], isLoading = 
                       {paidByUser?.name || 'Unknown'} • {formatDate(expense.date)}
                     </p>
                     <div className="flex flex-wrap gap-1 mt-2">
-                      <Badge variant="secondary" className={`font-normal text-[10px] px-1.5 py-0 border-0 ${getCategoryColor(expense.category)}`}>
-                        {expense.category}
+                      <Badge variant="secondary" className={`font-normal text-[10px] px-1.5 py-0 border-0 ${getCategoryBadgeColor(expense.category)}`}>
+                        {getCategoryDisplayName(expense.category, categories)}
                       </Badge>
                     </div>
                   </div>

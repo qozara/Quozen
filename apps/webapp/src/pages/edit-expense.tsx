@@ -124,6 +124,7 @@ export default function EditExpense() {
             <ExpenseForm
               initialData={expense}
               users={ledger.members}
+              categories={ledger.categories}
               currentUserId={currentUserId}
               isPending={editMutation.isPending}
               onSubmit={(data) => editMutation.mutate(data)}

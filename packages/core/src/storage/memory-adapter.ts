@@ -206,7 +206,8 @@ export class InMemoryAdapter implements IStorageLayer {
         if (!sData) return [];
 
         return ranges.map(range => {
-            const [sheetName, cellRange] = range.split('!');
+            const [rawSheetName, cellRange] = range.split('!');
+            const sheetName = rawSheetName ? rawSheetName.replace(/^'|'$/g, '') : '';
             const rows = sData.get(sheetName) || [];
             let startIndex = 0;
             if (cellRange) {
@@ -222,7 +223,8 @@ export class InMemoryAdapter implements IStorageLayer {
         if (!sData) return;
 
         data.forEach(d => {
-            const [sheetName, cellRange] = d.range.split('!');
+            const [rawSheetName, cellRange] = d.range.split('!');
+            const sheetName = rawSheetName ? rawSheetName.replace(/^'|'$/g, '') : '';
             if (!sData.has(sheetName)) sData.set(sheetName, []);
 
             const targetSheet = sData.get(sheetName)!;
@@ -240,7 +242,8 @@ export class InMemoryAdapter implements IStorageLayer {
     }
 
     async appendValues(spreadsheetId: string, range: string, values: any[][]): Promise<void> {
-        const sheetName = range.split('!')[0];
+        const rawSheetName = range.split('!')[0];
+        const sheetName = rawSheetName ? rawSheetName.replace(/^'|'$/g, '') : '';
         const sData = this.globalSheetData.get(spreadsheetId);
         if (!sData) return;
 

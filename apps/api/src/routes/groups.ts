@@ -4,7 +4,8 @@ import {
     GroupSchema, CreateGroupDTOSchema, UpdateGroupDTOSchema, ErrorSchema, SuccessSchema,
     LedgerAnalyticsSchema, ExpenseSchema, CreateExpenseDTOSchema, UpdateExpenseDTOSchema,
     SettlementSchema, CreateSettlementDTOSchema, UpdateSettlementDTOSchema,
-    SchemaStatusDTOSchema, MigrateRequestSchema, RepairRequestSchema
+    SchemaStatusDTOSchema, MigrateRequestSchema, RepairRequestSchema,
+    ExpenseCategorySchema
 } from '../schemas/index.js';
 
 export const groupsRouter = new OpenAPIHono<AppEnv>();
@@ -235,18 +236,50 @@ const createExpenseRoute = createRoute({
         params: z.object({ id: z.string() }),
         body: { content: { 'application/json': { schema: CreateExpenseDTOSchema } } }
     },
-    responses: { 201: { content: { 'application/json': { schema: ExpenseSchema } }, description: 'Created' } }
+    responses: {
+        201: { content: { 'application/json': { schema: ExpenseSchema } }, description: 'Created' },
+        400: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Bad Request' }
+    }
 });
 
 groupsRouter.openapi(createExpenseRoute, async (c) => {
     const id = c.req.valid('param').id;
     const body = c.req.valid('json');
     const quozen = c.get('quozen');
-    const expense = await quozen.ledger(id).addExpense({
-        ...body,
-        date: new Date(body.date)
-    });
-    return c.json(expense, 201);
+    try {
+        const expense = await quozen.ledger(id).addExpense({
+            ...body,
+            date: new Date(body.date)
+        });
+        return c.json(expense, 201);
+    } catch (err: any) {
+        if (err.name === 'InvalidCategoryError') {
+            return c.json({ error: 'InvalidCategoryError', message: err.message }, 400);
+        }
+        throw err;
+    }
+});
+
+const listCategoriesRoute = createRoute({
+    method: 'get',
+    path: '/{id}/categories',
+    operationId: 'listGroupCategories',
+    tags: ['Categories'],
+    summary: 'List group expense categories',
+    description: 'Retrieves all available expense categories for the specified group.',
+    request: {
+        params: z.object({ id: z.string() })
+    },
+    responses: {
+        200: { content: { 'application/json': { schema: z.array(ExpenseCategorySchema) } }, description: 'Categories list' }
+    }
+});
+
+groupsRouter.openapi(listCategoriesRoute, async (c) => {
+    const id = c.req.valid('param').id;
+    const quozen = c.get('quozen');
+    const categories = await quozen.ledger(id).getCategories();
+    return c.json(categories, 200);
 });
 
 const updateExpenseRoute = createRoute({
@@ -262,6 +295,7 @@ const updateExpenseRoute = createRoute({
     },
     responses: {
         200: { content: { 'application/json': { schema: SuccessSchema } }, description: 'Updated successfully' },
+        400: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Bad Request' },
         409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Conflict' },
         404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' }
     }
@@ -279,6 +313,7 @@ groupsRouter.openapi(updateExpenseRoute, async (c) => {
         );
         return c.json({ success: true }, 200);
     } catch (e: any) {
+        if (e.name === 'InvalidCategoryError') return c.json({ error: 'InvalidCategoryError', message: e.message }, 400);
         if (e.name === 'ConflictError') return c.json({ error: 'Conflict', message: e.message }, 409);
         if (e.message.includes('not found') || e.name === 'NotFoundError') return c.json({ error: 'Not Found', message: e.message }, 404);
         throw e;

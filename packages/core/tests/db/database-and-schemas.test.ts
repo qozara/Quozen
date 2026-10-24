@@ -194,6 +194,7 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
     });
 
     it("creates a safety backup before repairing a spreadsheet when createBackup is available", async () => {
+        let repaired = false;
         const mockClient = {
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {}, modifiedTime: "2026-01-01T00:00:00Z" }),
             updateFileAppProperties: vi.fn().mockResolvedValue(undefined),
@@ -202,21 +203,39 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
                 sheets: [
                     { properties: { title: "Expenses", sheetId: 1 } },
                     { properties: { title: "Settlements", sheetId: 2 } },
-                    { properties: { title: "Members", sheetId: 3 } }
+                    { properties: { title: "Members", sheetId: 3 } },
+                    { properties: { title: "Categories", sheetId: 4 } },
+                    { properties: { title: "_migrations", sheetId: 5 } }
                 ]
             }),
-            batchGet: vi.fn().mockResolvedValue({
-                valueRanges: [
-                    { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] }, // missing 'amount'
-                    { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
-                    { values: [["userId", "email", "name", "role", "joinedAt"]] }
-                ]
+            batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) => {
+                if (ranges && ranges[0] && ranges[0].includes("_migrations")) {
+                    return Promise.resolve({
+                        valueRanges: [{ values: [["2", "2026-01-01T00:00:00Z"]] }]
+                    });
+                }
+                const expenseHeaders = repaired
+                    ? ["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]
+                    : ["id", "date", "description", "paidBy", "category", "splits", "meta"];
+                return Promise.resolve({
+                    valueRanges: [
+                        { values: [expenseHeaders] },
+                        { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
+                        { values: [["userId", "email", "name", "role", "joinedAt"]] },
+                        { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] }
+                    ]
+                });
             }),
-            batchUpdate: vi.fn().mockResolvedValue({})
+            batchUpdate: vi.fn().mockImplementation(() => {
+                repaired = true;
+                return Promise.resolve({});
+            })
         };
 
+        vi.spyOn(GoogleSheetsFetchClient.prototype, "getFileAppProperties").mockImplementation(mockClient.getFileAppProperties);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "createBackup").mockImplementation(mockClient.createBackup);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "getSpreadsheet").mockImplementation(mockClient.getSpreadsheet);
+        vi.spyOn(GoogleSheetsFetchClient.prototype, "getSpreadsheetMetadata").mockImplementation(mockClient.getSpreadsheet);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "batchGet").mockImplementation(mockClient.batchGet);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "batchUpdate").mockImplementation(mockClient.batchUpdate);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "updateFileAppProperties").mockImplementation(mockClient.updateFileAppProperties);
@@ -224,7 +243,7 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
         const service = new ValidationService(() => "valid-token");
         await service.repairFile("sheet-123");
 
-        expect(mockClient.createBackup).toHaveBeenCalledWith("sheet-123");
+        expect(mockClient.createBackup).toHaveBeenCalledWith("sheet-123", undefined);
         expect(mockClient.batchUpdate).toHaveBeenCalled();
 
         vi.restoreAllMocks();

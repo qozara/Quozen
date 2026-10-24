@@ -69,6 +69,8 @@ export const queryClient = new QueryClient({
         window.dispatchEvent(new CustomEvent('schema-error', { detail: 'CORRUPTED' }));
       } else if (error.name === 'SchemaUpgradeRequiredError') {
         window.dispatchEvent(new CustomEvent('schema-error', { detail: 'UPGRADE_REQUIRED' }));
+      } else if (error.name === 'SchemaIncompatibleError') {
+        window.dispatchEvent(new CustomEvent('schema-error', { detail: 'INCOMPATIBLE' }));
       }
     }
   }),

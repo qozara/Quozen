@@ -3,6 +3,8 @@ import { GroupRepository } from '../../src/infrastructure/GroupRepository';
 import { InMemoryAdapter } from '../../src/storage/memory-adapter';
 import { User } from '../../src/domain/models';
 import { QUOZEN_PREFIX } from '../../src/types';
+import { QuozenSchema } from '../../src/schema/SchemaDefinition';
+import { SchemaEngine, ValidationStatus } from '@qozara/gdocs-schema';
 
 describe('GroupRepository (Metadata & Sharing Rules)', () => {
     let adapter: InMemoryAdapter;
@@ -17,6 +19,65 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
     beforeEach(() => {
         adapter = new InMemoryAdapter();
         repo = new GroupRepository(adapter as any, user);
+    });
+
+    it('creates new group conforming to latest QuozenSchema v2 without corruption during cloud sync', async () => {
+        const group = await repo.create("New v2 Group");
+
+        // 1. Verify sheets created
+        const sheetMeta = await adapter.getSpreadsheet(group.id);
+        const titles = sheetMeta.sheets.map((s: any) => s.properties.title);
+        expect(titles).toContain("_migrations");
+        expect(titles).toContain("Categories");
+
+        // 2. Verify _migrations tab contains version 2
+        const migRes = await adapter.batchGetValues(group.id, ["_migrations!A1:B2"]);
+        const migRows = migRes[0]?.values || [];
+        expect(migRows[0]).toEqual(["version", "migrated_at"]);
+        expect(Number(migRows[1]?.[0])).toBe(2);
+
+        // 3. Verify Categories header contains all QuozenSchema columns including deletedAt
+        const catRes = await adapter.batchGetValues(group.id, ["Categories!1:1"]);
+        const catHeader = catRes[0]?.values?.[0] || [];
+        expect(catHeader).toEqual(["id", "name", "icon", "description", "updatedAt", "deletedAt"]);
+
+        // 4. Verify checkHealth with SchemaEngine confirms READY (NOT CORRUPTED)
+        const bridgeClient = {
+            getSpreadsheetMetadata: async (id: string) => {
+                const s = await adapter.getSpreadsheet(id);
+                return s;
+            },
+            batchGet: async (id: string, ranges: string[]) => {
+                const res = await adapter.batchGetValues(id, ranges);
+                return { valueRanges: res };
+            }
+        };
+        const engine = new SchemaEngine(bridgeClient as any);
+        const health = await engine.checkHealth(group.id, QuozenSchema);
+        expect(health.status).toBe(ValidationStatus.READY);
+        expect(health.missingColumns).toEqual({});
+        expect(health.missingTabs).toEqual([]);
+    });
+
+    it('demonstrates that missing deletedAt in Categories causes SchemaEngine to detect CORRUPTED', async () => {
+        // Create corrupted sheet mimicking old group format with v2 migration but old categories header
+        const fileId = await adapter.createSpreadsheet("Corrupted Group", ["Expenses", "Settlements", "Members", "Categories", "_migrations"]);
+        await adapter.batchUpdateValues(fileId, [
+            { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
+            { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
+            { range: "Members!A1", values: [["userId", "email", "name", "role", "joinedAt"]] },
+            { range: "Categories!A1", values: [["id", "name", "icon", "description", "updatedAt"]] }, // missing deletedAt!
+            { range: "_migrations!A1:B2", values: [["version", "migrated_at"], [2, new Date().toISOString()]] }
+        ]);
+
+        const bridgeClient = {
+            getSpreadsheetMetadata: async (id: string) => adapter.getSpreadsheet(id),
+            batchGet: async (id: string, ranges: string[]) => ({ valueRanges: await adapter.batchGetValues(id, ranges) })
+        };
+        const engine = new SchemaEngine(bridgeClient as any);
+        const health = await engine.checkHealth(fileId, QuozenSchema);
+        expect(health.status).toBe(ValidationStatus.CORRUPTED);
+        expect(health.missingColumns).toEqual({ Categories: ["deletedAt"] });
     });
 
     it('US-201: Creates group with metadata stamp', async () => {

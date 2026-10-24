@@ -72,6 +72,16 @@ export const migrations: Migration[] = [
 ];
 ```
 
+## Migrations History
+
+### Migration 2 (`2_add_categories.ts`) - Schema v2
+- **Objective**: Introduce `ExpenseCategory` as a first-class domain model element (Issue #36).
+- **Changes**:
+  - Adds `'Categories'` tab to the Google Spreadsheet with headers `["id", "name", "icon", "description", "updatedAt"]`.
+  - Populates `'Categories'` with default system categories (`food_dining`, `transportation`, `accommodation`, `entertainment`, `shopping`, `other`).
+  - Normalizes legacy free-text categories in the `Expenses` sheet to readable IDs (e.g., `"Food & Dining"` -> `"food_dining"`, unknown categories -> `"other"`).
+  - RxDB evolution: bumps `expenses` collection to version 1 with migration strategy normalizing local documents, and adds local `categories` collection.
+
 ## Testing Migrations
 
 You can use the CLI to test your migrations locally:

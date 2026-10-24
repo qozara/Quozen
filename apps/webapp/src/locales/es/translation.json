@@ -341,11 +341,15 @@
     "schemaRemediation": {
         "upgradeRequiredTitle": "Actualización de Formato Requerida",
         "corruptedTitle": "Archivo del Grupo Corrupto",
+        "incompatibleTitle": "Actualización de la App Requerida",
         "upgradeRequiredDesc": "Este grupo usa un formato de datos más antiguo y necesita ser actualizado antes de continuar.",
         "corruptedDesc": "Detectamos que faltan pestañas o columnas requeridas en la hoja de cálculo del grupo. Podemos intentar repararlo.",
+        "incompatibleDesc": "Este grupo fue creado o actualizado con una versión más reciente de Quozen que tu app actual. Por favor recarga la página para cargar la última versión, o reinicia la app desde cero.",
         "working": "Trabajando...",
         "upgradeNow": "Actualizar Ahora",
         "attemptRepair": "Intentar Reparar",
+        "refreshApp": "Recargar App",
+        "resetApp": "Reiniciar App (Borrar Datos Locales)",
         "dismiss": "Descartar",
         "successDesc": "Esquema del grupo actualizado exitosamente.",
         "errorDesc": "Error al reparar el esquema."
@@ -375,6 +379,7 @@
             "throttled": "Límite alcanzado — reintentando pronto",
             "corrupted": "La hoja de cálculo requiere reparación",
             "upgrade_required": "Actualización de formato requerida",
+            "incompatible": "Actualización de la app requerida — formato más reciente",
             "error": "Error al sincronizar — se reintentará automáticamente",
             "disconnected": "No conectado"
         }

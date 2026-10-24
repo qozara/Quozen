@@ -9,6 +9,7 @@ export type SyncStatus =
     | "synced"
     | "corrupted"
     | "upgrade_required"
+    | "incompatible"
     | "error";
 
 export type UXSyncState =

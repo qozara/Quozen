@@ -9,7 +9,8 @@ import type {
     SyncStatus
 } from "./types";
 import { SETTINGS_FILE_NAME } from "../types";
-import { SheetDataMapper, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP } from "../infrastructure/SheetDataMapper";
+import { TableNotFoundError } from "../errors";
+import { SheetDataMapper, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP, DEFAULT_CATEGORY_MAP } from "../infrastructure/SheetDataMapper";
 import {
     expenseToDoc,
     docToExpense,
@@ -17,16 +18,27 @@ import {
     docToSettlement,
     memberToDoc,
     docToMember,
+    categoryToDoc,
+    docToCategory,
     userSettingsToDoc,
     type ExpenseDocType,
     type SettlementDocType,
-    type MemberDocType
+    type MemberDocType,
+    type CategoryDocType
 } from "../db/schemas";
 
 export const DEFAULT_COLLECTION_ROUTES: Record<string, CollectionRoute> = {
     user_settings: {
         target: "blob",
         filename: SETTINGS_FILE_NAME
+    },
+    members: {
+        target: "tabular",
+        tabName: "Members"
+    },
+    categories: {
+        target: "tabular",
+        tabName: "Categories"
     },
     expenses: {
         target: "tabular",
@@ -35,10 +47,6 @@ export const DEFAULT_COLLECTION_ROUTES: Record<string, CollectionRoute> = {
     settlements: {
         target: "tabular",
         tabName: "Settlements"
-    },
-    members: {
-        target: "tabular",
-        tabName: "Members"
     }
 };
 
@@ -105,6 +113,26 @@ const tabularSerializers: Record<string, CollectionTabularSerializer> = {
                 deletedAt: doc.deletedAt,
                 headers: targetHeaders,
                 values: SheetDataMapper.mapFromMember(member, headerMap)
+            };
+        }
+    },
+    categories: {
+        defaultHeaders: ["id", "name", "icon", "description", "updatedAt"],
+        rowToDoc(row: TabularRow, groupId: string) {
+            const headerMap = row.headers ? SheetDataMapper.buildHeaderMap(row.headers) : DEFAULT_CATEGORY_MAP;
+            const mapped = SheetDataMapper.mapToCategory(row.values, 2, headerMap);
+            return categoryToDoc(mapped.entity, groupId);
+        },
+        docToRow(doc: Record<string, any>, headers?: string[]): TabularRow {
+            const targetHeaders = headers || this.defaultHeaders;
+            const headerMap = SheetDataMapper.buildHeaderMap(targetHeaders);
+            const category = docToCategory(doc as CategoryDocType);
+            return {
+                id: doc.id,
+                updatedAt: doc.updatedAt,
+                deletedAt: doc.deletedAt,
+                headers: targetHeaders,
+                values: SheetDataMapper.mapFromCategory(category, headerMap)
             };
         }
     }
@@ -230,6 +258,38 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
         if (!this.initialized) return [];
         const targetGroupId = groupId ?? this.activeGroupId;
 
+        const isMockMode = typeof import.meta !== "undefined" && (import.meta as any).env && ((import.meta as any).env.VITE_USE_MOCK_STORAGE === "true" || (import.meta as any).env.VITE_USE_MOCK_STORAGE === "remote");
+        if (!isMockMode && targetGroupId && typeof (this.tabularDriver as any)?.checkHealth === "function") {
+            try {
+                const health = await (this.tabularDriver as any).checkHealth(targetGroupId);
+                if (health.status === "UPGRADE_REQUIRED") {
+                    this.setStatus("upgrade_required");
+                    return [];
+                }
+                if (health.status === "INCOMPATIBLE") {
+                    this.setStatus("incompatible");
+                    return [];
+                }
+                if (health.status === "CORRUPTED") {
+                    this.setStatus("corrupted");
+                    return [];
+                }
+            } catch (healthErr: any) {
+                if (healthErr?.name === "SchemaIncompatibleError") {
+                    this.setStatus("incompatible");
+                    return [];
+                }
+                if (healthErr?.name === "SchemaUpgradeRequiredError" || String(healthErr?.message || "").includes("upgrade")) {
+                    this.setStatus("upgrade_required");
+                    return [];
+                }
+                if (healthErr?.name === "SchemaCorruptedError") {
+                    this.setStatus("corrupted");
+                    return [];
+                }
+            }
+        }
+
         this.setStatus("syncing");
         try {
             const results: SyncDeltaPayload[] = [];
@@ -246,11 +306,21 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                 } else if (route.target === "tabular" && this.tabularDriver && targetGroupId) {
                     const serializer = tabularSerializers[collection];
                     if (serializer) {
-                        const rows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
-                        const documents = rows
-                            .map(r => serializer.rowToDoc(r, targetGroupId))
-                            .filter(d => Boolean(d.id) && (collection !== "members" || Boolean(d.userId)));
-                        results.push({ collection, groupId: targetGroupId, documents });
+                        try {
+                            const rows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
+                            const documents = rows
+                                .map(r => serializer.rowToDoc(r, targetGroupId))
+                                .filter(d => Boolean(d.id) && (collection !== "members" || Boolean(d.userId)));
+                            results.push({ collection, groupId: targetGroupId, documents });
+                        } catch (tabErr: any) {
+                            if (tabErr instanceof TableNotFoundError || tabErr?.name === "TableNotFoundError") {
+                                // Missing table on unmigrated sheet -> signal upgrade_required
+                                this.setStatus("upgrade_required");
+                                return results;
+                            } else {
+                                throw tabErr;
+                            }
+                        }
                     }
                 }
             }
@@ -266,6 +336,7 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     async push(payload: SyncDeltaPayload): Promise<void> {
         if (!this.initialized) return;
+        if (this.status === "upgrade_required" || this.status === "corrupted" || this.status === "incompatible") return;
 
         this.setStatus("syncing");
         try {
@@ -304,7 +375,17 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                     throw new Error(`No serializer registered for tabular collection "${payload.collection}"`);
                 }
 
-                const existingRows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
+                let existingRows: TabularRow[] = [];
+                try {
+                    existingRows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
+                } catch (readErr: any) {
+                    if (readErr instanceof TableNotFoundError || readErr?.name === "TableNotFoundError") {
+                        this.setStatus("upgrade_required");
+                        return;
+                    }
+                    throw readErr;
+                }
+
                 const rawHeaders = existingRows[0]?.headers || serializer.defaultHeaders;
                 const headersToWrite = [...rawHeaders];
                 if (
@@ -330,7 +411,15 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
                 const activeDocs = Array.from(docMap.values()).filter(d => !d.deletedAt);
                 const rows = activeDocs.map(d => serializer.docToRow(d, headersToWrite));
-                await this.tabularDriver.writeTable(targetGroupId, route.tabName, headersToWrite, rows);
+                try {
+                    await this.tabularDriver.writeTable(targetGroupId, route.tabName, headersToWrite, rows);
+                } catch (writeErr: any) {
+                    if (writeErr instanceof TableNotFoundError || writeErr?.name === "TableNotFoundError") {
+                        this.setStatus("upgrade_required");
+                        return;
+                    }
+                    throw writeErr;
+                }
             }
 
             this.lastSyncedTime = new Date().toISOString();
@@ -343,6 +432,14 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     private handleSyncException(err: any): void {
         const msg = String(err?.message || err);
+        if (err?.name === "SchemaIncompatibleError" || msg.includes("incompatible")) {
+            this.setStatus("incompatible");
+            return;
+        }
+        if (err instanceof TableNotFoundError || err?.name === "TableNotFoundError") {
+            this.setStatus("upgrade_required");
+            return;
+        }
         if (msg.includes("corruption") || msg.includes("missing required column") || err?.name === "SchemaCorruptedError") {
             this.setStatus("corrupted");
         } else if (msg.includes("upgrade") || err?.name === "SchemaUpgradeRequiredError") {

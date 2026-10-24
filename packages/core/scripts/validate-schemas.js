@@ -59,6 +59,20 @@ const V0_BASELINE = {
             "updatedAt",
             "deletedAt"
         ]
+    },
+    categories: {
+        version: 0,
+        properties: [
+            "id",
+            "groupId",
+            "categoryId",
+            "name",
+            "icon",
+            "description",
+            "sortOrder",
+            "updatedAt",
+            "deletedAt"
+        ]
     }
 };
 
@@ -66,7 +80,8 @@ const allSchemas = [
     schemas.userSettingsSchema,
     schemas.expenseSchema,
     schemas.settlementSchema,
-    schemas.memberSchema
+    schemas.memberSchema,
+    schemas.categorySchema
 ];
 
 console.log("[Schema Validation] Starting build-time RxDB schema checks...");
@@ -102,6 +117,14 @@ for (const schema of allSchemas) {
                 `2. Add a migration strategy in packages/core/src/db/database.ts.\n`
             );
             hasError = true;
+        }
+    } else if (schema.version > 0) {
+        if (schema.title === "expenses") {
+            const strategies = schemas.expenseMigrationStrategies;
+            if (!strategies || typeof strategies[1] !== "function") {
+                console.error(`\n[SCHEMA MIGRATION ERROR] Schema "${schema.title}" version is ${schema.version}, but expenseMigrationStrategies[1] is missing or invalid!`);
+                hasError = true;
+            }
         }
     }
 }

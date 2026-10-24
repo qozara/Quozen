@@ -30,6 +30,14 @@ export const ExpenseSplitSchema = z.object({
     amount: z.number().nonnegative().finite().openapi({ example: 25 }),
 }).openapi('ExpenseSplit');
 
+export const ExpenseCategorySchema = z.object({
+    id: z.string().openapi({ example: 'food_dining' }),
+    name: z.string().openapi({ example: 'Food & Dining' }),
+    icon: z.string().openapi({ example: 'utensils' }),
+    description: z.string().openapi({ example: 'Restaurants and groceries' }),
+    sortOrder: z.number().optional().openapi({ example: 1 }),
+}).openapi('ExpenseCategory');
+
 export const ExpenseSchema = z.object({
     id: z.string().openapi({ example: '123e4567-e89b-12d3-a456-426614174000' }),
     description: z.string().openapi({ example: 'Dinner at Mario\'s' }),
@@ -45,7 +53,7 @@ export const ExpenseSchema = z.object({
 export const CreateExpenseDTOSchema = z.object({
     description: z.string().min(1).max(500).describe('What the expense was for').openapi({ example: 'Dinner at Mario\'s' }),
     amount: z.number().positive().finite().describe('The total amount of the expense').openapi({ example: 50 }),
-    category: z.string().min(1).max(100).describe('The category for tracking').openapi({ example: 'Food & Dining' }),
+    category: z.string().max(100).optional().describe('The category ID or name for tracking. Defaults to "other" if omitted.').openapi({ example: 'food_dining' }),
     date: z.string().describe('ISO 8601 date string').openapi({ example: '2023-10-15T18:00:00Z' }),
     paidByUserId: z.string().min(1).max(255).describe('The ID of the user who paid').openapi({ example: 'user-id-1' }),
     splits: z.array(ExpenseSplitSchema).optional().describe('AGENT INSTRUCTION: Omit this field to automatically split the cost equally among all group members.'),
@@ -102,7 +110,7 @@ export const SchemaStatusDTOSchema = z.object({
     missingTabs: z.array(z.string()),
     missingColumns: z.record(z.array(z.string())),
     canAutoMigrate: z.boolean(),
-    lastModifiedTime: z.string(),
+    lastModifiedTime: z.string().optional(),
 }).openapi('SchemaStatusDTO');
 
 export const MigrateRequestSchema = z.object({

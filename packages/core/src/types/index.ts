@@ -1,12 +1,14 @@
 export const SCHEMAS = {
     Expenses: ["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"],
     Settlements: ["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"],
-    Members: ["userId", "email", "name", "role", "joinedAt"]
+    Members: ["userId", "email", "name", "role", "joinedAt"],
+    Categories: ["id", "name", "icon", "description", "updatedAt", "deletedAt"]
 } as const;
 
 export const QUOZEN_PREFIX = "Quozen - ";
 export const SETTINGS_FILE_NAME = "quozen-settings.json";
 export const REQUIRED_SHEETS = ["Expenses", "Settlements", "Members"] as const;
+export const GROUP_SHEETS = [...REQUIRED_SHEETS, "Categories", "_migrations"] as const;
 
 export type SchemaType = keyof typeof SCHEMAS;
 

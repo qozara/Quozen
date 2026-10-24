@@ -1,3 +1,6 @@
+import type { ExpenseCategory, ExpenseCategoryId } from "./categories";
+export type { ExpenseCategory, ExpenseCategoryId };
+
 export interface Group {
     id: string;
     name: string;
@@ -25,7 +28,7 @@ export interface Expense {
     id: string;
     description: string;
     amount: number;
-    category: string;
+    category: ExpenseCategoryId;
     date: Date;
     paidByUserId: string;
     splits: ExpenseSplit[];
