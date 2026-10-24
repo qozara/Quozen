@@ -79,13 +79,14 @@ export interface CloudSyncProvider {
     isInitialized(): boolean;
     getStatus(): SyncStatus;
     getLastSyncedTime(): string | null;
+    getLastError?(): any;
     initialize(credentials?: any): Promise<void>;
     disconnect(): Promise<void>;
     pull(groupId?: string): Promise<SyncDeltaPayload[]>;
     push(payload: SyncDeltaPayload): Promise<void>;
     repair?(groupId: string): Promise<void>;
     migrate?(groupId: string): Promise<void>;
-    onStatusChange(listener: (status: SyncStatus) => void): () => void;
+    onStatusChange(listener: (status: SyncStatus, error?: any) => void): () => void;
 }
 
 export interface GoogleHttpClient {

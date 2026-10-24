@@ -19,7 +19,11 @@ export class GoogleDriveStorageLayer implements IStorageLayer {
 
         const response = await fetch(url, { ...options, headers });
         if (!response.ok) {
-            if (response.status === 401) throw new Error("Session expired (401). Please reload to sign in again.");
+            if (response.status === 401) {
+                const error: any = new Error("Session expired (401). Please reload to sign in again.");
+                error.status = 401;
+                throw error;
+            }
             const errorBody = await response.text();
             throw new Error(`Google API Error ${response.status}: ${errorBody}`);
         }
