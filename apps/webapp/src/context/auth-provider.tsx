@@ -2,7 +2,7 @@ import { createContext, useContext, useState, ReactNode } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import { setAuthToken, getAuthToken as getTokenFromStore } from '../lib/tokenStore';
-import { quozen } from '../lib/storage';
+import { quozen, resetQuozenStorage } from '../lib/storage';
 import { User } from '@quozen/core';
 
 const USER_STORAGE_KEY = "quozen_user_profile";
@@ -90,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     setToken(null);
     setUser(null);
+    void resetQuozenStorage();
   };
 
   return (

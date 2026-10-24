@@ -256,7 +256,11 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     async pull(groupId?: string): Promise<SyncDeltaPayload[]> {
         if (!this.initialized) return [];
-        const targetGroupId = groupId ?? this.activeGroupId;
+        if (groupId) {
+            this.activeGroupId = groupId;
+        }
+        // Only pull group-scoped tabular data if a groupId is explicitly requested
+        const targetGroupId = groupId;
 
         const isMockMode = typeof import.meta !== "undefined" && (import.meta as any).env && ((import.meta as any).env.VITE_USE_MOCK_STORAGE === "true" || (import.meta as any).env.VITE_USE_MOCK_STORAGE === "remote");
         if (!isMockMode && targetGroupId && typeof (this.tabularDriver as any)?.checkHealth === "function") {
@@ -275,11 +279,16 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                     return [];
                 }
             } catch (healthErr: any) {
+                const healthMsg = String(healthErr?.message || healthErr);
+                if (healthMsg.includes("404") || healthMsg.toLowerCase().includes("not found")) {
+                    console.warn(`[Sync] Group spreadsheet ${targetGroupId} checkHealth 404, skipping.`);
+                    return [];
+                }
                 if (healthErr?.name === "SchemaIncompatibleError") {
                     this.setStatus("incompatible");
                     return [];
                 }
-                if (healthErr?.name === "SchemaUpgradeRequiredError" || String(healthErr?.message || "").includes("upgrade")) {
+                if (healthErr?.name === "SchemaUpgradeRequiredError" || healthMsg.includes("upgrade")) {
                     this.setStatus("upgrade_required");
                     return [];
                 }
@@ -308,15 +317,20 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                     if (serializer) {
                         try {
                             const rows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
-                            const documents = rows
-                                .map(r => serializer.rowToDoc(r, targetGroupId))
-                                .filter(d => Boolean(d.id) && (collection !== "members" || Boolean(d.userId)));
-                            results.push({ collection, groupId: targetGroupId, documents });
+                            if (rows) {
+                                const documents = rows
+                                    .map(r => serializer.rowToDoc(r, targetGroupId))
+                                    .filter(d => Boolean(d.id) && (collection !== "members" || Boolean(d.userId)));
+                                results.push({ collection, groupId: targetGroupId, documents });
+                            }
                         } catch (tabErr: any) {
+                            const errMsg = String(tabErr?.message || tabErr);
                             if (tabErr instanceof TableNotFoundError || tabErr?.name === "TableNotFoundError") {
                                 // Missing table on unmigrated sheet -> signal upgrade_required
                                 this.setStatus("upgrade_required");
                                 return results;
+                            } else if (errMsg.includes("404") || errMsg.toLowerCase().includes("not found")) {
+                                console.warn(`[Sync] Group spreadsheet ${targetGroupId} not found (404), skipping.`);
                             } else {
                                 throw tabErr;
                             }
@@ -448,7 +462,7 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
             this.setStatus("auth_failed");
         } else if (msg.includes("Rate Limit") || msg.includes("429")) {
             this.setStatus("throttled");
-        } else if (isNetworkError(err)) {
+        } else if (isNetworkError(err) || msg.includes("404") || msg.toLowerCase().includes("not found")) {
             this.setStatus("idle");
         } else {
             this.setStatus("error");

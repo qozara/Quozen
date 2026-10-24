@@ -26,6 +26,7 @@ import { useAutoSync } from "@/hooks/use-auto-sync";
 import AddExpenseDrawer from "@/components/add-expense-drawer";
 import SchemaRemediationModal from "@/components/schema-remediation-modal";
 import { AiFeatureProvider } from "@/features/agent/AiFeatureProvider";
+import { quozen } from "@/lib/storage";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -117,10 +118,19 @@ export function AuthenticatedApp() {
 
   const handleSetActiveGroupId = (groupId: string) => {
     setActiveGroupIdState(groupId);
+    if (groupId && quozen.syncProvider && typeof (quozen.syncProvider as any).setActiveGroupId === "function") {
+      (quozen.syncProvider as any).setActiveGroupId(groupId);
+    }
     if (isAuthenticated) {
       updateActiveGroup(groupId);
     }
   };
+
+  useEffect(() => {
+    if (activeGroupId && quozen.syncProvider && typeof (quozen.syncProvider as any).setActiveGroupId === "function") {
+      (quozen.syncProvider as any).setActiveGroupId(activeGroupId);
+    }
+  }, [activeGroupId]);
 
   const activeCachedGroup = settings?.groupCache?.find(g => g.id === activeGroupId);
   const currentUserId = activeCachedGroup?.accountId || user?.id || "";

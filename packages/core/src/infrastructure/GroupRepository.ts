@@ -136,7 +136,7 @@ export class GroupRepository {
                 typeof globalThis !== "undefined" &&
                 (globalThis as any).navigator?.onLine === false;
             if (isOffline || (this.onMutation && !isMockE2E)) {
-                this.onMutation?.();
+                this.onMutation?.(settings.activeGroupId || undefined);
                 return;
             }
         }
