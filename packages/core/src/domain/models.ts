@@ -72,6 +72,8 @@ export interface CachedGroup {
     accountId?: string;
     lastAccessed?: string;
     validationStatus?: string;
+    isHydrated?: boolean;
+    pendingRename?: boolean;
 }
 
 export interface UserSettings {

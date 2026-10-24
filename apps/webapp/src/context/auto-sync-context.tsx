@@ -72,6 +72,7 @@ export function AutoSyncProvider({
     );
 
     const lastKnownRemoteTimeRef = useRef<string | null>(null);
+    const prevActiveGroupIdRef = useRef<string>(activeGroupId);
     const prevStatusRef = useRef<SyncStatus>("idle");
     const wasOnlineRef = useRef<boolean>(isOnline);
     const lastSyncErrorRef = useRef<any>(null);
@@ -283,10 +284,16 @@ export function AutoSyncProvider({
         return () => clearInterval(intervalId);
     }, [isPaused, isEnabled, pollingInterval]);
 
-    // Reset ref when switching groups
+    // Reset ref and trigger sync when switching groups
     useEffect(() => {
-        lastKnownRemoteTimeRef.current = null;
-    }, [activeGroupId]);
+        if (prevActiveGroupIdRef.current && prevActiveGroupIdRef.current !== activeGroupId) {
+            lastKnownRemoteTimeRef.current = null;
+            if (activeGroupId && !isPaused && isEnabled && isOnline) {
+                void checkUpdatesRef.current();
+            }
+        }
+        prevActiveGroupIdRef.current = activeGroupId;
+    }, [activeGroupId, isPaused, isEnabled, isOnline]);
 
     const reconnectProvider = useCallback(async () => {
         if (auth?.login) {

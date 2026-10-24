@@ -4,6 +4,8 @@ import Dashboard from "../dashboard";
 import { useAppContext } from "@/context/app-context";
 import { useQuery } from "@tanstack/react-query";
 import { useSettings } from "@/hooks/use-settings";
+import { useAutoSync } from "@/hooks/use-auto-sync";
+import { useGroups } from "@/hooks/use-groups";
 import en from "@/locales/en/translation.json";
 import { formatCurrency } from "@quozen/core";
 
@@ -13,6 +15,20 @@ vi.mock("@/context/app-context", () => ({
 
 vi.mock("@/hooks/use-settings", () => ({
   useSettings: vi.fn(),
+}));
+
+vi.mock("@/hooks/use-auto-sync", () => ({
+  useAutoSync: vi.fn(() => ({
+    isOnline: true,
+    setPaused: vi.fn(),
+  })),
+}));
+
+vi.mock("@/hooks/use-groups", () => ({
+  useGroups: vi.fn(() => ({
+    groups: [{ id: "group1", name: "Road Trip" }],
+    isLoading: false,
+  })),
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -78,6 +94,14 @@ describe("Dashboard Page", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (useAutoSync as any).mockReturnValue({
+      isOnline: true,
+      setPaused: vi.fn(),
+    });
+    (useGroups as any).mockReturnValue({
+      groups: [{ id: "group1", name: "Road Trip" }],
+      isLoading: false,
+    });
     (useAppContext as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       activeGroupId: "group1",
       currentUserId: "user1",
@@ -139,6 +163,64 @@ describe("Dashboard Page", () => {
     const switcher = screen.getByTestId("button-account-switcher");
     expect(switcher).toBeInTheDocument();
     expect(switcher).toHaveTextContent("Alice");
+  });
+
+  it("renders unhydrated offline card when group is not hydrated and app is offline", () => {
+    (useAutoSync as any).mockReturnValue({
+      isOnline: false,
+      setPaused: vi.fn(),
+    });
+    (useQuery as unknown as ReturnType<typeof vi.fn>).mockImplementation(({ queryKey }) => {
+      if (Array.isArray(queryKey) && queryKey[0] === "drive" && queryKey[1] === "group") {
+        return {
+          data: {
+            members: [],
+            expenses: [],
+            settlements: [],
+            isHydrated: false,
+            getBalances: () => ({}),
+            getTotalSpent: () => 0,
+            getUserBalance: () => 0,
+            getSettleUpSuggestion: () => null,
+          },
+          isLoading: false
+        };
+      }
+      return { data: undefined, isLoading: false };
+    });
+
+    render(<Dashboard />);
+    const unhydratedNotice = screen.getByTestId("unhydrated-group-offline");
+    expect(unhydratedNotice).toBeInTheDocument();
+    expect(unhydratedNotice).toHaveTextContent('Connect to load "Road Trip"');
+    expect(unhydratedNotice).toHaveTextContent(en.offline.unhydratedDesc);
+  });
+
+  it("renders unhydrated offline card when members, expenses, and settlements are all empty while offline", () => {
+    (useAutoSync as any).mockReturnValue({
+      isOnline: false,
+      setPaused: vi.fn(),
+    });
+    (useQuery as unknown as ReturnType<typeof vi.fn>).mockImplementation(({ queryKey }) => {
+      if (Array.isArray(queryKey) && queryKey[0] === "drive" && queryKey[1] === "group") {
+        return {
+          data: {
+            members: [],
+            expenses: [],
+            settlements: [],
+            getBalances: () => ({}),
+            getTotalSpent: () => 0,
+            getUserBalance: () => 0,
+            getSettleUpSuggestion: () => null,
+          },
+          isLoading: false
+        };
+      }
+      return { data: undefined, isLoading: false };
+    });
+
+    render(<Dashboard />);
+    expect(screen.getByTestId("unhydrated-group-offline")).toBeInTheDocument();
   });
 });
 

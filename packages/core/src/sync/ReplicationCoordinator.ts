@@ -13,6 +13,7 @@ function parseTimestamp(val?: string | number | null): number {
 
 export class ReplicationCoordinator {
     private static checkpointsByDbName = new Map<string, Map<string, string>>();
+    private static hydratedGroupsByDbName = new Map<string, Set<string>>();
 
     private statusSubject = new BehaviorSubject<SyncStatus>("idle");
     private lastSyncedAtByDocId: Map<string, string>;
@@ -87,6 +88,50 @@ export class ReplicationCoordinator {
         }
     }
 
+    public static getHydratedGroupSet(dbName: string): Set<string> {
+        let set = ReplicationCoordinator.hydratedGroupsByDbName.get(dbName);
+        if (!set) {
+            set = new Set<string>();
+            try {
+                const storage = (globalThis as any).localStorage;
+                if (storage && typeof storage.getItem === "function") {
+                    const raw = storage.getItem(`quozen_hydrated_groups_${dbName}`);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed)) {
+                            for (const id of parsed) {
+                                if (typeof id === "string") {
+                                    set.add(id);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {
+                // Ignore localStorage access errors
+            }
+            ReplicationCoordinator.hydratedGroupsByDbName.set(dbName, set);
+        }
+        return set;
+    }
+
+    public static isGroupHydrated(dbName: string, groupId: string): boolean {
+        return ReplicationCoordinator.getHydratedGroupSet(dbName).has(groupId);
+    }
+
+    public static markGroupHydrated(dbName: string, groupId: string): void {
+        const set = ReplicationCoordinator.getHydratedGroupSet(dbName);
+        set.add(groupId);
+        try {
+            const storage = (globalThis as any).localStorage;
+            if (storage && typeof storage.setItem === "function") {
+                storage.setItem(`quozen_hydrated_groups_${dbName}`, JSON.stringify(Array.from(set)));
+            }
+        } catch {
+            // Ignore storage quota or private mode errors
+        }
+    }
+
     public get status$(): Observable<SyncStatus> {
         return this.statusSubject.asObservable();
     }
@@ -134,6 +179,10 @@ export class ReplicationCoordinator {
 
         const payloadMap = new Map(payloads.map(p => [p.collection, p]));
         const targetGroupId = groupId ?? (this.provider as any).getActiveGroupId?.() ?? undefined;
+
+        if (targetGroupId && (payloadMap.has("expenses") || payloadMap.has("members"))) {
+            ReplicationCoordinator.markGroupHydrated(this.db.name, targetGroupId);
+        }
 
         for (const collectionName of SYNCABLE_COLLECTIONS) {
             const collection = (this.db.collections as any)[collectionName];

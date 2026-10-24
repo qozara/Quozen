@@ -7,6 +7,8 @@ import { quozen } from "@/lib/storage";
 import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/hooks/use-settings";
 import { useGroups } from "@/hooks/use-groups";
+import { useAutoSync } from "@/hooks/use-auto-sync";
+import OnlineRequiredDialog from "@/components/online-required-dialog";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -69,6 +71,15 @@ export default function Profile() {
   const [draftOllamaModel, setDraftOllamaModel] = React.useState(settings?.preferences?.ollamaModel || "");
   const [draftByokProvider, setDraftByokProvider] = React.useState(settings?.preferences?.byokProvider || "google");
   const [isVerifying, setIsVerifying] = React.useState(false);
+  const [isOnlineRequiredOpen, setIsOnlineRequiredOpen] = React.useState(false);
+
+  let autoSync: any;
+  try {
+    autoSync = useAutoSync();
+  } catch {
+    // Fallback for tests without AutoSyncProvider
+  }
+  const isOnline = autoSync?.isOnline ?? (typeof navigator !== "undefined" ? navigator.onLine !== false : true);
 
   React.useEffect(() => {
     if (settings) {
@@ -320,7 +331,13 @@ export default function Profile() {
             <Button
               variant="outline"
               className="w-full justify-start"
-              onClick={() => reconcileMutation.mutate()}
+              onClick={() => {
+                if (!isOnline) {
+                  setIsOnlineRequiredOpen(true);
+                  return;
+                }
+                reconcileMutation.mutate();
+              }}
               disabled={reconcileMutation.isPending}
               data-testid="button-reconcile"
             >
@@ -504,6 +521,12 @@ export default function Profile() {
         <p>Quozen version ({__COMMIT_HASH__})</p>
         <p>Decentralized Expense Sharing</p>
       </div>
+
+      <OnlineRequiredDialog
+        isOpen={isOnlineRequiredOpen}
+        onOpenChange={setIsOnlineRequiredOpen}
+        reason="reconcileGroups"
+      />
     </div>
   );
 }

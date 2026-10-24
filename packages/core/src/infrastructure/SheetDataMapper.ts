@@ -16,8 +16,8 @@ export const SCHEMAS = {
 export type HeaderMap = Record<string, number>;
 
 export const DEFAULT_EXPENSE_MAP: HeaderMap = { id: 0, date: 1, description: 2, amount: 3, paidBy: 4, category: 5, splits: 6, meta: 7 };
-export const DEFAULT_SETTLEMENT_MAP: HeaderMap = { id: 0, date: 1, fromUserId: 2, toUserId: 3, amount: 4, method: 5, notes: 6 };
-export const DEFAULT_MEMBER_MAP: HeaderMap = { userId: 0, email: 1, name: 2, role: 3, joinedAt: 4 };
+export const DEFAULT_SETTLEMENT_MAP: HeaderMap = { id: 0, date: 1, fromUserId: 2, toUserId: 3, amount: 4, method: 5, notes: 6, updatedAt: 7 };
+export const DEFAULT_MEMBER_MAP: HeaderMap = { userId: 0, email: 1, name: 2, role: 3, joinedAt: 4, updatedAt: 5 };
 export const DEFAULT_CATEGORY_MAP: HeaderMap = { id: 0, name: 1, icon: 2, description: 3, updatedAt: 4, deletedAt: 5 };
 
 

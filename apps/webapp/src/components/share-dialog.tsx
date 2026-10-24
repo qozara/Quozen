@@ -10,6 +10,8 @@ import { quozen } from "@/lib/storage";
 import { Copy, Check, Globe, Lock, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/auth-provider";
 import { useTranslation } from "react-i18next";
+import { useAutoSync } from "@/hooks/use-auto-sync";
+import OnlineRequiredDialog from "@/components/online-required-dialog";
 
 interface ShareDialogProps {
     isOpen: boolean;
@@ -26,6 +28,15 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
 
     const [isPublic, setIsPublic] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [isOnlineRequiredOpen, setIsOnlineRequiredOpen] = useState(false);
+
+    let autoSync: any;
+    try {
+        autoSync = useAutoSync();
+    } catch {
+        // Fallback for isolated test environments
+    }
+    const isOnline = autoSync?.isOnline ?? (typeof navigator !== "undefined" ? navigator.onLine !== false : true);
 
     // Construct link with metadata for better UX
     const joinUrl = new URL(`${window.location.origin}/join/${groupId}`);
@@ -38,7 +49,7 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
     const { data: permissionStatus } = useQuery({
         queryKey: ["drive", "permissions", groupId],
         queryFn: () => quozen.groups.getGroupPermissions(groupId),
-        enabled: isOpen && !!groupId,
+        enabled: isOpen && !!groupId && isOnline,
     });
 
     useEffect(() => {
@@ -80,6 +91,10 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
     });
 
     const handleToggle = (checked: boolean) => {
+        if (!isOnline) {
+            setIsOnlineRequiredOpen(true);
+            return;
+        }
         setIsPublic(checked); // Optimistic update
         permissionMutation.mutate(checked);
     };
@@ -91,6 +106,7 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
     };
 
     return (
+        <>
         <Drawer
             open={isOpen}
             onOpenChange={(open) => {
@@ -174,5 +190,11 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
                 </div>
             </DrawerContent>
         </Drawer>
+        <OnlineRequiredDialog
+            isOpen={isOnlineRequiredOpen}
+            onOpenChange={setIsOnlineRequiredOpen}
+            reason="changePermissions"
+        />
+        </>
     );
 }

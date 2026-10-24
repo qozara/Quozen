@@ -118,6 +118,9 @@ export function AuthenticatedApp() {
 
   const handleSetActiveGroupId = (groupId: string) => {
     setActiveGroupIdState(groupId);
+    if (groupId) {
+      void queryClient.invalidateQueries({ queryKey: ["drive", "group", groupId] });
+    }
     if (groupId && quozen.syncProvider && typeof (quozen.syncProvider as any).setActiveGroupId === "function") {
       (quozen.syncProvider as any).setActiveGroupId(groupId);
     }

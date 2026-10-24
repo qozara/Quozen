@@ -14,6 +14,8 @@ export { Ledger } from "./domain/Ledger";
 // 3. Configuration & Adapters (Required to instantiate QuozenClient)
 export type { IStorageLayer } from "./infrastructure/IStorageLayer";
 export { GoogleDriveStorageLayer } from "./infrastructure/GoogleDriveStorageLayer";
+export { GroupRepository } from "./infrastructure/GroupRepository";
+export { LedgerRepository } from "./infrastructure/LedgerRepository";
 export { InMemoryAdapter } from "./storage/memory-adapter"; // Legacy/Test
 export { RemoteMockAdapter } from "./storage/remote-adapter"; // Legacy/Test
 

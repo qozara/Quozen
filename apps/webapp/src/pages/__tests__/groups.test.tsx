@@ -7,6 +7,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
 import { useSettings } from "@/hooks/use-settings";
 import { useGroups } from "@/hooks/use-groups";
+import { useAutoSync } from "@/hooks/use-auto-sync";
 import en from "@/locales/en/translation.json";
 
 vi.mock("@/context/app-context", () => ({
@@ -248,5 +249,108 @@ describe("Groups Page", () => {
     fireEvent.click(confirmBtn);
 
     expect(quozen.groups.leaveGroup).toHaveBeenCalledWith("group2");
+  });
+
+  describe("Offline mode handling", () => {
+    beforeEach(() => {
+      (useAutoSync as any).mockReturnValue({ isOnline: false, setPaused: vi.fn() });
+    });
+
+    it("shows OnlineRequiredDialog when clicking New Group while offline", async () => {
+      render(<Groups />);
+      const newGroupBtn = screen.getByTestId("button-new-group");
+      fireEvent.click(newGroupBtn);
+      expect(screen.getByTestId("online-required-dialog")).toBeInTheDocument();
+      expect(screen.getByText(en.offline.reasons.createGroup)).toBeInTheDocument();
+
+      const confirmBtn = screen.getByTestId("online-required-confirm");
+      fireEvent.click(confirmBtn);
+      expect(screen.queryByTestId("online-required-dialog")).not.toBeInTheDocument();
+    });
+
+    it("shows OnlineRequiredDialog when clicking Delete while offline", async () => {
+      render(<Groups />);
+      const group1Card = screen.getByText("Trip to Paris").closest('[data-testid="group-card"]');
+      const meatball = within(group1Card as HTMLElement).getByTestId("group-menu-trigger");
+      fireEvent.click(meatball);
+
+      const deleteBtn = screen.getByText(en.common.delete);
+      fireEvent.click(deleteBtn);
+      expect(screen.getByTestId("online-required-dialog")).toBeInTheDocument();
+      expect(screen.getByText(en.offline.reasons.deleteGroup)).toBeInTheDocument();
+    });
+
+    it("shows OnlineRequiredDialog when clicking Leave while offline", async () => {
+      render(<Groups />);
+      const group2Card = screen.getByText("Office Lunch").closest('[data-testid="group-card"]');
+      const meatball = within(group2Card as HTMLElement).getByTestId("group-menu-trigger");
+      fireEvent.click(meatball);
+
+      const leaveBtn = screen.getByText(en.groups.leaveAction);
+      fireEvent.click(leaveBtn);
+      expect(screen.getByTestId("online-required-dialog")).toBeInTheDocument();
+      expect(screen.getByText(en.offline.reasons.leaveGroup)).toBeInTheDocument();
+    });
+
+    it("shows OnlineRequiredDialog when clicking Find in Google Drive while offline", async () => {
+      render(<Groups />);
+      const findInDriveBtn = screen.getByText(en.groups.findInDrive);
+      fireEvent.click(findInDriveBtn);
+      expect(screen.getByTestId("online-required-dialog")).toBeInTheDocument();
+      expect(screen.getByText(en.offline.reasons.importDrive)).toBeInTheDocument();
+    });
+
+    it("shows OnlineRequiredDialog when editing an unhydrated group while offline", async () => {
+      (quozen.ledger as any).mockReturnValue({
+        getMembers: vi.fn().mockResolvedValue([])
+      });
+
+      render(<Groups />);
+      const group1Card = screen.getByText("Trip to Paris").closest('[data-testid="group-card"]');
+      const meatball = within(group1Card as HTMLElement).getByTestId("group-menu-trigger");
+      fireEvent.click(meatball);
+
+      const editBtn = screen.getByText(en.common.edit);
+      fireEvent.click(editBtn);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("online-required-dialog")).toBeInTheDocument();
+        expect(screen.getByText(en.offline.reasons.editUnhydratedGroup)).toBeInTheDocument();
+      });
+    });
+
+    it("shows OnlineRequiredDialog when inviting new email member while offline", async () => {
+      (quozen.ledger as any).mockReturnValue({
+        getMembers: vi.fn().mockResolvedValue(mockGroup1Data.members)
+      });
+
+      render(<Groups />);
+      const group1Card = screen.getByText("Trip to Paris").closest('[data-testid="group-card"]');
+      const meatball = within(group1Card as HTMLElement).getByTestId("group-menu-trigger");
+      fireEvent.click(meatball);
+
+      const editBtn = screen.getByText(en.common.edit);
+      fireEvent.click(editBtn);
+
+      await waitFor(() => expect(screen.getByText(en.groups.edit)).toBeInTheDocument());
+      await screen.findByText("bob@example.com");
+
+      const input = screen.getByPlaceholderText(en.groups.membersHint);
+      fireEvent.change(input, { target: { value: "charlie@example.com" } });
+      const addBtn = input.parentElement?.querySelector('button');
+      expect(addBtn).toBeInTheDocument();
+      fireEvent.click(addBtn!);
+
+      await screen.findByText("charlie@example.com");
+
+      const updateBtn = screen.getByRole("button", { name: en.groups.update });
+      fireEvent.click(updateBtn);
+
+      await waitFor(() => {
+        const dialog = screen.getByTestId("online-required-dialog");
+        expect(dialog).toBeInTheDocument();
+        expect(within(dialog).getByText(/charlie@example\.com/)).toBeInTheDocument();
+      });
+    });
   });
 });

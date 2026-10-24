@@ -8,7 +8,7 @@ import type {
     SyncDeltaPayload,
     SyncStatus
 } from "./types";
-import { SETTINGS_FILE_NAME } from "../types";
+import { SETTINGS_FILE_NAME, QUOZEN_PREFIX } from "../types";
 import { TableNotFoundError } from "../errors";
 import { SheetDataMapper, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP, DEFAULT_CATEGORY_MAP } from "../infrastructure/SheetDataMapper";
 import {
@@ -384,6 +384,27 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                         docMap.set(doc.id, doc);
                     }
                 }
+
+                if (payload.collection === "user_settings") {
+                    const storageLayer = (this.tabularDriver as any)?.storageLayer;
+                    if (storageLayer && typeof storageLayer.updateFile === "function") {
+                        for (const doc of payload.documents) {
+                            if (Array.isArray(doc.groupCache)) {
+                                for (const cg of doc.groupCache) {
+                                    if (cg && cg.pendingRename === true) {
+                                        try {
+                                            await storageLayer.updateFile(cg.id, { name: `${QUOZEN_PREFIX}${cg.name}` });
+                                            cg.pendingRename = false;
+                                        } catch (renameErr) {
+                                            console.warn(`[Sync] Failed to sync pending group rename for ${cg.id}:`, renameErr);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 await this.blobDriver.writeBlob(route.filename, Array.from(docMap.values()));
             } else if (route.target === "tabular") {
                 if (!this.tabularDriver) {

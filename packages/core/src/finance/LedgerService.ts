@@ -322,14 +322,21 @@ export class LedgerService {
             : Promise.resolve(DEFAULT_CATEGORIES);
     }
 
+    async isGroupHydrated(): Promise<boolean> {
+        return typeof this.repo.isGroupHydrated === "function"
+            ? this.repo.isGroupHydrated()
+            : Promise.resolve(true);
+    }
+
     async getLedger(): Promise<Ledger> {
         await this.ensureSchemaHealth();
 
-        const [expenses, settlements, members, categories] = await Promise.all([
+        const [expenses, settlements, members, categories, isHydrated] = await Promise.all([
             this.repo.getExpenses(),
             this.repo.getSettlements(),
             this.repo.getMembers(),
-            typeof this.repo.getCategories === "function" ? this.repo.getCategories() : Promise.resolve(DEFAULT_CATEGORIES)
+            typeof this.repo.getCategories === "function" ? this.repo.getCategories() : Promise.resolve(DEFAULT_CATEGORIES),
+            this.isGroupHydrated()
         ]);
 
         const effectiveAccountId = await this.resolveEffectiveAccountId();
@@ -359,6 +366,6 @@ export class LedgerService {
             }
         }
 
-        return new Ledger({ expenses, settlements, members, categories });
+        return new Ledger({ expenses, settlements, members, categories, isHydrated });
     }
 }

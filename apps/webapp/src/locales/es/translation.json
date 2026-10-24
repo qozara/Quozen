@@ -383,5 +383,23 @@
             "error": "Error al sincronizar — se reintentará automáticamente",
             "disconnected": "No conectado"
         }
+    },
+    "offline": {
+        "requiredTitle": "Se requiere conexión a Internet",
+        "gotIt": "Entendido",
+        "switchGroupAction": "Cambiar de grupo",
+        "unhydratedTitle": "Conéctate para cargar \"{{name}}\"",
+        "unhydratedDesc": "Para ahorrar datos y almacenamiento, Quozen solo descarga los grupos cuando los abres. Conéctate a Internet para cargar los gastos y miembros de este grupo.",
+        "reasons": {
+            "createGroup": "Crear un nuevo grupo de gastos requiere conexión a Internet para configurar la hoja de cálculo compartida en tu Google Drive.",
+            "deleteGroup": "Eliminar un grupo requiere conexión a Internet para borrar la hoja de cálculo compartida de Google Drive.",
+            "leaveGroup": "Salir de un grupo requiere conexión a Internet para verificar los últimos gastos y actualizar la hoja de cálculo compartida.",
+            "importDrive": "Importar un grupo desde Google Drive requiere conexión a Internet.",
+            "reconcileGroups": "Escanear Google Drive en busca de grupos faltantes requiere conexión a Internet.",
+            "changePermissions": "Cambiar los permisos del enlace compartido requiere conexión a Internet para actualizar el acceso en Google Drive. Aún puedes copiar el enlace sin conexión.",
+            "inviteEmail": "Invitar miembros por correo electrónico ({{email}}) requiere conexión a Internet para darles acceso en Google Drive. Conéctate a Internet o agrégalos solo por nombre para registrar gastos sin conexión.",
+            "editUnhydratedGroup": "La lista de miembros de este grupo aún no se ha descargado en tu dispositivo. Conéctate a Internet para editar este grupo.",
+            "unhydratedGroup": "Los datos de este grupo aún no se han descargado en tu dispositivo. Conéctate a Internet primero o cambia a otro grupo descargado."
+        }
     }
 }

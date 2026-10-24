@@ -83,8 +83,11 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     id: { type: "string" },
                     name: { type: "string" },
                     role: { type: "string", enum: ["owner", "member"] },
+                    accountId: { type: "string" },
                     lastAccessed: { type: "string" },
-                    validationStatus: { type: "string" }
+                    validationStatus: { type: "string" },
+                    isHydrated: { type: "boolean" },
+                    pendingRename: { type: "boolean" }
                 },
                 required: ["id", "name", "role"]
             }
