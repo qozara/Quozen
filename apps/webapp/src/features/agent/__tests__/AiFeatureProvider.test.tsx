@@ -1,5 +1,5 @@
 import React from "react";
-import { renderHook, act, render, screen } from "@testing-library/react";
+import { renderHook, act } from "@testing-library/react";
 import { AiFeatureProvider } from "../AiFeatureProvider";
 import { useAiFeature } from "../AiFeatureContext";
 import { vi, describe, it, expect, beforeEach } from "vitest";
