@@ -21,6 +21,7 @@ export class ReplicationCoordinator {
     private pendingSyncGroupId?: string;
     private subscriptions: Subscription[] = [];
     private unsubscribeProviderStatus?: () => void;
+    private lastError: any = null;
 
     constructor(
         private db: QuozenDatabase,
@@ -28,7 +29,8 @@ export class ReplicationCoordinator {
     ) {
         this.lastSyncedAtByDocId = ReplicationCoordinator.getCheckpointMap(this.db.name);
         this.statusSubject.next(this.provider.getStatus());
-        this.unsubscribeProviderStatus = this.provider.onStatusChange(status => {
+        this.unsubscribeProviderStatus = this.provider.onStatusChange((status, error) => {
+            this.lastError = error ?? (this.provider as any).getLastError?.() ?? null;
             this.statusSubject.next(status);
         });
     }
@@ -91,6 +93,10 @@ export class ReplicationCoordinator {
 
     public getStatus(): SyncStatus {
         return this.statusSubject.getValue();
+    }
+
+    public getLastError(): any {
+        return this.lastError ?? (this.provider as any).getLastError?.() ?? null;
     }
 
     public async sync(groupId?: string): Promise<void> {

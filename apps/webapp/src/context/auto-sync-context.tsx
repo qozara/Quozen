@@ -1,5 +1,5 @@
 import React, { createContext, useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
 import { useAppContext } from "./app-context";
@@ -7,6 +7,17 @@ import { useOptionalAuth } from "./auth-provider";
 import { useToast } from "@/hooks/use-toast";
 import { useTranslation } from "react-i18next";
 import { resolveUXStatus, type SyncStatus, type UXSyncState } from "@quozen/core";
+
+export function isGoogle401Error(err: any): boolean {
+    if (!err) return false;
+    const status = err?.status ?? err?.response?.status ?? err?.statusCode;
+    if (status === 401) return true;
+    if (status && status !== 401) return false;
+
+    const msg = String(err?.message || err);
+    if (msg.includes("403")) return false;
+    return msg.includes("401") || msg.toLowerCase().includes("session expired");
+}
 
 export interface AutoSyncContextType {
     isPaused: boolean;
@@ -47,6 +58,7 @@ export function AutoSyncProvider({
     const { t } = useTranslation();
     const queryClient = useQueryClient();
     const location = useLocation();
+    const navigate = useNavigate();
 
     const [manualPaused, setManualPaused] = useState(false);
     const [routePaused, setRoutePaused] = useState(false);
@@ -62,6 +74,17 @@ export function AutoSyncProvider({
     const lastKnownRemoteTimeRef = useRef<string | null>(null);
     const prevStatusRef = useRef<SyncStatus>("idle");
     const wasOnlineRef = useRef<boolean>(isOnline);
+    const lastSyncErrorRef = useRef<any>(null);
+
+    const handleGoogleSessionExpired = useCallback(() => {
+        if (!isOnline) return;
+        if (auth?.logout) {
+            auth.logout();
+        }
+        if (location.pathname !== "/login") {
+            navigate("/login", { state: { from: location } });
+        }
+    }, [isOnline, auth, location, navigate]);
 
     // We use a ref to hold the latest check function to avoid restarting the interval
     // whenever the dependencies of checkUpdates change.
@@ -134,7 +157,7 @@ export function AutoSyncProvider({
         const replication = (quozen as any).replication;
         const provider = (quozen as any).syncProvider;
 
-        const handleNewStatus = (newStatus: SyncStatus) => {
+        const handleNewStatus = (newStatus: SyncStatus, statusError?: any) => {
             const prev = prevStatusRef.current;
             prevStatusRef.current = newStatus;
             setSyncStatus(newStatus);
@@ -153,11 +176,20 @@ export function AutoSyncProvider({
                 } else if (newStatus === "incompatible") {
                     window.dispatchEvent(new CustomEvent("schema-error", { detail: "INCOMPATIBLE" }));
                 } else if (newStatus === "auth_failed") {
-                    toast({
-                        title: t("sync.cloudSyncFailedTitle"),
-                        description: t("sync.diagnostics.auth_failed"),
-                        variant: "destructive"
-                    });
+                    const err = (statusError !== undefined ? statusError : null)
+                        || replication?.getLastError?.()
+                        || provider?.getLastError?.()
+                        || lastSyncErrorRef.current;
+
+                    if (isOnline && isGoogle401Error(err)) {
+                        handleGoogleSessionExpired();
+                    } else {
+                        toast({
+                            title: t("sync.cloudSyncFailedTitle"),
+                            description: t("sync.diagnostics.auth_failed"),
+                            variant: "destructive"
+                        });
+                    }
                 }
             }
         };
@@ -168,7 +200,7 @@ export function AutoSyncProvider({
         } else if (provider?.onStatusChange) {
             return provider.onStatusChange(handleNewStatus);
         }
-    }, [activeGroupId, queryClient, toast, t]);
+    }, [activeGroupId, queryClient, toast, t, isOnline, handleGoogleSessionExpired]);
 
     // Core Sync Logic
     const checkUpdates = useCallback(async () => {
@@ -203,11 +235,15 @@ export function AutoSyncProvider({
                 lastKnownRemoteTimeRef.current = remoteTimeStr;
                 setLastSyncTime(new Date());
             }
-        } catch (e) {
+        } catch (e: any) {
+            lastSyncErrorRef.current = e;
             // Use debug to prevent console flooding on network loss
             console.debug("[AutoSync] Polling failed (silent):", e);
+            if (isOnline && isGoogle401Error(e)) {
+                handleGoogleSessionExpired();
+            }
         }
-    }, [activeGroupId, isEnabled, queryClient]);
+    }, [activeGroupId, isEnabled, queryClient, isOnline, handleGoogleSessionExpired]);
 
     // Keep the ref updated with the latest callback
     useEffect(() => {

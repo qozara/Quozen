@@ -39,7 +39,9 @@ export class GoogleSheetsTabularDriver implements TabularStorageDriver {
             } catch {}
 
             if (res.status === 401 || res.status === 403) {
-                throw new Error(`Google Auth Failed (${res.status}) during ${context}. Details: ${errText}`);
+                const error: any = new Error(`Google Auth Failed (${res.status}) during ${context}. Details: ${errText}`);
+                error.status = res.status;
+                throw error;
             }
             if (res.status === 429) {
                 throw new Error(`Google Sheets API Rate Limit / Quota Exceeded (429) during ${context}`);

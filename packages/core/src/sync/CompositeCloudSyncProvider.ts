@@ -161,7 +161,8 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
     protected initialized = false;
     protected status: SyncStatus = "disconnected";
     protected lastSyncedTime: string | null = null;
-    protected statusListeners: Set<(status: SyncStatus) => void> = new Set();
+    protected lastError: any = null;
+    protected statusListeners: Set<(status: SyncStatus, error?: any) => void> = new Set();
     protected blobDriver?: BlobStorageDriver;
     protected tabularDriver?: TabularStorageDriver;
     protected routes: Record<string, CollectionRoute>;
@@ -175,6 +176,10 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
         this.tabularDriver = options.tabularDriver;
         this.routes = options.routes || { ...DEFAULT_COLLECTION_ROUTES };
         this.activeGroupId = options.activeGroupId ?? null;
+    }
+
+    getLastError(): any {
+        return this.lastError;
     }
 
     setActiveGroupId(groupId: string | null): void {
@@ -197,18 +202,23 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
         return this.lastSyncedTime;
     }
 
-    onStatusChange(listener: (status: SyncStatus) => void): () => void {
+    onStatusChange(listener: (status: SyncStatus, error?: any) => void): () => void {
         this.statusListeners.add(listener);
         return () => {
             this.statusListeners.delete(listener);
         };
     }
 
-    protected setStatus(newStatus: SyncStatus): void {
+    protected setStatus(newStatus: SyncStatus, error?: any): void {
+        if (error !== undefined) {
+            this.lastError = error;
+        } else if (newStatus === "idle" || newStatus === "synced") {
+            this.lastError = null;
+        }
         this.status = newStatus;
         for (const listener of this.statusListeners) {
             try {
-                listener(newStatus);
+                listener(newStatus, this.lastError);
             } catch (err) {
                 console.error("Error in status change listener", err);
             }
@@ -445,27 +455,28 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
     }
 
     private handleSyncException(err: any): void {
+        this.lastError = err;
         const msg = String(err?.message || err);
         if (err?.name === "SchemaIncompatibleError" || msg.includes("incompatible")) {
-            this.setStatus("incompatible");
+            this.setStatus("incompatible", err);
             return;
         }
         if (err instanceof TableNotFoundError || err?.name === "TableNotFoundError") {
-            this.setStatus("upgrade_required");
+            this.setStatus("upgrade_required", err);
             return;
         }
         if (msg.includes("corruption") || msg.includes("missing required column") || err?.name === "SchemaCorruptedError") {
-            this.setStatus("corrupted");
+            this.setStatus("corrupted", err);
         } else if (msg.includes("upgrade") || err?.name === "SchemaUpgradeRequiredError") {
-            this.setStatus("upgrade_required");
+            this.setStatus("upgrade_required", err);
         } else if (msg.includes("Google Auth Failed") || msg.includes("401") || msg.includes("unauthorized")) {
-            this.setStatus("auth_failed");
+            this.setStatus("auth_failed", err);
         } else if (msg.includes("Rate Limit") || msg.includes("429")) {
-            this.setStatus("throttled");
+            this.setStatus("throttled", err);
         } else if (isNetworkError(err) || msg.includes("404") || msg.toLowerCase().includes("not found")) {
-            this.setStatus("idle");
+            this.setStatus("idle", err);
         } else {
-            this.setStatus("error");
+            this.setStatus("error", err);
         }
     }
 }
