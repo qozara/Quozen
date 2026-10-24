@@ -13,7 +13,7 @@ export const useAgent = () => {
     const { toast } = useToast();
     const { t, i18n } = useTranslation();
     const queryClient = useQueryClient();
-    const { provider } = useAiFeature();
+    const { provider, getOrResolveProvider } = useAiFeature();
 
     const executeCommand = async (prompt: string) => {
         if (!activeGroupId) {
@@ -25,7 +25,8 @@ export const useAgent = () => {
             return { success: false };
         }
 
-        if (!provider) {
+        const activeProvider = provider || (await getOrResolveProvider?.());
+        if (!activeProvider) {
             toast({
                 title: t('agent.errorTitle'),
                 description: t('agent.errorGeneric'),
@@ -37,7 +38,7 @@ export const useAgent = () => {
         try {
             const locale = settings?.preferences?.locale === 'system' ? i18n.language : (settings?.preferences?.locale || 'en');
 
-            const ai = new QuozenAI(quozen, provider);
+            const ai = new QuozenAI(quozen, activeProvider);
             const result = currentUserId
                 ? await ai.executeCommand(prompt, activeGroupId, locale, currentUserId)
                 : await ai.executeCommand(prompt, activeGroupId, locale);

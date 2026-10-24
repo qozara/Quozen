@@ -1,6 +1,6 @@
-import React, { Suspense, lazy, useEffect, useState, Component, ErrorInfo, ReactNode } from 'react';
+import React, { Suspense, lazy, useEffect, useState, Component, ErrorInfo, ReactNode, useRef, useCallback, useMemo } from 'react';
 import { AiFeatureContext, AiFeatureState } from './AiFeatureContext';
-import { AiProviderFactory } from '@quozen/core';
+import { AiProviderFactory, AiProvider } from '@quozen/core';
 import { useSettings } from '@/hooks/use-settings';
 import { getAuthToken } from '@/lib/tokenStore';
 
@@ -41,58 +41,90 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const [state, setState] = useState<AiFeatureState>({ status: 'checking' });
     const { settings, isLoading: settingsLoading } = useSettings();
 
+    const aiProvider = settings?.preferences?.aiProvider;
+    const encryptedApiKey = settings?.encryptedApiKey;
+    const ollamaBaseUrl = settings?.preferences?.ollamaBaseUrl;
+    const ollamaModel = settings?.preferences?.ollamaModel;
+    const byokProvider = settings?.preferences?.byokProvider;
+
+    const resolvedProviderRef = useRef<AiProvider | null>(null);
+
+    // Reset cached provider when AI settings change
     useEffect(() => {
-        const checkAvailability = async () => {
-            // Step 1: Check build flag
-            if (import.meta.env.VITE_DISABLE_AI === 'true') {
-                setState({ status: 'unavailable', reason: "Disabled via build configuration" });
-                return;
-            }
+        resolvedProviderRef.current = null;
+    }, [aiProvider, encryptedApiKey, ollamaBaseUrl, ollamaModel, byokProvider]);
 
-            const providerPreference = settings?.preferences?.aiProvider || 'auto';
-            if (providerPreference === 'disabled') {
-                setState({ status: 'unavailable', reason: "Disabled in user settings" });
-                return;
-            }
+    // Inspect AI availability (hide/show AI icon) on boot and when AI settings change
+    useEffect(() => {
+        if (settingsLoading) return;
 
-            try {
-                const config = {
-                    providerPreference: providerPreference as any,
-                    encryptedApiKey: settings?.encryptedApiKey,
-                    baseUrl: settings?.preferences?.ollamaBaseUrl || (import.meta as any).env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
-                    proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
-                    ollamaModel: settings?.preferences?.ollamaModel || (import.meta as any).env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
-                    byokProvider: settings?.preferences?.byokProvider || 'google'
-                };
-
-                const provider = await AiProviderFactory.createProvider(config, getAuthToken);
-                const isAvailable = await provider.checkAvailability();
-
-                if (isAvailable) {
-                    setState({ status: 'available', provider });
-                } else {
-                    const reason = `Provider ${provider.id} unreachable`;
-                    setState({ status: 'unavailable', reason });
-                    console.info("[Agentic UI] Disabled:", reason);
-                }
-            } catch (error: any) {
-                const reason = error.message || "Initialization error";
-                setState({ status: 'unavailable', reason });
-                console.info("[Agentic UI] Disabled:", reason);
-            }
-        };
-
-        if (!settingsLoading) {
-            checkAvailability();
+        // Step 1: Check build flag
+        if (import.meta.env.VITE_DISABLE_AI === 'true') {
+            setState({ status: 'unavailable', reason: "Disabled via build configuration" });
+            return;
         }
-    }, [settings, settingsLoading]);
+
+        const providerPreference = aiProvider || 'auto';
+        if (providerPreference === 'disabled') {
+            setState({ status: 'unavailable', reason: "Disabled in user settings" });
+            return;
+        }
+
+        setState(prev => ({
+            ...prev,
+            status: 'available',
+            provider: resolvedProviderRef.current || undefined
+        }));
+    }, [aiProvider, encryptedApiKey, ollamaBaseUrl, ollamaModel, byokProvider, settingsLoading]);
+
+    const getOrResolveProvider = useCallback(async (): Promise<AiProvider | null> => {
+        if (resolvedProviderRef.current) {
+            return resolvedProviderRef.current;
+        }
+
+        const providerPreference = aiProvider || 'auto';
+        if (providerPreference === 'disabled' || import.meta.env.VITE_DISABLE_AI === 'true') {
+            return null;
+        }
+
+        try {
+            const config = {
+                providerPreference: providerPreference as any,
+                encryptedApiKey,
+                baseUrl: ollamaBaseUrl || (import.meta as any).env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
+                proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
+                ollamaModel: ollamaModel || (import.meta as any).env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
+                byokProvider: byokProvider || 'google'
+            };
+
+            const provider = await AiProviderFactory.createProvider(config, getAuthToken);
+            const isAvailable = await provider.checkAvailability();
+
+            if (isAvailable) {
+                resolvedProviderRef.current = provider;
+                setState(prev => ({ ...prev, provider }));
+                return provider;
+            } else {
+                console.info("[Agentic UI] Provider unreachable:", provider.id);
+                return null;
+            }
+        } catch (error: any) {
+            console.error("[Agentic UI] Error resolving provider:", error);
+            return null;
+        }
+    }, [aiProvider, encryptedApiKey, ollamaBaseUrl, ollamaModel, byokProvider]);
 
     const handleModuleError = () => {
         setState({ status: 'unavailable', reason: "Module load failure" });
     };
 
+    const contextValue = useMemo<AiFeatureState>(() => ({
+        ...state,
+        getOrResolveProvider
+    }), [state, getOrResolveProvider]);
+
     return (
-        <AiFeatureContext.Provider value={state}>
+        <AiFeatureContext.Provider value={contextValue}>
             {children}
             {state.status === 'available' && (
                 <AiErrorBoundary onCatch={handleModuleError}>
