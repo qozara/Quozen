@@ -9,6 +9,7 @@ export interface UserSettingsDocType {
     groupCache: CachedGroup[];
     preferences: UserSettings["preferences"];
     encryptedApiKey?: string;
+    preferencesUpdatedAt?: string;
     lastUpdated: string;
     updatedAt: string;
     deletedAt?: string | null;
@@ -87,7 +88,8 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     lastAccessed: { type: "string" },
                     validationStatus: { type: "string" },
                     isHydrated: { type: "boolean" },
-                    pendingRename: { type: "boolean" }
+                    pendingRename: { type: "boolean" },
+                    updatedAt: { type: "string" }
                 },
                 required: ["id", "name", "role"]
             }
@@ -106,6 +108,7 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
             required: ["defaultCurrency"]
         },
         encryptedApiKey: { type: "string" },
+        preferencesUpdatedAt: { type: "string" },
         lastUpdated: { type: "string" },
         updatedAt: { type: "string" },
         deletedAt: { type: ["string", "null"] }
@@ -361,6 +364,7 @@ export function userSettingsToDoc(settings: UserSettings, id = "global_settings"
         groupCache: (settings.groupCache || []).map(g => ({ ...g })),
         preferences: { ...settings.preferences },
         encryptedApiKey: settings.encryptedApiKey,
+        preferencesUpdatedAt: settings.preferencesUpdatedAt,
         lastUpdated: nowIso,
         updatedAt: nowIso,
         deletedAt: null
@@ -377,6 +381,9 @@ export function docToUserSettings(doc: UserSettingsDocType | DeepReadonlyObject<
     };
     if (doc.encryptedApiKey !== undefined) {
         settings.encryptedApiKey = doc.encryptedApiKey;
+    }
+    if (doc.preferencesUpdatedAt !== undefined) {
+        settings.preferencesUpdatedAt = doc.preferencesUpdatedAt;
     }
     return settings;
 }

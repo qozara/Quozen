@@ -231,5 +231,30 @@ describe("AutoSyncContext", () => {
 
         delete (quozen as any).replication;
     });
+
+    it("syncs user_settings and is not paused when activeGroupId is empty", async () => {
+        (useAppContext as any).mockReturnValue({ activeGroupId: "" });
+        const syncMock = vi.fn().mockResolvedValue(undefined);
+        (quozen as any).replication = {
+            sync: syncMock
+        };
+
+        const { result } = renderHook(() => useAutoSync(), { wrapper });
+
+        // AutoSync should NOT be paused simply because activeGroupId is empty
+        expect(result.current.isPaused).toBe(false);
+
+        await act(async () => {
+            await Promise.resolve();
+        });
+
+        // Replication sync called without active group (syncs global user_settings)
+        expect(syncMock).toHaveBeenCalledWith(undefined);
+        expect(invalidateQueriesMock).toHaveBeenCalledWith({ queryKey: ["drive", "settings"] });
+        // Group-scoped check was not called
+        expect(quozen.getLastModified).not.toHaveBeenCalled();
+
+        delete (quozen as any).replication;
+    });
 });
 

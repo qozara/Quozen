@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { quozen } from "@/lib/storage";
-import { UserSettings } from "@quozen/core";
+import { UserSettings, docToUserSettings } from "@quozen/core";
 import { useAuth } from "@/context/auth-provider";
 import { useEffect } from "react";
 import i18n from "@/lib/i18n";
@@ -18,6 +18,55 @@ export function useSettings() {
     enabled: !!user?.email && isAuthenticated,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
+
+  // Reactive RxDB subscription to global_settings document
+  useEffect(() => {
+    if (!isAuthenticated || !user?.email) return;
+
+    let sub: { unsubscribe: () => void } | undefined;
+    let isCancelled = false;
+
+    const setupSubscription = () => {
+      const db = (quozen.db as any);
+      if (!db?.user_settings) return false;
+
+      const observable = db.user_settings.findOne("global_settings").$;
+      if (!observable?.subscribe) return false;
+
+      sub = observable.subscribe({
+        next: (doc: any) => {
+          if (!doc || isCancelled) return;
+          const raw = doc.toJSON ? doc.toJSON() : doc;
+          if (raw.deletedAt) return;
+          const newSettings = docToUserSettings(raw);
+          queryClient.setQueryData(queryKey, newSettings);
+          void queryClient.invalidateQueries({ queryKey: ["drive", "groups", user?.email] });
+        },
+        error: (err: any) => {
+          console.warn("[useSettings] RxDB subscription error:", err);
+        }
+      });
+      return true;
+    };
+
+    if (!setupSubscription()) {
+      const interval = setInterval(() => {
+        if (setupSubscription()) {
+          clearInterval(interval);
+        }
+      }, 300);
+      return () => {
+        isCancelled = true;
+        clearInterval(interval);
+        sub?.unsubscribe();
+      };
+    }
+
+    return () => {
+      isCancelled = true;
+      sub?.unsubscribe();
+    };
+  }, [isAuthenticated, user?.email, queryClient]);
 
   // Sync i18n with settings
   useEffect(() => {

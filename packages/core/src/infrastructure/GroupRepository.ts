@@ -53,8 +53,10 @@ export class GroupRepository {
         const settings = await this.getSettings();
         const cached = settings.groupCache.find(g => g.id === groupId);
         if (cached) {
+            const nowIso = new Date().toISOString();
             cached.accountId = accountId;
-            cached.lastAccessed = new Date().toISOString();
+            cached.lastAccessed = nowIso;
+            cached.updatedAt = nowIso;
             await this.saveSettings(settings);
         }
     }
@@ -76,27 +78,55 @@ export class GroupRepository {
             }
         }
 
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+
         if (this.blobDriver) {
+            let blobData: any = null;
             try {
-                const blobData = await this.blobDriver.readBlob<any>(SETTINGS_FILE_NAME);
-                if (blobData) {
-                    const raw = Array.isArray(blobData) ? blobData[0] : blobData;
-                    if (raw && raw.version) {
-                        const settings = this.syncAccountIdCache(raw.id ? docToUserSettings(raw) : (raw as UserSettings));
-                        if (this.db) {
-                            const doc = userSettingsToDoc(settings);
-                            await this.db.user_settings.upsert(doc);
-                            ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, [doc]);
-                        }
-                        return settings;
-                    }
+                blobData = await this.blobDriver.readBlob<any>(SETTINGS_FILE_NAME);
+            } catch (blobErr: any) {
+                if (isOffline) {
+                    return {
+                        version: 1,
+                        activeGroupId: null,
+                        groupCache: [],
+                        preferences: { defaultCurrency: "USD", theme: "system" },
+                        lastUpdated: new Date().toISOString()
+                    };
                 }
-            } catch {
-                // Fall through to storage or reconcile
+                throw blobErr;
+            }
+
+            if (blobData) {
+                const raw = Array.isArray(blobData) ? blobData[0] : blobData;
+                if (raw && raw.version) {
+                    const settings = this.syncAccountIdCache(raw.id ? docToUserSettings(raw) : (raw as UserSettings));
+                    if (this.db) {
+                        const doc = userSettingsToDoc(settings);
+                        await this.db.user_settings.upsert(doc);
+                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, [doc]);
+                    }
+                    return settings;
+                }
             }
         }
 
-        const files = await this.storage.listFiles(`name = '${SETTINGS_FILE_NAME}' and trashed = false`);
+        let files: any[] = [];
+        try {
+            files = await this.storage.listFiles(`name = '${SETTINGS_FILE_NAME}' and trashed = false`);
+        } catch (storageErr: any) {
+            if (isOffline) {
+                return {
+                    version: 1,
+                    activeGroupId: null,
+                    groupCache: [],
+                    preferences: { defaultCurrency: "USD", theme: "system" },
+                    lastUpdated: new Date().toISOString()
+                };
+            }
+            throw storageErr;
+        }
+
         if (files.length > 0) {
             let fileToUse = files[0];
             // Self-healing: clean up duplicate settings files if they occur
@@ -118,8 +148,17 @@ export class GroupRepository {
                     }
                     return settings;
                 }
-            } catch (e) {
-                // Fall through to reconcile
+            } catch (e: any) {
+                if (isOffline) {
+                    return {
+                        version: 1,
+                        activeGroupId: null,
+                        groupCache: [],
+                        preferences: { defaultCurrency: "USD", theme: "system" },
+                        lastUpdated: new Date().toISOString()
+                    };
+                }
+                throw e;
             }
         }
         return this.reconcileGroups();
@@ -127,8 +166,27 @@ export class GroupRepository {
 
     async saveSettings(settings: UserSettings): Promise<void> {
         this.syncAccountIdCache(settings);
-        settings.lastUpdated = new Date().toISOString();
+        const nowIso = new Date().toISOString();
+        settings.lastUpdated = nowIso;
+
         if (this.db) {
+            try {
+                const existingDoc = await this.db.user_settings.findOne("global_settings").exec();
+                if (existingDoc && !existingDoc.deletedAt) {
+                    const prev = existingDoc.toJSON();
+                    const prefsChanged = JSON.stringify(prev.preferences || {}) !== JSON.stringify(settings.preferences || {});
+                    const keyChanged = prev.encryptedApiKey !== settings.encryptedApiKey;
+                    if (prefsChanged || keyChanged || !settings.preferencesUpdatedAt) {
+                        settings.preferencesUpdatedAt = nowIso;
+                    } else {
+                        settings.preferencesUpdatedAt = prev.preferencesUpdatedAt;
+                    }
+                } else {
+                    settings.preferencesUpdatedAt = settings.preferencesUpdatedAt || nowIso;
+                }
+            } catch {
+                settings.preferencesUpdatedAt = settings.preferencesUpdatedAt || nowIso;
+            }
             await this.db.user_settings.upsert(userSettingsToDoc(settings));
             const isMockE2E =
                 typeof globalThis !== "undefined" &&
@@ -137,9 +195,11 @@ export class GroupRepository {
                 typeof globalThis !== "undefined" &&
                 (globalThis as any).navigator?.onLine === false;
             if (isOffline || (this.onMutation && !isMockE2E)) {
-                this.onMutation?.(settings.activeGroupId || undefined);
+                await this.onMutation?.(settings.activeGroupId || undefined);
                 return;
             }
+        } else {
+            settings.preferencesUpdatedAt = settings.preferencesUpdatedAt || nowIso;
         }
 
         if (this.blobDriver) {
@@ -189,21 +249,53 @@ export class GroupRepository {
             throw new OfflineOperationError("This operation requires an internet connection.", "reconcileGroups");
         }
 
-        const files = await this.storage.listFiles(`properties has { key='quozen_type' and value='group' } and trashed = false`);
-        const visibleGroups: CachedGroup[] = files.map(file => ({
-            id: file.id,
-            name: file.name.startsWith(QUOZEN_PREFIX) ? file.name.slice(QUOZEN_PREFIX.length) : file.name,
-            role: (file.owners?.some((o: any) => o.emailAddress === this.user.email) || file.capabilities?.canDelete) ? "owner" as const : "member" as const,
-            ...(this.accountIdCache.get(file.id) ? { accountId: this.accountIdCache.get(file.id) } : {}),
-            lastAccessed: file.createdTime
-        })).sort((a, b) => new Date(b.lastAccessed || 0).getTime() - new Date(a.lastAccessed || 0).getTime());
+        let existingSettings: UserSettings | null = null;
+        if (this.db) {
+            try {
+                const doc = await this.db.user_settings.findOne("global_settings").exec();
+                if (doc && !doc.deletedAt) {
+                    existingSettings = docToUserSettings(doc.toJSON());
+                }
+            } catch {}
+        }
 
+        const files = await this.storage.listFiles(`properties has { key='quozen_type' and value='group' } and trashed = false`);
+        const existingGroupMap = new Map<string, CachedGroup>();
+        if (existingSettings?.groupCache) {
+            for (const g of existingSettings.groupCache) {
+                if (g && g.id) existingGroupMap.set(g.id, g);
+            }
+        }
+
+        const visibleGroups: CachedGroup[] = files.map(file => {
+            const existing = existingGroupMap.get(file.id);
+            const accountId = this.accountIdCache.get(file.id) || existing?.accountId;
+            return {
+                id: file.id,
+                name: file.name.startsWith(QUOZEN_PREFIX) ? file.name.slice(QUOZEN_PREFIX.length) : file.name,
+                role: (file.owners?.some((o: any) => o.emailAddress === this.user.email) || file.capabilities?.canDelete) ? ("owner" as const) : ("member" as const),
+                ...(accountId ? { accountId } : {}),
+                lastAccessed: existing?.lastAccessed || file.createdTime,
+                ...(existing?.isHydrated !== undefined ? { isHydrated: existing.isHydrated } : {}),
+                ...(existing?.pendingRename !== undefined ? { pendingRename: existing.pendingRename } : {}),
+                ...(existing?.validationStatus !== undefined ? { validationStatus: existing.validationStatus } : {}),
+                ...(existing?.updatedAt ? { updatedAt: existing.updatedAt } : {})
+            };
+        }).sort((a, b) => new Date(b.lastAccessed || 0).getTime() - new Date(a.lastAccessed || 0).getTime());
+
+        const activeGroupId = existingSettings?.activeGroupId && visibleGroups.some(g => g.id === existingSettings.activeGroupId)
+            ? existingSettings.activeGroupId
+            : visibleGroups[0]?.id || null;
+
+        const nowIso = new Date().toISOString();
         const settings: UserSettings = {
-            version: 1,
-            activeGroupId: visibleGroups[0]?.id || null,
+            version: existingSettings?.version || 1,
+            activeGroupId,
             groupCache: visibleGroups,
-            preferences: { defaultCurrency: "USD", theme: "system" },
-            lastUpdated: new Date().toISOString()
+            preferences: existingSettings?.preferences ? { ...existingSettings.preferences } : { defaultCurrency: "USD", theme: "system" },
+            ...(existingSettings?.preferencesUpdatedAt ? { preferencesUpdatedAt: existingSettings.preferencesUpdatedAt } : {}),
+            ...(existingSettings?.encryptedApiKey ? { encryptedApiKey: existingSettings.encryptedApiKey } : {}),
+            lastUpdated: nowIso
         };
         await this.saveSettings(settings);
         return settings;
@@ -333,7 +425,8 @@ export class GroupRepository {
                 id: fileId,
                 name,
                 role: "owner",
-                lastAccessed: new Date().toISOString(),
+                lastAccessed: nowIso,
+                updatedAt: nowIso,
                 validationStatus: ValidationStatus.READY,
                 isHydrated: true
             });
@@ -489,6 +582,7 @@ export class GroupRepository {
         const groupName = validation.name || "Imported Group";
         const cleanName = groupName.startsWith(QUOZEN_PREFIX) ? groupName.slice(QUOZEN_PREFIX.length) : groupName;
 
+        const nowIso = new Date().toISOString();
         const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
         if (!cachedGroup) {
             settings.groupCache.unshift({
@@ -496,7 +590,8 @@ export class GroupRepository {
                 name: cleanName,
                 role,
                 ...(linkedAccountId ? { accountId: linkedAccountId } : {}),
-                lastAccessed: new Date().toISOString(),
+                lastAccessed: nowIso,
+                updatedAt: nowIso,
                 validationStatus: validation.status
             });
         } else {
@@ -504,7 +599,8 @@ export class GroupRepository {
             if (linkedAccountId) {
                 cachedGroup.accountId = linkedAccountId;
             }
-            cachedGroup.lastAccessed = new Date().toISOString();
+            cachedGroup.lastAccessed = nowIso;
+            cachedGroup.updatedAt = nowIso;
             cachedGroup.validationStatus = validation.status;
         }
 
@@ -682,6 +778,7 @@ export class GroupRepository {
             cachedGroup.name = name;
             cachedGroup.pendingRename = pendingRename;
             if (nameChanged || renameChanged) {
+                cachedGroup.updatedAt = new Date().toISOString();
                 await this.saveSettings(settings);
             }
         }

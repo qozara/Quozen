@@ -70,6 +70,7 @@ export default function Profile() {
   const [draftOllamaUrl, setDraftOllamaUrl] = React.useState(settings?.preferences?.ollamaBaseUrl || "");
   const [draftOllamaModel, setDraftOllamaModel] = React.useState(settings?.preferences?.ollamaModel || "");
   const [draftByokProvider, setDraftByokProvider] = React.useState(settings?.preferences?.byokProvider || "google");
+  const [isAiDirty, setIsAiDirty] = React.useState(false);
   const [isVerifying, setIsVerifying] = React.useState(false);
   const [isOnlineRequiredOpen, setIsOnlineRequiredOpen] = React.useState(false);
 
@@ -82,13 +83,19 @@ export default function Profile() {
   const isOnline = autoSync?.isOnline ?? (typeof navigator !== "undefined" ? navigator.onLine !== false : true);
 
   React.useEffect(() => {
-    if (settings) {
-      setDraftProvider(prev => prev === "auto" ? (settings.preferences.aiProvider || "auto") : prev);
-      setDraftOllamaUrl(prev => prev === "" ? (settings.preferences.ollamaBaseUrl || "") : prev);
-      setDraftOllamaModel(prev => prev === "" ? (settings.preferences.ollamaModel || "") : prev);
-      setDraftByokProvider(prev => prev === "google" ? (settings.preferences.byokProvider || "google") : prev);
+    if (!isAiDirty && settings?.preferences) {
+      setDraftProvider(settings.preferences.aiProvider || "auto");
+      setDraftOllamaUrl(settings.preferences.ollamaBaseUrl || "");
+      setDraftOllamaModel(settings.preferences.ollamaModel || "");
+      setDraftByokProvider(settings.preferences.byokProvider || "google");
     }
-  }, [settings?.preferences.aiProvider, settings?.preferences.ollamaBaseUrl, settings?.preferences.ollamaModel, settings?.preferences.byokProvider]);
+  }, [
+    isAiDirty,
+    settings?.preferences?.aiProvider,
+    settings?.preferences?.ollamaBaseUrl,
+    settings?.preferences?.ollamaModel,
+    settings?.preferences?.byokProvider
+  ]);
 
   const reconcileMutation = useMutation({
     mutationFn: async () => {
@@ -178,6 +185,7 @@ export default function Profile() {
       };
 
       await updateSettingsAsync(newSettings);
+      setIsAiDirty(false);
 
       if (draftProvider === 'byok' && apiKey.trim()) {
         setApiKey("");
@@ -383,7 +391,10 @@ export default function Profile() {
               </Label>
               <Select
                 value={draftProvider}
-                onValueChange={(value) => setDraftProvider(value as any)}
+                onValueChange={(value) => {
+                  setDraftProvider(value as any);
+                  setIsAiDirty(true);
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select provider" />
@@ -415,7 +426,10 @@ export default function Profile() {
                   </Label>
                   <Select
                     value={draftByokProvider}
-                    onValueChange={setDraftByokProvider}
+                    onValueChange={(value) => {
+                      setDraftByokProvider(value);
+                      setIsAiDirty(true);
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select provider" />
@@ -436,7 +450,10 @@ export default function Profile() {
                       type="password"
                       placeholder="sk-..."
                       value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
+                      onChange={(e) => {
+                        setApiKey(e.target.value);
+                        setIsAiDirty(true);
+                      }}
                       className="flex-1"
                     />
                   </div>
@@ -452,7 +469,10 @@ export default function Profile() {
                     type="text"
                     placeholder={import.meta.env.VITE_OLLAMA_URL || "http://localhost:11434/api"}
                     value={draftOllamaUrl}
-                    onChange={(e) => setDraftOllamaUrl(e.target.value)}
+                    onChange={(e) => {
+                      setDraftOllamaUrl(e.target.value);
+                      setIsAiDirty(true);
+                    }}
                   />
                 </div>
                 <div className="space-y-2">
@@ -461,7 +481,10 @@ export default function Profile() {
                     type="text"
                     placeholder={import.meta.env.VITE_OLLAMA_MODEL || "qwen2.5:0.5b"}
                     value={draftOllamaModel}
-                    onChange={(e) => setDraftOllamaModel(e.target.value)}
+                    onChange={(e) => {
+                      setDraftOllamaModel(e.target.value);
+                      setIsAiDirty(true);
+                    }}
                   />
                 </div>
               </div>

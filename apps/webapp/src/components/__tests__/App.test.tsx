@@ -95,6 +95,8 @@ describe("AuthenticatedApp Integration", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
+    localStorage.clear();
 
     (useAuth as any).mockReturnValue({
       user: mockUser,
@@ -154,5 +156,38 @@ describe("AuthenticatedApp Integration", () => {
 
     // 2. Verify persistence call - NOW SHOULD CALL updateActiveGroup, NOT updateSettings
     expect(mockUpdateActiveGroup).toHaveBeenCalledWith("group-2");
+    expect(sessionStorage.getItem("quozen_active_group_id")).toBe("group-2");
+    expect(localStorage.getItem("quozen_active_group_id")).toBe("group-2");
+  });
+
+  it("preserves tab-isolated active group from sessionStorage without letting settings override it", async () => {
+    // Tab 1 has group-2 selected in its sessionStorage, while cloud settings says group-1
+    sessionStorage.setItem("quozen_active_group_id", "group-2");
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <AuthenticatedApp />
+      </MemoryRouter>
+    );
+
+    // Tab 1 must stay on group-2 despite settings having group-1
+    await waitFor(() => expect(screen.getByTestId("active-group-id")).toHaveTextContent("Active: group-2"));
+  });
+
+  it("falls back to initial cloud handoff when local storage is unset", async () => {
+    // New device / fresh session: neither sessionStorage nor localStorage has an active group
+    expect(sessionStorage.getItem("quozen_active_group_id")).toBeNull();
+    expect(localStorage.getItem("quozen_active_group_id")).toBeNull();
+
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <AuthenticatedApp />
+      </MemoryRouter>
+    );
+
+    // Should adopt group-1 from cloud settings
+    await waitFor(() => expect(screen.getByTestId("active-group-id")).toHaveTextContent("Active: group-1"));
+    expect(sessionStorage.getItem("quozen_active_group_id")).toBe("group-1");
+    expect(localStorage.getItem("quozen_active_group_id")).toBe("group-1");
   });
 });

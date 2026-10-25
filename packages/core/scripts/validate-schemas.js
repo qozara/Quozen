@@ -10,6 +10,7 @@ const V0_BASELINE = {
             "groupCache",
             "preferences",
             "encryptedApiKey",
+            "preferencesUpdatedAt",
             "lastUpdated",
             "updatedAt",
             "deletedAt"
