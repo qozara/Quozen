@@ -162,8 +162,9 @@ export class LedgerService {
             this.assertValidAmount(payload.amount, "Expense amount");
         }
 
-        const expenses = await this.repo.getExpenses();
-        const current = expenses.find(e => e.id === expenseId);
+        const current = typeof this.repo.getExpenseById === "function"
+            ? await this.repo.getExpenseById(expenseId)
+            : (await this.repo.getExpenses()).find(e => e.id === expenseId);
         if (!current) throw new Error("Expense not found");
 
         if (expectedLastModified && current.updatedAt.getTime() > expectedLastModified.getTime()) {
@@ -247,8 +248,9 @@ export class LedgerService {
             this.assertValidAmount(payload.amount, "Settlement amount");
         }
 
-        const settlements = await this.repo.getSettlements();
-        const current = settlements.find(s => s.id === settlementId);
+        const current = typeof this.repo.getSettlementById === "function"
+            ? await this.repo.getSettlementById(settlementId)
+            : (await this.repo.getSettlements()).find(s => s.id === settlementId);
         if (!current) throw new Error("Settlement not found");
 
         const targetFrom = payload.fromUserId ?? current.fromUserId;

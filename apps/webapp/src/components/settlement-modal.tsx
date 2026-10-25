@@ -48,7 +48,7 @@ export default function SettlementModal({
   users = [],
   initialData
 }: SettlementModalProps) {
-  const { activeGroupId } = useAppContext();
+  const { activeGroupId, currentUserId } = useAppContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -98,12 +98,12 @@ export default function SettlementModal({
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
       if (initialData) {
-        return await quozen.ledger(activeGroupId).updateSettlement(initialData.id, {
+        return await quozen.ledger(activeGroupId, currentUserId).updateSettlement(initialData.id, {
           ...data,
           date: data.date ? new Date(data.date) : new Date()
         });
       } else {
-        return await quozen.ledger(activeGroupId).addSettlement({
+        return await quozen.ledger(activeGroupId, currentUserId).addSettlement({
           ...data,
           date: data.date ? new Date(data.date) : new Date()
         });
@@ -127,7 +127,7 @@ export default function SettlementModal({
   const deleteMutation = useMutation({
     mutationFn: async () => {
       if (!initialData) throw new Error("Missing initialData");
-      return await quozen.ledger(activeGroupId).deleteSettlement(initialData.id);
+      return await quozen.ledger(activeGroupId, currentUserId).deleteSettlement(initialData.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });

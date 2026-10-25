@@ -109,14 +109,19 @@ export default function Groups() {
     if (loadingGroupId) return;
     setLoadingGroupId(group.id);
     try {
-      if (isOnline && quozen.replication) {
+      let members = await quozen.ledger(group.id).getMembers();
+      if (members.length === 0 && isOnline && quozen.replication) {
         try {
           await quozen.replication.sync(group.id);
+          members = await quozen.ledger(group.id).getMembers();
         } catch (syncErr) {
           console.warn("Could not sync group before editing:", syncErr);
         }
+      } else if (isOnline && quozen.replication) {
+        void quozen.replication.sync(group.id).catch((syncErr) => {
+          console.warn("Could not sync group in background:", syncErr);
+        });
       }
-      const members = await quozen.ledger(group.id).getMembers();
       if (!isOnline && members.length === 0) {
         setOnlineRequired({ open: true, reason: "editUnhydratedGroup" });
         return;

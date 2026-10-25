@@ -65,7 +65,7 @@ export default function ExpensesList({ expenses = [], members = [], categories =
 
   const deleteMutation = useMutation({
     mutationFn: (expense: Expense) => {
-      return quozen.ledger(activeGroupId).deleteExpense(expense.id);
+      return quozen.ledger(activeGroupId, currentUserId).deleteExpense(expense.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });

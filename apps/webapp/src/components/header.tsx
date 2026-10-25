@@ -36,7 +36,7 @@ export default function Header() {
   // 2. Fetch active group data (content)
   const { data: ledger, isFetching: isDataFetching } = useQuery({
     queryKey: ["drive", "group", activeGroupId],
-    queryFn: () => quozen.ledger(activeGroupId).getLedger(),
+    queryFn: () => quozen.ledger(activeGroupId, currentUserId).getLedger(),
     enabled: !!activeGroupId,
   });
 

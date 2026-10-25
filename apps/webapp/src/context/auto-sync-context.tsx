@@ -64,6 +64,7 @@ export function AutoSyncProvider({
     const [routePaused, setRoutePaused] = useState(false);
     const [pageHidden, setPageHidden] = useState(document.hidden);
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+    const lastSyncTimeRef = useRef<Date | null>(null);
     const [isOnline, setIsOnline] = useState<boolean>(() =>
         typeof navigator !== "undefined" ? navigator.onLine !== false : true
     );
@@ -203,7 +204,9 @@ export function AutoSyncProvider({
 
             if (prev === "syncing" && newStatus === "idle") {
                 const syncedTimeStr = provider?.getLastSyncedTime?.();
-                setLastSyncTime(syncedTimeStr ? new Date(syncedTimeStr) : new Date());
+                const now = syncedTimeStr ? new Date(syncedTimeStr) : new Date();
+                setLastSyncTime(now);
+                lastSyncTimeRef.current = now;
                 void queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
                 if (activeGroupId) {
                     void queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
@@ -257,7 +260,9 @@ export function AutoSyncProvider({
             }
             if (quozen.replication) {
                 await quozen.replication.sync(activeGroupId || undefined);
-                setLastSyncTime(new Date());
+                const now = new Date();
+                setLastSyncTime(now);
+                lastSyncTimeRef.current = now;
             }
 
             if (activeGroupId) {
@@ -334,8 +339,12 @@ export function AutoSyncProvider({
             checkUpdatesRef.current();
         };
 
-        // Perform an immediate check on mount/resume
-        executeCheck();
+        // Perform an immediate check on mount/resume only if we don't have a very recent sync (< 3s)
+        const lastSync = lastSyncTimeRef.current;
+        const isFresh = lastSync && (Date.now() - lastSync.getTime()) < 3000;
+        if (!isFresh) {
+            executeCheck();
+        }
 
         const intervalId = setInterval(executeCheck, pollingInterval * 1000);
 

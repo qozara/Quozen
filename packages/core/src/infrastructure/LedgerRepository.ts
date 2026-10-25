@@ -184,32 +184,11 @@ export class LedgerRepository {
             }
 
             ReplicationCoordinator.markGroupHydrated(this.db.name, this.groupId);
+            await CategoryIntegrityReconciler.reconcile(this.db, this.groupId);
         } else if (existingCategories.length === 0) {
-            let categoryRows: any[][] = [];
-            try {
-                const res = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
-                categoryRows = res[0]?.values || [];
-            } catch {
-                categoryRows = [];
-            }
-            if (categoryRows.length > 1) {
-                const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
-                const cDocs = categoryRows
-                    .slice(1)
-                    .filter(nonEmptyRow)
-                    .map((r: any[], i: number) =>
-                        categoryToDoc(SheetDataMapper.mapToCategory(r, i + 2, cHeaders).entity, this.groupId)
-                    )
-                    .filter((d: any) => Boolean(d.categoryId));
-                if (cDocs.length > 0) {
-                    await this.db.collections.categories.bulkUpsert(cDocs);
-                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
-                }
-            } else {
-                const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
-                await this.db.collections.categories.bulkUpsert(cDocs);
-                ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
-            }
+            const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
+            await this.db.collections.categories.bulkUpsert(cDocs);
+            ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
         }
     }
 
@@ -328,6 +307,7 @@ export class LedgerRepository {
             if (categories.length > 0) {
                 return categories;
             }
+            return [...DEFAULT_CATEGORIES];
         }
 
         if (!this.storage) return [...DEFAULT_CATEGORIES];
@@ -349,10 +329,29 @@ export class LedgerRepository {
         }
     }
 
+    async getExpenseById(expenseId: string): Promise<Expense | null> {
+        if (this.db) {
+            const doc = await this.db.expenses.findOne(expenseId).exec();
+            if (!doc || doc.deletedAt) return null;
+            return docToExpense(doc.toJSON());
+        }
+        const expenses = await this.getExpenses();
+        return expenses.find(e => e.id === expenseId) || null;
+    }
+
+    async getSettlementById(settlementId: string): Promise<Settlement | null> {
+        if (this.db) {
+            const doc = await this.db.settlements.findOne(settlementId).exec();
+            if (!doc || doc.deletedAt) return null;
+            return docToSettlement(doc.toJSON());
+        }
+        const settlements = await this.getSettlements();
+        return settlements.find(s => s.id === settlementId) || null;
+    }
+
     async getExpenses(): Promise<Expense[]> {
         if (this.db) {
             await this.hydrateFromStorageIfNeeded();
-            await CategoryIntegrityReconciler.reconcile(this.db, this.groupId);
             const docs = await this.db.expenses.find({ selector: { groupId: this.groupId } }).exec();
             return docs
                 .map(d => d.toJSON())
@@ -402,7 +401,6 @@ export class LedgerRepository {
 
     async addExpense(expense: Expense): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             await this.db.expenses.upsert(expenseToDoc(expense, this.groupId));
             this.notifyMutation();
             return;
@@ -417,7 +415,6 @@ export class LedgerRepository {
 
     async updateExpense(expense: Expense, expectedLastModified?: Date): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.expenses.findOne(expense.id).exec();
             if (!existing || existing.deletedAt) throw new Error("Expense not found");
 
@@ -493,7 +490,6 @@ export class LedgerRepository {
 
     async deleteExpense(expenseId: string): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.expenses.findOne(expenseId).exec();
             if (!existing || existing.deletedAt) throw new Error("Expense not found");
             const nowIso = new Date().toISOString();
@@ -521,7 +517,6 @@ export class LedgerRepository {
 
     async addSettlement(settlement: Settlement): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             await this.db.settlements.upsert(settlementToDoc(settlement, this.groupId));
             this.notifyMutation();
             return;
@@ -536,7 +531,6 @@ export class LedgerRepository {
 
     async updateSettlement(settlement: Settlement): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.settlements.findOne(settlement.id).exec();
             if (!existing || existing.deletedAt) throw new Error("Settlement not found");
             await this.db.settlements.upsert(settlementToDoc({ ...settlement, updatedAt: new Date() }, this.groupId));
@@ -558,7 +552,6 @@ export class LedgerRepository {
 
     async deleteSettlement(settlementId: string): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             const existing = await this.db.settlements.findOne(settlementId).exec();
             if (!existing || existing.deletedAt) throw new Error("Settlement not found");
             const nowIso = new Date().toISOString();
@@ -586,7 +579,6 @@ export class LedgerRepository {
 
     async addMember(member: Member): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             await this.db.members.upsert(memberToDoc(member, this.groupId));
             this.notifyMutation();
             return;
@@ -601,7 +593,6 @@ export class LedgerRepository {
 
     async updateMember(member: Member): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             const docId = `${this.groupId}_${member.userId}`;
             const existing = await this.db.members.findOne(docId).exec();
             if (!existing || existing.deletedAt) throw new Error("Member not found");
@@ -624,7 +615,6 @@ export class LedgerRepository {
 
     async deleteMember(userId: string): Promise<void> {
         if (this.db) {
-            await this.hydrateFromStorageIfNeeded();
             const docId = `${this.groupId}_${userId}`;
             const existing = await this.db.members.findOne(docId).exec();
             if (!existing || existing.deletedAt) throw new Error("Member not found");
