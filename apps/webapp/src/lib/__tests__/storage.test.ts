@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { getQuozen, initQuozenStorage, resetQuozenStorage, quozen } from "../storage";
-import { destroyQuozenDatabase } from "@quozen/core";
+import { destroyQuozenDatabase, userSettingsSchema } from "@quozen/core";
+import { createRxDatabase, removeRxDatabase } from "rxdb";
+import { getRxStorageMemory } from "rxdb/plugins/storage-memory";
 import { onlineManager } from "@tanstack/react-query";
 import { queryClient } from "../queryClient";
 
@@ -111,6 +113,37 @@ describe("WebApp Storage & RxDB Initialization", () => {
         expect(settlements[0].amount).toBe(45);
         expect(settlements[0].method).toBe("venmo");
         expect(settlements[0].notes).toBe("Edited while offline");
+    });
+
+    it("self-heals when an unexpected RxDB DB6 schema hash mismatch occurs on quozendb", async () => {
+        const storage = getRxStorageMemory();
+        await removeRxDatabase("quozendb", storage).catch(() => {});
+
+        // Pre-populate quozendb with a mismatched schema at the same version (v1) to trigger DB6
+        const mismatchedDb = await createRxDatabase({
+            name: "quozendb",
+            storage
+        });
+        await mismatchedDb.addCollections({
+            user_settings: {
+                schema: {
+                    ...userSettingsSchema,
+                    properties: {
+                        ...userSettingsSchema.properties,
+                        unexpectedExtraField: { type: "string" }
+                    }
+                },
+                migrationStrategies: {
+                    1: (d: any) => d
+                }
+            }
+        });
+        await mismatchedDb.close();
+
+        // initQuozenStorage must catch DB6, clear quozendb, and return a healthy database
+        const db = await initQuozenStorage();
+        expect(db).toBeDefined();
+        expect(db.collections.user_settings).toBeDefined();
     });
 });
 

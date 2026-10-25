@@ -180,6 +180,217 @@ describe("WP3: RxDB Schema, Categories Collection, v0->v1 Migration & Self-Heali
         expect(expCustom?.category).toBe("other");
     });
 
+    it("migrates v0 user_settings (legacy schema without preferencesUpdatedAt or extended groupCache fields) to v1 without DB6 error", async () => {
+        const storage = getRxStorageMemory();
+        const dbName = `test_rxdb_usersettings_mig_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+        // 1. Open database with the exact legacy v0 user_settings schema from production before PR #70
+        const legacyV0UserSettingsSchema = {
+            title: "user_settings",
+            version: 0,
+            description: "Global user preferences and cached group metadata stored locally and in Drive appDataFolder",
+            primaryKey: "id",
+            type: "object",
+            properties: {
+                id: { type: "string", maxLength: 100 },
+                version: { type: "number", minimum: 1 },
+                activeGroupId: { type: ["string", "null"] },
+                groupCache: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            id: { type: "string" },
+                            name: { type: "string" },
+                            role: { type: "string", enum: ["owner", "member"] },
+                            lastAccessed: { type: "string" },
+                            validationStatus: { type: "string" }
+                        },
+                        required: ["id", "name", "role"]
+                    }
+                },
+                preferences: {
+                    type: "object",
+                    properties: {
+                        defaultCurrency: { type: "string" },
+                        theme: { type: "string" },
+                        locale: { type: "string" },
+                        aiProvider: { type: "string" },
+                        ollamaBaseUrl: { type: "string" },
+                        ollamaModel: { type: "string" },
+                        byokProvider: { type: "string" }
+                    },
+                    required: ["defaultCurrency"]
+                },
+                encryptedApiKey: { type: "string" },
+                lastUpdated: { type: "string" },
+                updatedAt: { type: "string" },
+                deletedAt: { type: ["string", "null"] }
+            },
+            required: ["id", "version", "groupCache", "preferences", "lastUpdated", "updatedAt"]
+        };
+
+        const dbV0 = await createRxDatabase({
+            name: dbName,
+            storage
+        });
+
+        await dbV0.addCollections({
+            user_settings: {
+                schema: legacyV0UserSettingsSchema
+            }
+        });
+
+        const nowIso = "2026-02-01T00:00:00.000Z";
+        await dbV0.user_settings.insert({
+            id: "global_settings",
+            version: 1,
+            activeGroupId: "group-1",
+            groupCache: [
+                {
+                    id: "group-1",
+                    name: "Trip to Japan",
+                    role: "owner",
+                    lastAccessed: nowIso,
+                    validationStatus: "READY"
+                }
+            ],
+            preferences: {
+                defaultCurrency: "EUR",
+                theme: "dark",
+                locale: "es"
+            },
+            lastUpdated: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null
+        });
+
+        await dbV0.close();
+
+        // 2. Re-open via createQuozenDatabase (must migrate v0 -> v1 without throwing DB6)
+        db = await createQuozenDatabase({
+            name: dbName,
+            storage
+        });
+
+        const migratedSettings = await db.user_settings.findOne("global_settings").exec();
+        expect(migratedSettings).not.toBeNull();
+        expect(migratedSettings?.activeGroupId).toBe("group-1");
+        expect(migratedSettings?.preferences.defaultCurrency).toBe("EUR");
+        expect(migratedSettings?.preferences.theme).toBe("dark");
+        expect(migratedSettings?.preferencesUpdatedAt).toBe(nowIso);
+        expect(migratedSettings?.groupCache).toHaveLength(1);
+        expect(migratedSettings?.groupCache[0].name).toBe("Trip to Japan");
+        expect(migratedSettings?.groupCache[0].updatedAt).toBe(nowIso);
+    });
+
+    it("migrates intermediate v0 user_settings (PR #70 schema at v0) to v1 without DB6 error", async () => {
+        const storage = getRxStorageMemory();
+        const dbName = `test_rxdb_usersettings_mig_inter_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+        const intermediateV0UserSettingsSchema = {
+            title: "user_settings",
+            version: 0,
+            description: "Global user preferences and cached group metadata stored locally and in Drive appDataFolder",
+            primaryKey: "id",
+            type: "object",
+            properties: {
+                id: { type: "string", maxLength: 100 },
+                version: { type: "number", minimum: 1 },
+                activeGroupId: { type: ["string", "null"] },
+                groupCache: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            id: { type: "string" },
+                            name: { type: "string" },
+                            role: { type: "string", enum: ["owner", "member"] },
+                            accountId: { type: "string" },
+                            lastAccessed: { type: "string" },
+                            validationStatus: { type: "string" },
+                            isHydrated: { type: "boolean" },
+                            pendingRename: { type: "boolean" },
+                            updatedAt: { type: "string" }
+                        },
+                        required: ["id", "name", "role"]
+                    }
+                },
+                preferences: {
+                    type: "object",
+                    properties: {
+                        defaultCurrency: { type: "string" },
+                        theme: { type: "string" },
+                        locale: { type: "string" },
+                        aiProvider: { type: "string" },
+                        ollamaBaseUrl: { type: "string" },
+                        ollamaModel: { type: "string" },
+                        byokProvider: { type: "string" }
+                    },
+                    required: ["defaultCurrency"]
+                },
+                encryptedApiKey: { type: "string" },
+                preferencesUpdatedAt: { type: "string" },
+                lastUpdated: { type: "string" },
+                updatedAt: { type: "string" },
+                deletedAt: { type: ["string", "null"] }
+            },
+            required: ["id", "version", "groupCache", "preferences", "lastUpdated", "updatedAt"]
+        };
+
+        const dbV0 = await createRxDatabase({
+            name: dbName,
+            storage
+        });
+
+        await dbV0.addCollections({
+            user_settings: {
+                schema: intermediateV0UserSettingsSchema
+            }
+        });
+
+        const nowIso = "2026-10-24T23:00:00.000Z";
+        await dbV0.user_settings.insert({
+            id: "global_settings",
+            version: 1,
+            activeGroupId: "group-2",
+            groupCache: [
+                {
+                    id: "group-2",
+                    name: "Roommates",
+                    role: "member",
+                    accountId: "acc-1",
+                    lastAccessed: nowIso,
+                    validationStatus: "READY",
+                    isHydrated: true,
+                    pendingRename: false,
+                    updatedAt: nowIso
+                }
+            ],
+            preferences: {
+                defaultCurrency: "USD",
+                theme: "light"
+            },
+            preferencesUpdatedAt: nowIso,
+            lastUpdated: nowIso,
+            updatedAt: nowIso,
+            deletedAt: null
+        });
+
+        await dbV0.close();
+
+        db = await createQuozenDatabase({
+            name: dbName,
+            storage
+        });
+
+        const migratedSettings = await db.user_settings.findOne("global_settings").exec();
+        expect(migratedSettings).not.toBeNull();
+        expect(migratedSettings?.activeGroupId).toBe("group-2");
+        expect(migratedSettings?.groupCache[0].accountId).toBe("acc-1");
+        expect(migratedSettings?.preferencesUpdatedAt).toBe(nowIso);
+    });
+
     it("CategoryIntegrityReconciler restores missing in-use categories automatically", async () => {
         db = await createQuozenDatabase({
             name: `test_reconcile_${Date.now()}_${Math.random().toString(36).slice(2)}`,
