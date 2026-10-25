@@ -8,9 +8,10 @@ import type {
     SyncDeltaPayload,
     SyncStatus
 } from "./types";
-import { SETTINGS_FILE_NAME } from "../types";
+import { SETTINGS_FILE_NAME, QUOZEN_PREFIX } from "../types";
 import { TableNotFoundError } from "../errors";
 import { SheetDataMapper, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP, DEFAULT_CATEGORY_MAP } from "../infrastructure/SheetDataMapper";
+import { mergeUserSettingsDocs } from "./UserSettingsMerger";
 import {
     expenseToDoc,
     docToExpense,
@@ -26,6 +27,13 @@ import {
     type MemberDocType,
     type CategoryDocType
 } from "../db/schemas";
+
+function parseTimestamp(val?: string | number | null): number {
+    if (!val) return 0;
+    if (typeof val === "number") return val;
+    const t = new Date(val).getTime();
+    return isNaN(t) ? 0 : t;
+}
 
 export const DEFAULT_COLLECTION_ROUTES: Record<string, CollectionRoute> = {
     user_settings: {
@@ -167,6 +175,7 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
     protected tabularDriver?: TabularStorageDriver;
     protected routes: Record<string, CollectionRoute>;
     protected activeGroupId: string | null;
+    protected lastPulledUserSettingsUpdatedAt: string | null = null;
 
     constructor(options: CompositeCloudSyncProviderOptions) {
         this.id = options.id;
@@ -272,57 +281,69 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
         // Only pull group-scoped tabular data if a groupId is explicitly requested
         const targetGroupId = groupId;
 
+        const results: SyncDeltaPayload[] = [];
+
+        // 1. Always pull blob routes (e.g. user_settings) first!
+        for (const [collection, route] of Object.entries(this.routes)) {
+            if (route.target === "blob" && this.blobDriver) {
+                try {
+                    const rawBlob = await this.blobDriver.readBlob<any>(route.filename);
+                    if (rawBlob) {
+                        const docs = Array.isArray(rawBlob)
+                            ? rawBlob
+                            : [rawBlob.id ? rawBlob : userSettingsToDoc(rawBlob)];
+                        if (collection === "user_settings" && docs[0]?.updatedAt) {
+                            this.lastPulledUserSettingsUpdatedAt = docs[0].updatedAt;
+                        }
+                        results.push({ collection, documents: docs });
+                    }
+                } catch (blobErr) {
+                    console.warn(`[Sync] Failed to read blob route ${route.filename}:`, blobErr);
+                }
+            }
+        }
+
         const isMockMode = typeof import.meta !== "undefined" && (import.meta as any).env && ((import.meta as any).env.VITE_USE_MOCK_STORAGE === "true" || (import.meta as any).env.VITE_USE_MOCK_STORAGE === "remote");
         if (!isMockMode && targetGroupId && typeof (this.tabularDriver as any)?.checkHealth === "function") {
             try {
                 const health = await (this.tabularDriver as any).checkHealth(targetGroupId);
                 if (health.status === "UPGRADE_REQUIRED") {
                     this.setStatus("upgrade_required");
-                    return [];
+                    return results;
                 }
                 if (health.status === "INCOMPATIBLE") {
                     this.setStatus("incompatible");
-                    return [];
+                    return results;
                 }
                 if (health.status === "CORRUPTED") {
                     this.setStatus("corrupted");
-                    return [];
+                    return results;
                 }
             } catch (healthErr: any) {
                 const healthMsg = String(healthErr?.message || healthErr);
                 if (healthMsg.includes("404") || healthMsg.toLowerCase().includes("not found")) {
                     console.warn(`[Sync] Group spreadsheet ${targetGroupId} checkHealth 404, skipping.`);
-                    return [];
+                    return results;
                 }
                 if (healthErr?.name === "SchemaIncompatibleError") {
                     this.setStatus("incompatible");
-                    return [];
+                    return results;
                 }
                 if (healthErr?.name === "SchemaUpgradeRequiredError" || healthMsg.includes("upgrade")) {
                     this.setStatus("upgrade_required");
-                    return [];
+                    return results;
                 }
                 if (healthErr?.name === "SchemaCorruptedError") {
                     this.setStatus("corrupted");
-                    return [];
+                    return results;
                 }
             }
         }
 
         this.setStatus("syncing");
         try {
-            const results: SyncDeltaPayload[] = [];
-
             for (const [collection, route] of Object.entries(this.routes)) {
-                if (route.target === "blob" && this.blobDriver) {
-                    const rawBlob = await this.blobDriver.readBlob<any>(route.filename);
-                    if (rawBlob) {
-                        const docs = Array.isArray(rawBlob)
-                            ? rawBlob
-                            : [rawBlob.id ? rawBlob : userSettingsToDoc(rawBlob)];
-                        results.push({ collection, documents: docs });
-                    }
-                } else if (route.target === "tabular" && this.tabularDriver && targetGroupId) {
+                if (route.target === "tabular" && this.tabularDriver && targetGroupId) {
                     const serializer = tabularSerializers[collection];
                     if (serializer) {
                         try {
@@ -360,8 +381,9 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
 
     async push(payload: SyncDeltaPayload): Promise<void> {
         if (!this.initialized) return;
-        if (this.status === "upgrade_required" || this.status === "corrupted" || this.status === "incompatible") return;
+        if (payload.collection !== "user_settings" && (this.status === "upgrade_required" || this.status === "corrupted" || this.status === "incompatible")) return;
 
+        const prevStatus = this.status;
         this.setStatus("syncing");
         try {
             const route = this.routes[payload.collection];
@@ -378,13 +400,64 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                         : [existingRaw.id ? existingRaw : userSettingsToDoc(existingRaw)]
                     : [];
 
-                const docMap = new Map(existingDocs.map(d => [d.id, d]));
-                for (const doc of payload.documents) {
-                    if (doc.id) {
-                        docMap.set(doc.id, doc);
+                let docsToWrite: Record<string, any>[] = [];
+
+                if (payload.collection === "user_settings") {
+                    const existingMap = new Map(existingDocs.map(d => [d.id || "global_settings", d]));
+                    const mergedDocs: Record<string, any>[] = [];
+
+                    for (const pushDoc of payload.documents) {
+                        const docId = pushDoc.id || "global_settings";
+                        const existingDoc = existingMap.get(docId);
+                        if (
+                            existingDoc &&
+                            this.lastPulledUserSettingsUpdatedAt &&
+                            parseTimestamp(existingDoc.updatedAt) > parseTimestamp(this.lastPulledUserSettingsUpdatedAt)
+                        ) {
+                            const { mergedDoc } = mergeUserSettingsDocs(pushDoc, existingDoc);
+                            mergedDocs.push(mergedDoc);
+                            existingMap.delete(docId);
+                        } else {
+                            mergedDocs.push(pushDoc);
+                            existingMap.delete(docId);
+                        }
                     }
+                    for (const remaining of existingMap.values()) {
+                        mergedDocs.push(remaining);
+                    }
+                    docsToWrite = mergedDocs;
+                    if (docsToWrite[0]?.updatedAt) {
+                        this.lastPulledUserSettingsUpdatedAt = docsToWrite[0].updatedAt;
+                    }
+
+                    const storageLayer = (this.tabularDriver as any)?.storageLayer;
+                    if (storageLayer && typeof storageLayer.updateFile === "function") {
+                        for (const doc of docsToWrite) {
+                            if (Array.isArray(doc.groupCache)) {
+                                for (const cg of doc.groupCache) {
+                                    if (cg && cg.pendingRename === true) {
+                                        try {
+                                            await storageLayer.updateFile(cg.id, { name: `${QUOZEN_PREFIX}${cg.name}` });
+                                            cg.pendingRename = false;
+                                        } catch (renameErr) {
+                                            console.warn(`[Sync] Failed to sync pending group rename for ${cg.id}:`, renameErr);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    const docMap = new Map(existingDocs.map(d => [d.id, d]));
+                    for (const doc of payload.documents) {
+                        if (doc.id) {
+                            docMap.set(doc.id, doc);
+                        }
+                    }
+                    docsToWrite = Array.from(docMap.values());
                 }
-                await this.blobDriver.writeBlob(route.filename, Array.from(docMap.values()));
+
+                await this.blobDriver.writeBlob(route.filename, docsToWrite);
             } else if (route.target === "tabular") {
                 if (!this.tabularDriver) {
                     throw new Error(`TabularStorageDriver is required for collection "${payload.collection}"`);
@@ -447,7 +520,11 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
             }
 
             this.lastSyncedTime = new Date().toISOString();
-            this.setStatus("idle");
+            if (prevStatus === "upgrade_required" || prevStatus === "corrupted" || prevStatus === "incompatible") {
+                this.setStatus(prevStatus);
+            } else {
+                this.setStatus("idle");
+            }
         } catch (err: any) {
             this.handleSyncException(err);
             throw err;

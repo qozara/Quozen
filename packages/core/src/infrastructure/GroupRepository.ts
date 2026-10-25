@@ -11,6 +11,7 @@ import { userSettingsToDoc, docToUserSettings, memberToDoc, categoryToDoc } from
 import type { BlobStorageDriver } from "../sync/types";
 import { isNetworkError } from "../sync/CompositeCloudSyncProvider";
 import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
+import { OfflineOperationError } from "../errors";
 
 export class GroupRepository {
     private accountIdCache = new Map<string, string>();
@@ -52,8 +53,10 @@ export class GroupRepository {
         const settings = await this.getSettings();
         const cached = settings.groupCache.find(g => g.id === groupId);
         if (cached) {
+            const nowIso = new Date().toISOString();
             cached.accountId = accountId;
-            cached.lastAccessed = new Date().toISOString();
+            cached.lastAccessed = nowIso;
+            cached.updatedAt = nowIso;
             await this.saveSettings(settings);
         }
     }
@@ -75,27 +78,55 @@ export class GroupRepository {
             }
         }
 
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+
         if (this.blobDriver) {
+            let blobData: any = null;
             try {
-                const blobData = await this.blobDriver.readBlob<any>(SETTINGS_FILE_NAME);
-                if (blobData) {
-                    const raw = Array.isArray(blobData) ? blobData[0] : blobData;
-                    if (raw && raw.version) {
-                        const settings = this.syncAccountIdCache(raw.id ? docToUserSettings(raw) : (raw as UserSettings));
-                        if (this.db) {
-                            const doc = userSettingsToDoc(settings);
-                            await this.db.user_settings.upsert(doc);
-                            ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, [doc]);
-                        }
-                        return settings;
-                    }
+                blobData = await this.blobDriver.readBlob<any>(SETTINGS_FILE_NAME);
+            } catch (blobErr: any) {
+                if (isOffline) {
+                    return {
+                        version: 1,
+                        activeGroupId: null,
+                        groupCache: [],
+                        preferences: { defaultCurrency: "USD", theme: "system" },
+                        lastUpdated: new Date().toISOString()
+                    };
                 }
-            } catch {
-                // Fall through to storage or reconcile
+                throw blobErr;
+            }
+
+            if (blobData) {
+                const raw = Array.isArray(blobData) ? blobData[0] : blobData;
+                if (raw && raw.version) {
+                    const settings = this.syncAccountIdCache(raw.id ? docToUserSettings(raw) : (raw as UserSettings));
+                    if (this.db) {
+                        const doc = userSettingsToDoc(settings);
+                        await this.db.user_settings.upsert(doc);
+                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, [doc]);
+                    }
+                    return settings;
+                }
             }
         }
 
-        const files = await this.storage.listFiles(`name = '${SETTINGS_FILE_NAME}' and trashed = false`);
+        let files: any[] = [];
+        try {
+            files = await this.storage.listFiles(`name = '${SETTINGS_FILE_NAME}' and trashed = false`);
+        } catch (storageErr: any) {
+            if (isOffline) {
+                return {
+                    version: 1,
+                    activeGroupId: null,
+                    groupCache: [],
+                    preferences: { defaultCurrency: "USD", theme: "system" },
+                    lastUpdated: new Date().toISOString()
+                };
+            }
+            throw storageErr;
+        }
+
         if (files.length > 0) {
             let fileToUse = files[0];
             // Self-healing: clean up duplicate settings files if they occur
@@ -117,8 +148,17 @@ export class GroupRepository {
                     }
                     return settings;
                 }
-            } catch (e) {
-                // Fall through to reconcile
+            } catch (e: any) {
+                if (isOffline) {
+                    return {
+                        version: 1,
+                        activeGroupId: null,
+                        groupCache: [],
+                        preferences: { defaultCurrency: "USD", theme: "system" },
+                        lastUpdated: new Date().toISOString()
+                    };
+                }
+                throw e;
             }
         }
         return this.reconcileGroups();
@@ -126,8 +166,27 @@ export class GroupRepository {
 
     async saveSettings(settings: UserSettings): Promise<void> {
         this.syncAccountIdCache(settings);
-        settings.lastUpdated = new Date().toISOString();
+        const nowIso = new Date().toISOString();
+        settings.lastUpdated = nowIso;
+
         if (this.db) {
+            try {
+                const existingDoc = await this.db.user_settings.findOne("global_settings").exec();
+                if (existingDoc && !existingDoc.deletedAt) {
+                    const prev = existingDoc.toJSON();
+                    const prefsChanged = JSON.stringify(prev.preferences || {}) !== JSON.stringify(settings.preferences || {});
+                    const keyChanged = prev.encryptedApiKey !== settings.encryptedApiKey;
+                    if (prefsChanged || keyChanged || !settings.preferencesUpdatedAt) {
+                        settings.preferencesUpdatedAt = nowIso;
+                    } else {
+                        settings.preferencesUpdatedAt = prev.preferencesUpdatedAt;
+                    }
+                } else {
+                    settings.preferencesUpdatedAt = settings.preferencesUpdatedAt || nowIso;
+                }
+            } catch {
+                settings.preferencesUpdatedAt = settings.preferencesUpdatedAt || nowIso;
+            }
             await this.db.user_settings.upsert(userSettingsToDoc(settings));
             const isMockE2E =
                 typeof globalThis !== "undefined" &&
@@ -136,9 +195,11 @@ export class GroupRepository {
                 typeof globalThis !== "undefined" &&
                 (globalThis as any).navigator?.onLine === false;
             if (isOffline || (this.onMutation && !isMockE2E)) {
-                this.onMutation?.(settings.activeGroupId || undefined);
+                await this.onMutation?.(settings.activeGroupId || undefined);
                 return;
             }
+        } else {
+            settings.preferencesUpdatedAt = settings.preferencesUpdatedAt || nowIso;
         }
 
         if (this.blobDriver) {
@@ -184,21 +245,57 @@ export class GroupRepository {
     }
 
     async reconcileGroups(): Promise<UserSettings> {
-        const files = await this.storage.listFiles(`properties has { key='quozen_type' and value='group' } and trashed = false`);
-        const visibleGroups: CachedGroup[] = files.map(file => ({
-            id: file.id,
-            name: file.name.startsWith(QUOZEN_PREFIX) ? file.name.slice(QUOZEN_PREFIX.length) : file.name,
-            role: (file.owners?.some((o: any) => o.emailAddress === this.user.email) || file.capabilities?.canDelete) ? "owner" as const : "member" as const,
-            ...(this.accountIdCache.get(file.id) ? { accountId: this.accountIdCache.get(file.id) } : {}),
-            lastAccessed: file.createdTime
-        })).sort((a, b) => new Date(b.lastAccessed || 0).getTime() - new Date(a.lastAccessed || 0).getTime());
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("This operation requires an internet connection.", "reconcileGroups");
+        }
 
+        let existingSettings: UserSettings | null = null;
+        if (this.db) {
+            try {
+                const doc = await this.db.user_settings.findOne("global_settings").exec();
+                if (doc && !doc.deletedAt) {
+                    existingSettings = docToUserSettings(doc.toJSON());
+                }
+            } catch {}
+        }
+
+        const files = await this.storage.listFiles(`properties has { key='quozen_type' and value='group' } and trashed = false`);
+        const existingGroupMap = new Map<string, CachedGroup>();
+        if (existingSettings?.groupCache) {
+            for (const g of existingSettings.groupCache) {
+                if (g && g.id) existingGroupMap.set(g.id, g);
+            }
+        }
+
+        const visibleGroups: CachedGroup[] = files.map(file => {
+            const existing = existingGroupMap.get(file.id);
+            const accountId = this.accountIdCache.get(file.id) || existing?.accountId;
+            return {
+                id: file.id,
+                name: file.name.startsWith(QUOZEN_PREFIX) ? file.name.slice(QUOZEN_PREFIX.length) : file.name,
+                role: (file.owners?.some((o: any) => o.emailAddress === this.user.email) || file.capabilities?.canDelete) ? ("owner" as const) : ("member" as const),
+                ...(accountId ? { accountId } : {}),
+                lastAccessed: existing?.lastAccessed || file.createdTime,
+                ...(existing?.isHydrated !== undefined ? { isHydrated: existing.isHydrated } : {}),
+                ...(existing?.pendingRename !== undefined ? { pendingRename: existing.pendingRename } : {}),
+                ...(existing?.validationStatus !== undefined ? { validationStatus: existing.validationStatus } : {}),
+                ...(existing?.updatedAt ? { updatedAt: existing.updatedAt } : {})
+            };
+        }).sort((a, b) => new Date(b.lastAccessed || 0).getTime() - new Date(a.lastAccessed || 0).getTime());
+
+        const activeGroupId = existingSettings?.activeGroupId && visibleGroups.some(g => g.id === existingSettings.activeGroupId)
+            ? existingSettings.activeGroupId
+            : visibleGroups[0]?.id || null;
+
+        const nowIso = new Date().toISOString();
         const settings: UserSettings = {
-            version: 1,
-            activeGroupId: visibleGroups[0]?.id || null,
+            version: existingSettings?.version || 1,
+            activeGroupId,
             groupCache: visibleGroups,
-            preferences: { defaultCurrency: "USD", theme: "system" },
-            lastUpdated: new Date().toISOString()
+            preferences: existingSettings?.preferences ? { ...existingSettings.preferences } : { defaultCurrency: "USD", theme: "system" },
+            ...(existingSettings?.preferencesUpdatedAt ? { preferencesUpdatedAt: existingSettings.preferencesUpdatedAt } : {}),
+            ...(existingSettings?.encryptedApiKey ? { encryptedApiKey: existingSettings.encryptedApiKey } : {}),
+            lastUpdated: nowIso
         };
         await this.saveSettings(settings);
         return settings;
@@ -209,12 +306,20 @@ export class GroupRepository {
         if (settings.activeGroupId === groupId) return;
 
         const cached = settings.groupCache.find(g => g.id === groupId);
-        const isOffline = Boolean(
-            this.db &&
-            typeof globalThis !== "undefined" &&
-            (globalThis as any).navigator?.onLine === false
-        );
 
+        if (this.db) {
+            if (cached?.validationStatus === ValidationStatus.CORRUPTED || cached?.validationStatus === ValidationStatus.INCOMPATIBLE) {
+                throw new Error("Cannot activate a corrupted group. Please repair it first.");
+            }
+            settings.activeGroupId = groupId;
+            if (cached) {
+                cached.lastAccessed = new Date().toISOString();
+            }
+            await this.saveSettings(settings);
+            return;
+        }
+
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
         if (!isOffline) {
             const validation = await this.validateQuozenSpreadsheet(groupId);
             if (validation.status === ValidationStatus.CORRUPTED || validation.status === ValidationStatus.INCOMPATIBLE) {
@@ -233,6 +338,10 @@ export class GroupRepository {
     }
 
     async create(name: string, members: MemberInput[] = []): Promise<Group> {
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("Creating a group requires an internet connection.", "createGroup");
+        }
+
         const title = `${QUOZEN_PREFIX}${name}`;
         const fileId = await this.storage.createSpreadsheet(title, [...GROUP_SHEETS], {
             quozen_type: 'group',
@@ -242,7 +351,7 @@ export class GroupRepository {
 
         const nowIso = new Date().toISOString();
         const initialMembers = [
-            [this.user.id || "unknown", this.user.email, this.user.name, "owner", nowIso]
+            [this.user.id || "unknown", this.user.email, this.user.name, "owner", nowIso, nowIso]
         ];
 
         for (const member of members) {
@@ -253,7 +362,7 @@ export class GroupRepository {
                 if (perm.displayName) memberName = perm.displayName;
                 memberId = member.email;
             }
-            initialMembers.push([memberId, member.email || "", memberName, "member", nowIso]);
+            initialMembers.push([memberId, member.email || "", memberName, "member", nowIso, nowIso]);
         }
 
         const initialCategories = DEFAULT_CATEGORIES.map(c => [
@@ -287,7 +396,7 @@ export class GroupRepository {
                         name: String(row[2] || ""),
                         role: row[3] === "owner" ? "owner" : "member",
                         joinedAt: new Date(row[4]),
-                        updatedAt: new Date(row[4])
+                        updatedAt: new Date(row[5] || row[4])
                     },
                     fileId
                 )
@@ -295,9 +404,10 @@ export class GroupRepository {
             await this.db.members.bulkUpsert(memberDocs);
             ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, memberDocs);
 
-            const categoryDocs = DEFAULT_CATEGORIES.map(cat => categoryToDoc(cat, fileId));
+            const categoryDocs = DEFAULT_CATEGORIES.map(cat => categoryToDoc({ ...cat, updatedAt: new Date(nowIso) }, fileId));
             await this.db.collections.categories.bulkUpsert(categoryDocs);
             ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, categoryDocs);
+            ReplicationCoordinator.markGroupHydrated(this.db.name, fileId);
         }
 
         if (this.getToken && this.getToken()) {
@@ -311,7 +421,15 @@ export class GroupRepository {
 
         const settings = await this.getSettings();
         if (!settings.groupCache.some(g => g.id === fileId)) {
-            settings.groupCache.unshift({ id: fileId, name, role: "owner", lastAccessed: new Date().toISOString(), validationStatus: ValidationStatus.READY });
+            settings.groupCache.unshift({
+                id: fileId,
+                name,
+                role: "owner",
+                lastAccessed: nowIso,
+                updatedAt: nowIso,
+                validationStatus: ValidationStatus.READY,
+                isHydrated: true
+            });
         }
         settings.activeGroupId = fileId;
         await this.saveSettings(settings);
@@ -326,6 +444,10 @@ export class GroupRepository {
     }
 
     async setGroupPermissions(groupId: string, access: 'public' | 'restricted'): Promise<void> {
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("This operation requires an internet connection.", "changePermissions");
+        }
+
         if (access === 'public') {
             await this.storage.createPermission(groupId, "writer", "anyone");
         } else {
@@ -414,6 +536,10 @@ export class GroupRepository {
     }
 
     async importGroup(spreadsheetId: string, options?: { accountId?: string }): Promise<Group> {
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("This operation requires an internet connection.", "importGroup");
+        }
+
         const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
         if (meta.properties?.quozen_type !== 'group') {
             const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
@@ -456,6 +582,7 @@ export class GroupRepository {
         const groupName = validation.name || "Imported Group";
         const cleanName = groupName.startsWith(QUOZEN_PREFIX) ? groupName.slice(QUOZEN_PREFIX.length) : groupName;
 
+        const nowIso = new Date().toISOString();
         const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
         if (!cachedGroup) {
             settings.groupCache.unshift({
@@ -463,7 +590,8 @@ export class GroupRepository {
                 name: cleanName,
                 role,
                 ...(linkedAccountId ? { accountId: linkedAccountId } : {}),
-                lastAccessed: new Date().toISOString(),
+                lastAccessed: nowIso,
+                updatedAt: nowIso,
                 validationStatus: validation.status
             });
         } else {
@@ -471,7 +599,8 @@ export class GroupRepository {
             if (linkedAccountId) {
                 cachedGroup.accountId = linkedAccountId;
             }
-            cachedGroup.lastAccessed = new Date().toISOString();
+            cachedGroup.lastAccessed = nowIso;
+            cachedGroup.updatedAt = nowIso;
             cachedGroup.validationStatus = validation.status;
         }
 
@@ -492,6 +621,10 @@ export class GroupRepository {
     }
 
     async joinGroup(spreadsheetId: string, options?: { accountId?: string }): Promise<Group> {
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("This operation requires an internet connection.", "joinGroup");
+        }
+
         const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
         if (meta.properties?.quozen_type !== 'group') {
             throw new Error("This file is not a valid Quozen Group.");
@@ -545,6 +678,9 @@ export class GroupRepository {
     }
 
     async deleteGroup(groupId: string): Promise<void> {
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("This operation requires an internet connection.", "deleteGroup");
+        }
         await this.storage.deleteFile(groupId);
         this.accountIdCache.delete(groupId);
         const settings = await this.getSettings();
@@ -561,41 +697,7 @@ export class GroupRepository {
 
     async updateGroup(groupId: string, name: string, members: MemberInput[]): Promise<void> {
         const newTitle = `${QUOZEN_PREFIX}${name}`;
-        const isOffline = Boolean(
-            this.db &&
-            typeof globalThis !== "undefined" &&
-            (globalThis as any).navigator?.onLine === false
-        );
-
-        if (!isOffline) {
-            try {
-                await this.storage.updateFile(groupId, { name: newTitle });
-            } catch (err) {
-                if (!this.db || !isNetworkError(err)) throw err;
-            }
-
-            if (this.storage && this.db) {
-                try {
-                    const res = await this.storage.batchGetValues(groupId, ["Members!A1:Z"]);
-                    const memberRows = res[0]?.values || [];
-                    if (memberRows.length > 1) {
-                        const mHeaders = SheetDataMapper.buildHeaderMap(memberRows[0]);
-                        const mDocs = memberRows
-                            .slice(1)
-                            .filter((r: any[]) => Array.isArray(r) && r.some(cell => String(cell ?? "").trim() !== ""))
-                            .map((r: any[], i: number) =>
-                                memberToDoc(SheetDataMapper.mapToMember(r, i + 2, mHeaders).entity, groupId)
-                            )
-                            .filter((d: any) => Boolean(d.userId));
-                        if (mDocs.length > 0) {
-                            await this.db.members.bulkUpsert(mDocs);
-                        }
-                    }
-                } catch (e) {
-                    console.warn("Could not refresh members from storage during updateGroup:", e);
-                }
-            }
-        }
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
 
         const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db, () => this.onMutation?.(groupId));
         const currentMembers = await ledgerRepo.getMembers();
@@ -604,10 +706,22 @@ export class GroupRepository {
         const desiredMembers = members.map(m => ({ id: m.email || m.username || "", ...m })).filter(m => m.id);
 
         for (const desired of desiredMembers) {
-            const existing = currentMembers.find(c => (desired.email && c.email === desired.email) || (desired.username && c.userId === desired.username));
+            const existing = currentMembers.find(c =>
+                (desired.email && c.email && c.email.trim().toLowerCase() === desired.email.trim().toLowerCase()) ||
+                (desired.username && (
+                    c.userId.trim().toLowerCase() === desired.username.trim().toLowerCase() ||
+                    c.name.trim().toLowerCase() === desired.username.trim().toLowerCase() ||
+                    (c.email && c.email.trim().toLowerCase() === desired.username.trim().toLowerCase())
+                ))
+            );
+
             if (existing) {
                 processedIds.add(existing.userId);
             } else {
+                if (desired.email && isOffline) {
+                    throw new OfflineOperationError("Inviting members by email requires an internet connection to grant Google Drive permissions.", "inviteEmail");
+                }
+
                 let memberName = desired.username || desired.email || "Unknown";
                 let memberId = desired.username || desired.email || `user-${crypto.randomUUID()}`;
                 if (desired.email && !isOffline) {
@@ -622,7 +736,14 @@ export class GroupRepository {
                 } else if (desired.email) {
                     memberId = desired.email;
                 }
-                await ledgerRepo.addMember({ userId: memberId, email: desired.email || "", name: memberName, role: "member", joinedAt: new Date(), updatedAt: new Date() });
+                await ledgerRepo.addMember({
+                    userId: memberId,
+                    email: desired.email || "",
+                    name: memberName,
+                    role: "member",
+                    joinedAt: new Date(),
+                    updatedAt: new Date()
+                });
                 processedIds.add(memberId);
             }
         }
@@ -635,13 +756,39 @@ export class GroupRepository {
 
         const settings = await this.getSettings();
         const cachedGroup = settings.groupCache.find(g => g.id === groupId);
-        if (cachedGroup && cachedGroup.name !== name) {
+
+        let pendingRename = false;
+        if (!isOffline) {
+            try {
+                await this.storage.updateFile(groupId, { name: newTitle });
+            } catch (err) {
+                if (this.db && isNetworkError(err)) {
+                    pendingRename = true;
+                } else if (!this.db) {
+                    throw err;
+                }
+            }
+        } else {
+            pendingRename = true;
+        }
+
+        if (cachedGroup) {
+            const nameChanged = cachedGroup.name !== name;
+            const renameChanged = cachedGroup.pendingRename !== pendingRename;
             cachedGroup.name = name;
-            await this.saveSettings(settings);
+            cachedGroup.pendingRename = pendingRename;
+            if (nameChanged || renameChanged) {
+                cachedGroup.updatedAt = new Date().toISOString();
+                await this.saveSettings(settings);
+            }
         }
     }
 
     async leaveGroup(groupId: string): Promise<void> {
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("This operation requires an internet connection.", "leaveGroup");
+        }
+
         const settings = await this.getSettings();
         const cachedGroup = settings.groupCache.find(g => g.id === groupId);
         const linkedAccountId = cachedGroup?.accountId || this.accountIdCache.get(groupId);

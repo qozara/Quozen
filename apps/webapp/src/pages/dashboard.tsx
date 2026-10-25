@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import SettlementModal from "@/components/settlement-modal";
 import { useState, useMemo } from "react";
 import {
-  Wallet, Handshake, ChevronDown, ArrowRight, Banknote, User, Check, Pencil
+  Wallet, Handshake, ChevronDown, ArrowRight, Banknote, User, Check, Pencil, WifiOff
 } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { quozen } from "@/lib/storage";
@@ -49,6 +49,8 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { useDateFormatter } from "@/hooks/use-date-formatter";
 import { useSettings } from "@/hooks/use-settings";
+import { useGroups } from "@/hooks/use-groups";
+import { useAutoSync } from "@/hooks/use-auto-sync";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Dashboard() {
@@ -59,8 +61,20 @@ export default function Dashboard() {
   const { t, i18n } = useTranslation();
   const { formatDate } = useDateFormatter();
   const { settings, updateGroupAccount } = useSettings();
+  const { groups } = useGroups();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  const activeGroup = groups.find(g => g.id === activeGroupId);
+  const activeGroupName = activeGroup?.name || "";
+
+  let autoSync: any;
+  try {
+    autoSync = useAutoSync();
+  } catch {
+    // Fallback when outside AutoSyncProvider
+  }
+  const isOnline = autoSync?.isOnline ?? (typeof navigator !== "undefined" ? navigator.onLine !== false : true);
 
   const currencyCode = settings?.preferences?.defaultCurrency || "USD";
 
@@ -217,9 +231,9 @@ export default function Dashboard() {
     return u ? u.name : "Unknown";
   };
 
-  const balances = useMemo(() => ledger?.getBalances() || {}, [ledger]);
-  const totalSpent = useMemo(() => ledger?.getTotalSpent(effectiveUserId) || 0, [ledger, effectiveUserId]);
-  const userBalance = ledger?.getUserBalance(effectiveUserId) || 0;
+  const balances = useMemo(() => ledger?.getBalances?.() || {}, [ledger]);
+  const totalSpent = useMemo(() => ledger?.getTotalSpent?.(effectiveUserId) || 0, [ledger, effectiveUserId]);
+  const userBalance = ledger?.getUserBalance?.(effectiveUserId) || 0;
 
   const recentActivity = useMemo(() => {
     const combined = [
@@ -232,7 +246,7 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [expenses, settlements]);
 
-  const settlementSuggestion = useMemo(() => ledger?.getSettleUpSuggestion(effectiveUserId), [ledger, effectiveUserId]);
+  const settlementSuggestion = useMemo(() => ledger?.getSettleUpSuggestion?.(effectiveUserId), [ledger, effectiveUserId]);
 
 
   const handleSettleUp = () => {
@@ -281,6 +295,32 @@ export default function Dashboard() {
 
   if (!ledger) {
     return <div className="p-4 text-center">{t("dashboard.groupNotFound")}</div>;
+  }
+
+  const isUnhydratedOffline = !isLoading && !!ledger && !isOnline && (
+    (ledger as any).isHydrated === false ||
+    (ledger.members.length === 0 && ledger.expenses.length === 0 && ledger.settlements.length === 0)
+  );
+
+  if (isUnhydratedOffline) {
+    return (
+      <div className="mx-4 mt-6 p-6 rounded-xl border border-dashed border-muted-foreground/30 bg-muted/20 flex flex-col items-center text-center space-y-4" data-testid="unhydrated-group-offline">
+        <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400 flex items-center justify-center">
+          <WifiOff className="w-6 h-6" />
+        </div>
+        <div className="space-y-1">
+          <h3 className="font-semibold text-lg text-foreground">
+            {t("offline.unhydratedTitle", { name: activeGroupName })}
+          </h3>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            {t("offline.unhydratedDesc")}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => navigate("/groups")}>
+          {t("offline.switchGroupAction")}
+        </Button>
+      </div>
+    );
   }
 
   return (

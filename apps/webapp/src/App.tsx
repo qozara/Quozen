@@ -75,7 +75,9 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
 };
 
 export function AuthenticatedApp() {
-  const [activeGroupId, setActiveGroupIdState] = useState("");
+  const [activeGroupId, setActiveGroupIdState] = useState<string>(
+    () => (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("quozen_active_group_id") : null) || (typeof localStorage !== "undefined" ? localStorage.getItem("quozen_active_group_id") : null) || ""
+  );
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [schemaErrorStatus, setSchemaErrorStatus] = useState<'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | null>(null);
 
@@ -118,6 +120,23 @@ export function AuthenticatedApp() {
 
   const handleSetActiveGroupId = (groupId: string) => {
     setActiveGroupIdState(groupId);
+    if (typeof sessionStorage !== "undefined") {
+      if (groupId) {
+        sessionStorage.setItem("quozen_active_group_id", groupId);
+      } else {
+        sessionStorage.removeItem("quozen_active_group_id");
+      }
+    }
+    if (typeof localStorage !== "undefined") {
+      if (groupId) {
+        localStorage.setItem("quozen_active_group_id", groupId);
+      } else {
+        localStorage.removeItem("quozen_active_group_id");
+      }
+    }
+    if (groupId) {
+      void queryClient.invalidateQueries({ queryKey: ["drive", "group", groupId] });
+    }
     if (groupId && quozen.syncProvider && typeof (quozen.syncProvider as any).setActiveGroupId === "function") {
       (quozen.syncProvider as any).setActiveGroupId(groupId);
     }
@@ -145,20 +164,70 @@ export function AuthenticatedApp() {
     if (appLoading) return;
 
     if (isAuthenticated && user) {
-      let targetId = activeGroupId;
-      if (!targetId && settings?.activeGroupId) {
-        targetId = settings.activeGroupId;
-      }
-      const isValidGroup = groups.some(g => g.id === targetId);
+      const isCurrentValid = Boolean(activeGroupId && groups.some(g => g.id === activeGroupId));
 
-      if (isValidGroup) {
-        if (activeGroupId !== targetId) {
-          setActiveGroupIdState(targetId);
+      if (isCurrentValid) {
+        // Keep current activeGroupId (do NOT override with settings?.activeGroupId)
+        if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("quozen_active_group_id") !== activeGroupId) {
+          sessionStorage.setItem("quozen_active_group_id", activeGroupId);
+        }
+        if (typeof localStorage !== "undefined" && localStorage.getItem("quozen_active_group_id") !== activeGroupId) {
+          localStorage.setItem("quozen_active_group_id", activeGroupId);
+        }
+        return;
+      }
+
+      if (!activeGroupId) {
+        // Current activeGroupId is empty/unset: resolve candidate in order
+        const sessionCandidate = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("quozen_active_group_id") : null;
+        const localCandidate = typeof localStorage !== "undefined" ? localStorage.getItem("quozen_active_group_id") : null;
+        const cloudCandidate = settings?.activeGroupId ?? null;
+
+        const resolvedCandidate = [sessionCandidate, localCandidate, cloudCandidate].find(
+          id => Boolean(id && groups.some(g => g.id === id))
+        ) || groups[0]?.id || "";
+
+        if (resolvedCandidate) {
+          if (typeof sessionStorage !== "undefined") {
+            sessionStorage.setItem("quozen_active_group_id", resolvedCandidate);
+          }
+          if (typeof localStorage !== "undefined") {
+            localStorage.setItem("quozen_active_group_id", resolvedCandidate);
+          }
+          setActiveGroupIdState(resolvedCandidate);
+          if (quozen.syncProvider && typeof (quozen.syncProvider as any).setActiveGroupId === "function") {
+            (quozen.syncProvider as any).setActiveGroupId(resolvedCandidate);
+          }
+        } else if (groups.length === 0) {
+          const allowedPaths = ['/groups', '/profile', '/join'];
+          const isAllowed = allowedPaths.some(path => location.pathname.startsWith(path));
+
+          if (!isAllowed) {
+            navigate('/groups', { replace: true });
+          }
         }
       } else {
-        if (groups.length > 0) {
-          setActiveGroupIdState(groups[0].id);
-        } else if (groups.length === 0) {
+        // Current activeGroupId is set, but no longer valid in groups (e.g. deleted or left)
+        const fallbackId = groups[0]?.id || "";
+        setActiveGroupIdState(fallbackId);
+        if (typeof sessionStorage !== "undefined") {
+          if (fallbackId) {
+            sessionStorage.setItem("quozen_active_group_id", fallbackId);
+          } else {
+            sessionStorage.removeItem("quozen_active_group_id");
+          }
+        }
+        if (typeof localStorage !== "undefined") {
+          if (fallbackId) {
+            localStorage.setItem("quozen_active_group_id", fallbackId);
+          } else {
+            localStorage.removeItem("quozen_active_group_id");
+          }
+        }
+        if (fallbackId && quozen.syncProvider && typeof (quozen.syncProvider as any).setActiveGroupId === "function") {
+          (quozen.syncProvider as any).setActiveGroupId(fallbackId);
+        }
+        if (groups.length === 0) {
           const allowedPaths = ['/groups', '/profile', '/join'];
           const isAllowed = allowedPaths.some(path => location.pathname.startsWith(path));
 

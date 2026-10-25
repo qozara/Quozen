@@ -4,4 +4,5 @@ export * from "./GoogleDriveBlobDriver";
 export * from "./GoogleSheetsTabularDriver";
 export * from "./CompositeCloudSyncProvider";
 export * from "./ReplicationCoordinator";
+export * from "./UserSettingsMerger";
 

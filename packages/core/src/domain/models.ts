@@ -72,6 +72,9 @@ export interface CachedGroup {
     accountId?: string;
     lastAccessed?: string;
     validationStatus?: string;
+    isHydrated?: boolean;
+    pendingRename?: boolean;
+    updatedAt?: string;
 }
 
 export interface UserSettings {
@@ -88,5 +91,6 @@ export interface UserSettings {
         byokProvider?: string;
     };
     encryptedApiKey?: string;
+    preferencesUpdatedAt?: string;
     lastUpdated: string;
 }

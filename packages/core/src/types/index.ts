@@ -1,7 +1,7 @@
 export const SCHEMAS = {
     Expenses: ["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"],
-    Settlements: ["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"],
-    Members: ["userId", "email", "name", "role", "joinedAt"],
+    Settlements: ["id", "date", "fromUserId", "toUserId", "amount", "method", "notes", "updatedAt"],
+    Members: ["userId", "email", "name", "role", "joinedAt", "updatedAt"],
     Categories: ["id", "name", "icon", "description", "updatedAt", "deletedAt"]
 } as const;
 

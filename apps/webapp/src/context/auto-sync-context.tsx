@@ -72,6 +72,7 @@ export function AutoSyncProvider({
     );
 
     const lastKnownRemoteTimeRef = useRef<string | null>(null);
+    const prevActiveGroupIdRef = useRef<string>(activeGroupId);
     const prevStatusRef = useRef<SyncStatus>("idle");
     const wasOnlineRef = useRef<boolean>(isOnline);
     const lastSyncErrorRef = useRef<any>(null);
@@ -91,7 +92,17 @@ export function AutoSyncProvider({
     const checkUpdatesRef = useRef<() => Promise<void>>(async () => { });
 
     const isEnabled = pollingInterval > 0;
-    const isPaused = manualPaused || routePaused || pageHidden || !activeGroupId;
+    const isPaused = manualPaused || routePaused || pageHidden;
+    const isPausedRef = useRef(isPaused);
+    const isEnabledRef = useRef(isEnabled);
+
+    useEffect(() => {
+        isPausedRef.current = isPaused;
+    }, [isPaused]);
+
+    useEffect(() => {
+        isEnabledRef.current = isEnabled;
+    }, [isEnabled]);
 
     useEffect(() => {
         if (isEnabled) {
@@ -107,11 +118,39 @@ export function AutoSyncProvider({
         setRoutePaused(isUnsafe);
     }, [location.pathname]);
 
-    // 2. Visibility Guard
+    // 2. Visibility Guard & Focus Re-sync (throttled to 2 seconds)
+    const lastFocusCheckRef = useRef<number>(Date.now());
+
     useEffect(() => {
-        const handleVisibilityChange = () => setPageHidden(document.hidden);
+        const maybeTriggerSync = () => {
+            const now = Date.now();
+            if (now - lastFocusCheckRef.current >= 2000) {
+                lastFocusCheckRef.current = now;
+                if (!isPausedRef.current && isEnabledRef.current) {
+                    void checkUpdatesRef.current();
+                }
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            setPageHidden(document.hidden);
+            if (!document.hidden) {
+                maybeTriggerSync();
+            }
+        };
+
+        const handleWindowFocus = () => {
+            if (!document.hidden) {
+                maybeTriggerSync();
+            }
+        };
+
         document.addEventListener("visibilitychange", handleVisibilityChange);
-        return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.addEventListener("focus", handleWindowFocus);
+        return () => {
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+            window.removeEventListener("focus", handleWindowFocus);
+        };
     }, []);
 
     // 3. Online / Offline Listeners + 30s Origin Heartbeat (Quomida Pattern)
@@ -165,6 +204,7 @@ export function AutoSyncProvider({
             if (prev === "syncing" && newStatus === "idle") {
                 const syncedTimeStr = provider?.getLastSyncedTime?.();
                 setLastSyncTime(syncedTimeStr ? new Date(syncedTimeStr) : new Date());
+                void queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
                 if (activeGroupId) {
                     void queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
                 }
@@ -204,7 +244,7 @@ export function AutoSyncProvider({
 
     // Core Sync Logic
     const checkUpdates = useCallback(async () => {
-        if (!activeGroupId || !isEnabled) return;
+        if (!isEnabled) return;
         if (syncStatus === "upgrade_required" || syncStatus === "corrupted") return;
         if (typeof navigator !== "undefined" && navigator.onLine === false) {
             setIsOnline(false);
@@ -216,25 +256,29 @@ export function AutoSyncProvider({
                 await quozen.syncProvider.initialize();
             }
             if (quozen.replication) {
-                await quozen.replication.sync(activeGroupId);
+                await quozen.replication.sync(activeGroupId || undefined);
                 setLastSyncTime(new Date());
             }
 
-            // Fetch metadata only
-            const remoteTimeStr = await quozen.getLastModified(activeGroupId);
+            if (activeGroupId) {
+                // Fetch metadata only
+                const remoteTimeStr = await quozen.getLastModified(activeGroupId);
 
-            if (!lastKnownRemoteTimeRef.current) {
-                // First check, initialize
-                lastKnownRemoteTimeRef.current = remoteTimeStr;
-                if (quozen.replication) {
+                if (!lastKnownRemoteTimeRef.current) {
+                    // First check, initialize
+                    lastKnownRemoteTimeRef.current = remoteTimeStr;
+                    if (quozen.replication) {
+                        await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+                    }
+                } else if (new Date(remoteTimeStr).getTime() > new Date(lastKnownRemoteTimeRef.current).getTime()) {
+                    // Remote is newer -> Invalidate
                     await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+                    lastKnownRemoteTimeRef.current = remoteTimeStr;
+                    setLastSyncTime(new Date());
                 }
-            } else if (new Date(remoteTimeStr).getTime() > new Date(lastKnownRemoteTimeRef.current).getTime()) {
-                // Remote is newer -> Invalidate
-                await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
-                lastKnownRemoteTimeRef.current = remoteTimeStr;
-                setLastSyncTime(new Date());
             }
+
+            await queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
         } catch (e: any) {
             lastSyncErrorRef.current = e;
             // Use debug to prevent console flooding on network loss
@@ -243,12 +287,27 @@ export function AutoSyncProvider({
                 handleGoogleSessionExpired();
             }
         }
-    }, [activeGroupId, isEnabled, queryClient, isOnline, handleGoogleSessionExpired]);
+    }, [activeGroupId, isEnabled, syncStatus, queryClient, isOnline, handleGoogleSessionExpired]);
 
     // Keep the ref updated with the latest callback
     useEffect(() => {
         checkUpdatesRef.current = checkUpdates;
     }, [checkUpdates]);
+
+    // Automatically trigger sync when transitioning to authenticated / valid token
+    const prevAuthedRef = useRef<boolean>(Boolean(auth?.isAuthenticated && auth?.token));
+    useEffect(() => {
+        const isAuthed = Boolean(auth?.isAuthenticated && auth?.token);
+        if (!prevAuthedRef.current && isAuthed) {
+            void (async () => {
+                if (quozen.syncProvider && !quozen.syncProvider.isInitialized()) {
+                    await quozen.syncProvider.initialize();
+                }
+                void checkUpdatesRef.current();
+            })();
+        }
+        prevAuthedRef.current = isAuthed;
+    }, [auth?.token, auth?.isAuthenticated]);
 
     // Automatically trigger sync when transitioning from offline -> online
     useEffect(() => {
@@ -283,10 +342,16 @@ export function AutoSyncProvider({
         return () => clearInterval(intervalId);
     }, [isPaused, isEnabled, pollingInterval]);
 
-    // Reset ref when switching groups
+    // Reset ref and trigger sync when switching groups
     useEffect(() => {
-        lastKnownRemoteTimeRef.current = null;
-    }, [activeGroupId]);
+        if (prevActiveGroupIdRef.current && prevActiveGroupIdRef.current !== activeGroupId) {
+            lastKnownRemoteTimeRef.current = null;
+            if (activeGroupId && !isPaused && isEnabled && isOnline) {
+                void checkUpdatesRef.current();
+            }
+        }
+        prevActiveGroupIdRef.current = activeGroupId;
+    }, [activeGroupId, isPaused, isEnabled, isOnline]);
 
     const reconnectProvider = useCallback(async () => {
         if (auth?.login) {

@@ -1,6 +1,7 @@
 import type { QuozenDatabase } from "../db";
-import type { CloudSyncProvider, SyncStatus } from "./types";
+import type { CloudSyncProvider, SyncStatus, SyncDeltaPayload } from "./types";
 import { BehaviorSubject, type Observable, type Subscription } from "rxjs";
+import { mergeUserSettingsDocs } from "./UserSettingsMerger";
 
 export const SYNCABLE_COLLECTIONS = ["user_settings", "members", "categories", "expenses", "settlements"] as const;
 
@@ -13,12 +14,15 @@ function parseTimestamp(val?: string | number | null): number {
 
 export class ReplicationCoordinator {
     private static checkpointsByDbName = new Map<string, Map<string, string>>();
+    private static hydratedGroupsByDbName = new Map<string, Set<string>>();
+    private static syncedGroupIdsByDbName = new Map<string, Set<string>>();
 
     private statusSubject = new BehaviorSubject<SyncStatus>("idle");
     private lastSyncedAtByDocId: Map<string, string>;
     private isSyncing = false;
     private hasPendingSync = false;
     private pendingSyncGroupId?: string;
+    private syncPromise: Promise<void> | null = null;
     private subscriptions: Subscription[] = [];
     private unsubscribeProviderStatus?: () => void;
     private lastError: any = null;
@@ -87,6 +91,89 @@ export class ReplicationCoordinator {
         }
     }
 
+    public static getHydratedGroupSet(dbName: string): Set<string> {
+        let set = ReplicationCoordinator.hydratedGroupsByDbName.get(dbName);
+        if (!set) {
+            set = new Set<string>();
+            try {
+                const storage = (globalThis as any).localStorage;
+                if (storage && typeof storage.getItem === "function") {
+                    const raw = storage.getItem(`quozen_hydrated_groups_${dbName}`);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed)) {
+                            for (const id of parsed) {
+                                if (typeof id === "string") {
+                                    set.add(id);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {
+                // Ignore localStorage access errors
+            }
+            ReplicationCoordinator.hydratedGroupsByDbName.set(dbName, set);
+        }
+        return set;
+    }
+
+    public static isGroupHydrated(dbName: string, groupId: string): boolean {
+        return ReplicationCoordinator.getHydratedGroupSet(dbName).has(groupId);
+    }
+
+    public static markGroupHydrated(dbName: string, groupId: string): void {
+        const set = ReplicationCoordinator.getHydratedGroupSet(dbName);
+        set.add(groupId);
+        try {
+            const storage = (globalThis as any).localStorage;
+            if (storage && typeof storage.setItem === "function") {
+                storage.setItem(`quozen_hydrated_groups_${dbName}`, JSON.stringify(Array.from(set)));
+            }
+        } catch {
+            // Ignore storage quota or private mode errors
+        }
+    }
+
+    public static getSyncedGroupIds(dbName: string): Set<string> {
+        let set = ReplicationCoordinator.syncedGroupIdsByDbName.get(dbName);
+        if (!set) {
+            set = new Set<string>();
+            try {
+                const storage = (globalThis as any).localStorage;
+                if (storage && typeof storage.getItem === "function") {
+                    const raw = storage.getItem(`quozen_sync_settings_groups_${dbName}`);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed)) {
+                            for (const id of parsed) {
+                                if (typeof id === "string") {
+                                    set.add(id);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {
+                // Ignore localStorage access errors
+            }
+            ReplicationCoordinator.syncedGroupIdsByDbName.set(dbName, set);
+        }
+        return set;
+    }
+
+    public static persistSyncedGroupIds(dbName: string, set: Set<string>): void {
+        ReplicationCoordinator.syncedGroupIdsByDbName.set(dbName, set);
+        try {
+            const storage = (globalThis as any).localStorage;
+            if (storage && typeof storage.setItem === "function") {
+                storage.setItem(`quozen_sync_settings_groups_${dbName}`, JSON.stringify(Array.from(set)));
+            }
+        } catch {
+            // Ignore storage quota or private mode errors
+        }
+    }
+
     public get status$(): Observable<SyncStatus> {
         return this.statusSubject.asObservable();
     }
@@ -101,46 +188,55 @@ export class ReplicationCoordinator {
 
     public async sync(groupId?: string): Promise<void> {
         if (!this.provider.isInitialized()) return;
-        const currentStatus = this.provider.getStatus();
-        if (currentStatus === "upgrade_required" || currentStatus === "corrupted" || currentStatus === "incompatible") return;
         if (this.isSyncing) {
             this.hasPendingSync = true;
             if (groupId !== undefined) {
                 this.pendingSyncGroupId = groupId;
             }
-            return;
+            return this.syncPromise || Promise.resolve();
         }
         this.isSyncing = true;
 
-        try {
-            await this.runSyncCycle(groupId);
-            while (this.hasPendingSync && this.provider.isInitialized()) {
-                const nextGroupId = this.pendingSyncGroupId ?? groupId;
-                this.hasPendingSync = false;
-                this.pendingSyncGroupId = undefined;
-                await this.runSyncCycle(nextGroupId);
+        this.syncPromise = (async () => {
+            try {
+                await this.runSyncCycle(groupId);
+                while (this.hasPendingSync && this.provider.isInitialized()) {
+                    const nextGroupId = this.pendingSyncGroupId ?? groupId;
+                    this.hasPendingSync = false;
+                    this.pendingSyncGroupId = undefined;
+                    await this.runSyncCycle(nextGroupId);
+                }
+            } finally {
+                this.isSyncing = false;
+                this.syncPromise = null;
             }
-        } finally {
-            this.isSyncing = false;
-        }
+        })();
+
+        return this.syncPromise;
     }
 
     private async runSyncCycle(groupId?: string): Promise<void> {
         const payloads = await this.provider.pull(groupId);
         const currentStatus = this.provider.getStatus();
-        if (currentStatus === "upgrade_required" || currentStatus === "corrupted" || currentStatus === "incompatible") {
-            return;
-        }
+        const isGroupUnhealthy = currentStatus === "upgrade_required" || currentStatus === "corrupted" || currentStatus === "incompatible";
 
         const payloadMap = new Map(payloads.map(p => [p.collection, p]));
         const targetGroupId = groupId ?? (this.provider as any).getActiveGroupId?.() ?? undefined;
+
+        if (targetGroupId && (payloadMap.has("expenses") || payloadMap.has("members"))) {
+            ReplicationCoordinator.markGroupHydrated(this.db.name, targetGroupId);
+        }
 
         for (const collectionName of SYNCABLE_COLLECTIONS) {
             const collection = (this.db.collections as any)[collectionName];
             if (!collection) continue;
 
-            const isGroupScoped = collectionName !== "user_settings";
-            if (isGroupScoped && !targetGroupId) continue;
+            if (collectionName === "user_settings") {
+                await this.syncUserSettings(collection, payloadMap.get("user_settings"));
+                continue;
+            }
+
+            if (!targetGroupId || isGroupUnhealthy) continue;
 
             // Only process collections that the remote provider actually delivered in this cycle.
             // If the provider didn't return a collection, NEVER assume remote deleted all items!
@@ -148,9 +244,7 @@ export class ReplicationCoordinator {
             if (!payload) continue;
 
             // 1. Fetch all local documents (including soft-deleted tombstones where deletedAt != null)
-            const localDocsRaw = isGroupScoped
-                ? await collection.find({ selector: { groupId: targetGroupId } }).exec()
-                : await collection.find().exec();
+            const localDocsRaw = await collection.find({ selector: { groupId: targetGroupId } }).exec();
 
             const localDocsMap = new Map<string, Record<string, any>>(
                 localDocsRaw.map((d: any) => [d.id, d.toJSON()])
@@ -247,6 +341,65 @@ export class ReplicationCoordinator {
                 }
             }
 
+            ReplicationCoordinator.persistCheckpointMap(this.db.name, this.lastSyncedAtByDocId);
+        }
+    }
+
+    private async syncUserSettings(collection: any, payload?: SyncDeltaPayload): Promise<void> {
+        const localDocRecord = await collection.findOne("global_settings").exec();
+        const localDoc = localDocRecord ? localDocRecord.toJSON() : null;
+        const remoteDoc = payload?.documents?.find((d: any) => d.id === "global_settings") || payload?.documents?.[0] || null;
+
+        if (localDoc && remoteDoc) {
+            const syncedGroupIds = ReplicationCoordinator.getSyncedGroupIds(this.db.name);
+            const lastSyncedAt = this.lastSyncedAtByDocId.get("global_settings");
+            const { mergedDoc, shouldUpdateLocal, shouldPushRemote } = mergeUserSettingsDocs(
+                localDoc,
+                remoteDoc,
+                {
+                    syncedGroupIds,
+                    lastSyncedAt,
+                    isGroupHydrated: (id) => ReplicationCoordinator.isGroupHydrated(this.db.name, id)
+                }
+            );
+
+            if (shouldUpdateLocal) {
+                await collection.upsert(mergedDoc);
+            }
+
+            if (shouldPushRemote) {
+                await this.provider.push({
+                    collection: "user_settings",
+                    documents: [mergedDoc]
+                });
+            }
+
+            const updatedGroupIds = new Set<string>((mergedDoc.groupCache || []).map((g: any) => g.id));
+            ReplicationCoordinator.persistSyncedGroupIds(this.db.name, updatedGroupIds);
+            this.lastSyncedAtByDocId.set("global_settings", mergedDoc.updatedAt);
+            ReplicationCoordinator.persistCheckpointMap(this.db.name, this.lastSyncedAtByDocId);
+        } else if (remoteDoc) {
+            const isGroupHydrated = (id: string) => ReplicationCoordinator.isGroupHydrated(this.db.name, id);
+            const docToSave: Record<string, any> = {
+                ...remoteDoc,
+                groupCache: (remoteDoc.groupCache || []).map((g: any) => ({
+                    ...g,
+                    isHydrated: isGroupHydrated(g.id)
+                }))
+            };
+            await collection.upsert(docToSave);
+            const updatedGroupIds = new Set<string>((docToSave.groupCache || []).map((g: any) => g.id));
+            ReplicationCoordinator.persistSyncedGroupIds(this.db.name, updatedGroupIds);
+            this.lastSyncedAtByDocId.set("global_settings", docToSave.updatedAt);
+            ReplicationCoordinator.persistCheckpointMap(this.db.name, this.lastSyncedAtByDocId);
+        } else if (localDoc) {
+            await this.provider.push({
+                collection: "user_settings",
+                documents: [localDoc]
+            });
+            const updatedGroupIds = new Set<string>((localDoc.groupCache || []).map((g: any) => g.id));
+            ReplicationCoordinator.persistSyncedGroupIds(this.db.name, updatedGroupIds);
+            this.lastSyncedAtByDocId.set("global_settings", localDoc.updatedAt);
             ReplicationCoordinator.persistCheckpointMap(this.db.name, this.lastSyncedAtByDocId);
         }
     }

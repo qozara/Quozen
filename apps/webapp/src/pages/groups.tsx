@@ -8,7 +8,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
 import { Users, Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2 } from "lucide-react";
-import { MemberInput, Group } from "@quozen/core";
+import { MemberInput, Group, Member } from "@quozen/core";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -19,8 +19,10 @@ import {
 import { cn } from "@/lib/utils";
 import GroupDialog from "@/components/group-dialog";
 import ShareDialog from "@/components/share-dialog";
+import OnlineRequiredDialog from "@/components/online-required-dialog";
 import { useGroups } from "@/hooks/use-groups";
 import { useSettings } from "@/hooks/use-settings";
+import { useAutoSync } from "@/hooks/use-auto-sync";
 import { useTranslation } from "react-i18next";
 import { useGooglePicker } from "@/hooks/use-google-picker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -56,6 +58,20 @@ export default function Groups() {
 
   const [loadingGroupId, setLoadingGroupId] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [existingGroupMembers, setExistingGroupMembers] = useState<Member[]>([]);
+  const [onlineRequired, setOnlineRequired] = useState<{
+    open: boolean;
+    reason?: string;
+    reasonParams?: Record<string, any>;
+  }>({ open: false });
+
+  let autoSync: any;
+  try {
+    autoSync = useAutoSync();
+  } catch {
+    // Graceful fallback for test environments without AutoSyncProvider
+  }
+  const isOnline = autoSync?.isOnline ?? (typeof navigator !== "undefined" ? navigator.onLine !== false : true);
 
   // --- Import Logic (Migrated from Switcher) ---
   const { openPicker, error: pickerError } = useGooglePicker({
@@ -80,12 +96,20 @@ export default function Groups() {
 
   // --- Handlers ---
 
+  const handleImportClick = () => {
+    if (!isOnline) {
+      setOnlineRequired({ open: true, reason: "importDrive" });
+      return;
+    }
+    openPicker();
+  };
+
   const handleEditClick = async (e: React.MouseEvent, group: Group) => {
     e.stopPropagation();
     if (loadingGroupId) return;
     setLoadingGroupId(group.id);
     try {
-      if (quozen.replication) {
+      if (isOnline && quozen.replication) {
         try {
           await quozen.replication.sync(group.id);
         } catch (syncErr) {
@@ -93,7 +117,15 @@ export default function Groups() {
         }
       }
       const members = await quozen.ledger(group.id).getMembers();
-      const editableMembers = members.filter(m => m.role !== 'owner').map(m => m.email || m.userId).join(", ");
+      if (!isOnline && members.length === 0) {
+        setOnlineRequired({ open: true, reason: "editUnhydratedGroup" });
+        return;
+      }
+      setExistingGroupMembers(members);
+      const editableMembers = members
+        .filter(m => m.role !== 'owner')
+        .map(m => m.email || m.name || m.userId)
+        .join(", ");
       setDialogState({ open: true, mode: "edit", groupId: group.id, initialName: group.name, initialMembers: editableMembers });
     } catch (err) {
       toast({ title: t("common.error"), description: t("groups.loadError"), variant: "destructive" });
@@ -109,15 +141,29 @@ export default function Groups() {
 
   const handleDeleteClick = (e: React.MouseEvent, group: Group) => {
     e.stopPropagation();
+    if (!isOnline) {
+      setOnlineRequired({ open: true, reason: "deleteGroup" });
+      return;
+    }
     setAlertState({ open: true, type: "delete", group });
   };
 
   const handleLeaveClick = (e: React.MouseEvent, group: Group) => {
     e.stopPropagation();
+    if (!isOnline) {
+      setOnlineRequired({ open: true, reason: "leaveGroup" });
+      return;
+    }
     setAlertState({ open: true, type: "leave", group });
   };
 
-  const openCreateDialog = () => setDialogState({ open: true, mode: "create", initialName: "", initialMembers: "" });
+  const openCreateDialog = () => {
+    if (!isOnline) {
+      setOnlineRequired({ open: true, reason: "createGroup" });
+      return;
+    }
+    setDialogState({ open: true, mode: "create", initialName: "", initialMembers: "" });
+  };
 
   const createGroupMutation = useMutation({
     mutationFn: async (data: { name: string, members: MemberInput[] }) => {
@@ -193,7 +239,38 @@ export default function Groups() {
         initialName={dialogState.initialName}
         initialMembers={dialogState.initialMembers}
         isPending={createGroupMutation.isPending || updateGroupMutation.isPending}
-        onSubmit={(data) => dialogState.mode === 'create' ? createGroupMutation.mutate(data) : updateGroupMutation.mutate({ groupId: dialogState.groupId!, ...data })}
+        onSubmit={(data) => {
+          if (dialogState.mode === 'create') {
+            createGroupMutation.mutate(data);
+          } else {
+            if (!isOnline) {
+              const existingEmails = new Set(
+                existingGroupMembers
+                  .map(m => m.email?.toLowerCase().trim())
+                  .filter(Boolean)
+              );
+              const newEmailMember = data.members.find(
+                m => m.email && !existingEmails.has(m.email.toLowerCase().trim())
+              );
+              if (newEmailMember) {
+                setOnlineRequired({
+                  open: true,
+                  reason: "inviteEmail",
+                  reasonParams: { email: newEmailMember.email }
+                });
+                return;
+              }
+            }
+            updateGroupMutation.mutate({ groupId: dialogState.groupId!, ...data });
+          }
+        }}
+      />
+
+      <OnlineRequiredDialog
+        isOpen={onlineRequired.open}
+        onOpenChange={(open) => setOnlineRequired(prev => ({ ...prev, open }))}
+        reason={onlineRequired.reason}
+        reasonParams={onlineRequired.reasonParams}
       />
 
       <ShareDialog
@@ -218,7 +295,7 @@ export default function Groups() {
                 <Plus className="w-4 h-4 mr-2" />
                 {t("groups.empty.create")}
               </Button>
-              <Button variant="ghost" onClick={() => openPicker()} className="w-full h-12 text-muted-foreground hover:text-primary hover:bg-primary/5">
+              <Button variant="ghost" onClick={handleImportClick} className="w-full h-12 text-muted-foreground hover:text-primary hover:bg-primary/5">
                 {t("groups.empty.recoverHint")}
               </Button>
             </div>
@@ -321,7 +398,7 @@ export default function Groups() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => openPicker()}
+                onClick={handleImportClick}
                 className="gap-2"
               >
                 <Download className="w-4 h-4" />

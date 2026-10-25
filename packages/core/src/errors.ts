@@ -53,3 +53,13 @@ export class TableNotFoundError extends Error {
         this.name = "TableNotFoundError";
     }
 }
+
+export class OfflineOperationError extends Error {
+    public readonly action?: string;
+    constructor(message: string = "This operation requires an internet connection.", action?: string) {
+        super(message);
+        this.name = "OfflineOperationError";
+        this.action = action;
+        Object.setPrototypeOf(this, OfflineOperationError.prototype);
+    }
+}

@@ -8,6 +8,7 @@ export class GoogleDriveBlobDriver implements BlobStorageDriver {
     private getAccessToken: () => string | null;
     private client: GoogleHttpClient;
     private storageLayer?: IStorageLayer;
+    private writeQueues = new Map<string, Promise<void>>();
 
     constructor(options: GoogleDriverOptions) {
         this.getAccessToken = options.getAccessToken;
@@ -49,14 +50,25 @@ export class GoogleDriveBlobDriver implements BlobStorageDriver {
     private async findFileInAppData(filename: string): Promise<string | null> {
         const headers = this.getAuthHeaders();
         const query = encodeURIComponent(`name = '${filename}' and trashed = false`);
-        const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name)`;
+        const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,createdTime)`;
 
         const res = await this.client.fetch(url, { method: "GET", headers });
         await this.handleResponseErrors(res, "searching appDataFolder");
 
         const json = (await res.json()) as any;
         if (json.files && json.files.length > 0) {
-            return json.files[0].id;
+            const files = [...json.files].sort((a: any, b: any) =>
+                new Date(b.modifiedTime || b.createdTime || 0).getTime() - new Date(a.modifiedTime || a.createdTime || 0).getTime()
+            );
+            if (files.length > 1) {
+                for (const dup of files.slice(1)) {
+                    if (dup.id) {
+                        const deleteUrl = `https://www.googleapis.com/drive/v3/files/${dup.id}`;
+                        this.client.fetch(deleteUrl, { method: "DELETE", headers }).catch(() => {});
+                    }
+                }
+            }
+            return files[0].id;
         }
         return null;
     }
@@ -81,7 +93,17 @@ export class GoogleDriveBlobDriver implements BlobStorageDriver {
         if (this.storageLayer && !this.getAccessToken()) {
             const files = await this.storageLayer.listFiles(`name = '${filename}' and trashed = false`);
             if (files.length === 0) return null;
-            const data = await this.storageLayer.getFile(files[0].id, { alt: "media" });
+            let fileToUse = files[0];
+            if (files.length > 1) {
+                const sortedFiles = files.sort((a: any, b: any) =>
+                    new Date(b.modifiedTime || b.createdTime || 0).getTime() - new Date(a.modifiedTime || a.createdTime || 0).getTime()
+                );
+                fileToUse = sortedFiles[0];
+                for (const dup of sortedFiles.slice(1)) {
+                    await this.storageLayer.deleteFile(dup.id).catch(() => {});
+                }
+            }
+            const data = await this.storageLayer.getFile(fileToUse.id, { alt: "media" });
             return (data as T) || null;
         }
 
@@ -116,10 +138,30 @@ export class GoogleDriveBlobDriver implements BlobStorageDriver {
     }
 
     async writeBlob<T = any>(filename: string, data: T): Promise<void> {
+        const previousQueue = this.writeQueues.get(filename) || Promise.resolve();
+        const nextQueue = (async () => {
+            await previousQueue.catch(() => {});
+            await this.doWriteBlob(filename, data);
+        })();
+        this.writeQueues.set(filename, nextQueue);
+        return nextQueue;
+    }
+
+    private async doWriteBlob<T = any>(filename: string, data: T): Promise<void> {
         if (this.storageLayer && !this.getAccessToken()) {
             const files = await this.storageLayer.listFiles(`name = '${filename}' and trashed = false`);
             if (files.length > 0) {
-                await this.storageLayer.updateFile(files[0].id, {}, JSON.stringify(data));
+                let fileToUse = files[0];
+                if (files.length > 1) {
+                    const sortedFiles = files.sort((a: any, b: any) =>
+                        new Date(b.modifiedTime || b.createdTime || 0).getTime() - new Date(a.modifiedTime || a.createdTime || 0).getTime()
+                    );
+                    fileToUse = sortedFiles[0];
+                    for (const dup of sortedFiles.slice(1)) {
+                        await this.storageLayer.deleteFile(dup.id).catch(() => {});
+                    }
+                }
+                await this.storageLayer.updateFile(fileToUse.id, {}, JSON.stringify(data));
             } else {
                 await this.storageLayer.createFile(filename, "application/json", {}, JSON.stringify(data));
             }

@@ -383,5 +383,23 @@
             "error": "Sync failed — will retry automatically",
             "disconnected": "Not connected"
         }
+    },
+    "offline": {
+        "requiredTitle": "Internet Connection Required",
+        "gotIt": "Got it",
+        "switchGroupAction": "Switch Group",
+        "unhydratedTitle": "Connect to load \"{{name}}\"",
+        "unhydratedDesc": "To save bandwidth and storage, Quozen only downloads groups when you open them. Connect to the internet to load this group's expenses and members.",
+        "reasons": {
+            "createGroup": "Creating a new expense group requires an internet connection to set up its shared Google Spreadsheet in your Google Drive.",
+            "deleteGroup": "Deleting a group requires an internet connection to remove the shared spreadsheet from Google Drive.",
+            "leaveGroup": "Leaving a group requires an internet connection to verify latest expenses and update the shared Google Spreadsheet.",
+            "importDrive": "Importing a group from Google Drive requires an internet connection.",
+            "reconcileGroups": "Scanning Google Drive for missing groups requires an internet connection.",
+            "changePermissions": "Changing link sharing permissions requires an internet connection to update Google Drive access settings. You can still copy the invite link while offline.",
+            "inviteEmail": "Inviting members via Google email ({{email}}) requires an internet connection to grant them Google Drive access. Connect to the internet to invite by email, or add them by name without an email to track expenses offline.",
+            "editUnhydratedGroup": "This group's member list has not been downloaded to your device yet. Please connect to the internet to edit this group.",
+            "unhydratedGroup": "This group's data has not been downloaded to your device yet. Please connect to the internet first or switch to an already downloaded group."
+        }
     }
 }

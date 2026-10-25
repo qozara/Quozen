@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { useSettings } from "../use-settings";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -35,7 +35,11 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 describe("useSettings Hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (useAuth as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ user: { email: "test@example.com" } });
+    queryClient.clear();
+    (useAuth as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      user: { email: "test@example.com" },
+      isAuthenticated: true
+    });
   });
 
   it("fetches settings successfully", async () => {
@@ -78,5 +82,55 @@ describe("useSettings Hook", () => {
     await waitFor(() => {
       expect(quozen.groups.updateActiveGroup).toHaveBeenCalledWith("new-group-id");
     });
+  });
+
+  it("subscribes to RxDB global_settings and updates React Query cache reactively on emission", async () => {
+    let subscriber: ((doc: any) => void) | undefined;
+    const unsubscribeSpy = vi.fn();
+    const mockObservable = {
+      subscribe: vi.fn((callbacks: any) => {
+        subscriber = callbacks.next;
+        return { unsubscribe: unsubscribeSpy };
+      })
+    };
+    (quozen as any).db = {
+      user_settings: {
+        findOne: vi.fn().mockReturnValue({
+          $: mockObservable
+        })
+      }
+    };
+
+    const initialSettings = { activeGroupId: "123", version: 1, preferences: { defaultCurrency: "USD" } };
+    (quozen.groups.getSettings as any).mockResolvedValue(initialSettings);
+
+    const { result, unmount } = renderHook(() => useSettings(), { wrapper });
+
+    await waitFor(() => expect(result.current.settings).toEqual(initialSettings));
+
+    expect(mockObservable.subscribe).toHaveBeenCalled();
+
+    // Simulate RxDB emitting updated settings document from remote sync
+    const emittedDoc = {
+      id: "global_settings",
+      version: 1,
+      activeGroupId: "123",
+      groupCache: [],
+      preferences: { defaultCurrency: "EUR", theme: "dark" },
+      updatedAt: "2026-10-25T00:00:00Z",
+      deletedAt: null
+    };
+
+    act(() => {
+      subscriber?.(emittedDoc);
+    });
+
+    await waitFor(() => {
+      expect(result.current.settings?.preferences?.defaultCurrency).toBe("EUR");
+    });
+
+    unmount();
+    expect(unsubscribeSpy).toHaveBeenCalled();
+    delete (quozen as any).db;
   });
 });

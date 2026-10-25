@@ -7,12 +7,18 @@ export interface LedgerData {
     settlements: Settlement[];
     members: Member[];
     categories?: ExpenseCategory[];
+    isHydrated?: boolean;
 }
+
+export type LedgerProps = LedgerData;
 
 export class Ledger {
     private _balances: Record<string, number> | null = null;
+    public readonly isHydrated: boolean;
 
-    constructor(private data: LedgerData) { }
+    constructor(private data: LedgerData) {
+        this.isHydrated = data.isHydrated ?? true;
+    }
 
     get members(): Member[] { return this.data.members; }
     get expenses(): Expense[] { return this.data.expenses; }

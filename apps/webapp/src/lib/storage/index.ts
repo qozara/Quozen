@@ -98,6 +98,12 @@ export const resetQuozenStorage = async (): Promise<void> => {
     cachedUserKey = "";
     cachedHasDb = false;
     dbInitPromise = null;
+    if (typeof sessionStorage !== "undefined") {
+        sessionStorage.removeItem("quozen_active_group_id");
+    }
+    if (typeof localStorage !== "undefined") {
+        localStorage.removeItem("quozen_active_group_id");
+    }
 };
 
 export const getQuozen = (): QuozenClient => {

@@ -6,7 +6,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Handshake, ArrowUpDown, MoreVertical, Edit, Trash2 } from "lucide-react";
+import { Handshake, ArrowUpDown, MoreVertical, Edit, Trash2, WifiOff } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -26,6 +27,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { useTranslation } from "react-i18next";
 import { useDateFormatter } from "@/hooks/use-date-formatter";
 import { useSettings } from "@/hooks/use-settings";
+import { useGroups } from "@/hooks/use-groups";
+import { useAutoSync } from "@/hooks/use-auto-sync";
 
 type SortOption = "date_desc" | "date_asc" | "amount_desc" | "amount_asc";
 
@@ -138,6 +141,45 @@ export default function ActivityHub() {
     });
 
     const getMember = (id: string) => members.find(m => m.userId === id) || { name: "Unknown", userId: id } as Member;
+
+    const navigate = useNavigate();
+    const { groups } = useGroups();
+    const activeGroup = groups.find(g => g.id === activeGroupId);
+    const activeGroupName = activeGroup?.name || "";
+
+    let autoSync: any;
+    try {
+        autoSync = useAutoSync();
+    } catch {
+        // Fallback when outside AutoSyncProvider
+    }
+    const isOnline = autoSync?.isOnline ?? (typeof navigator !== "undefined" ? navigator.onLine !== false : true);
+
+    const isUnhydratedOffline = !isLoading && !!ledger && !isOnline && (
+        (ledger as any).isHydrated === false ||
+        (ledger.members.length === 0 && ledger.expenses.length === 0 && ledger.settlements.length === 0)
+    );
+
+    if (isUnhydratedOffline) {
+        return (
+            <div className="mx-4 mt-6 p-6 rounded-xl border border-dashed border-muted-foreground/30 bg-muted/20 flex flex-col items-center text-center space-y-4" data-testid="unhydrated-group-offline">
+                <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400 flex items-center justify-center">
+                    <WifiOff className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                    <h3 className="font-semibold text-lg text-foreground">
+                        {t("offline.unhydratedTitle", { name: activeGroupName })}
+                    </h3>
+                    <p className="text-sm text-muted-foreground max-w-sm">
+                        {t("offline.unhydratedDesc")}
+                    </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => navigate("/groups")}>
+                    {t("offline.switchGroupAction")}
+                </Button>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-background pb-20">

@@ -70,136 +70,165 @@ export class LedgerRepository {
             return;
         }
 
-        const promise = this.performHydration();
+        const promise = (async () => {
+            try {
+                await this.performHydration();
+            } catch (err) {
+                groupMap?.delete(this.groupId);
+                throw err;
+            }
+        })();
         groupMap.set(this.groupId, promise);
-        await promise;
+        try {
+            await promise;
+        } catch {
+            // Ignore hydration error so caller can proceed with local data or retry later
+        }
     }
 
     private async performHydration(): Promise<void> {
         if (!this.db || !this.storage || !this.groupId) return;
 
-        try {
-            const [existingMembers, existingExpenses, existingSettlements, existingCategories] = await Promise.all([
-                this.db.members.find({ selector: { groupId: this.groupId } }).exec(),
-                this.db.expenses.find({ selector: { groupId: this.groupId } }).exec(),
-                this.db.settlements.find({ selector: { groupId: this.groupId } }).exec(),
-                this.db.collections.categories.find({ selector: { groupId: this.groupId } }).exec()
+        const [existingExpenses, existingSettlements, existingCategories] = await Promise.all([
+            this.db.expenses.find({ selector: { groupId: this.groupId } }).exec(),
+            this.db.settlements.find({ selector: { groupId: this.groupId } }).exec(),
+            this.db.collections.categories.find({ selector: { groupId: this.groupId } }).exec()
+        ]);
+
+        const nonEmptyRow = (r: any[]) =>
+            Array.isArray(r) && r.some(cell => String(cell ?? "").trim() !== "");
+
+        const isMarkedHydrated = ReplicationCoordinator.isGroupHydrated(this.db.name, this.groupId);
+        const hasTransactions = existingExpenses.length > 0 || existingSettlements.length > 0;
+
+        if (!isMarkedHydrated && !hasTransactions) {
+            const res = await this.storage.batchGetValues(this.groupId, [
+                "Members!A1:Z",
+                "Expenses!A1:Z",
+                "Settlements!A1:Z"
             ]);
 
-            const nonEmptyRow = (r: any[]) =>
-                Array.isArray(r) && r.some(cell => String(cell ?? "").trim() !== "");
-
-            if (existingMembers.length === 0 && existingExpenses.length === 0 && existingSettlements.length === 0) {
-                const res = await this.storage.batchGetValues(this.groupId, [
-                    "Members!A1:Z",
-                    "Expenses!A1:Z",
-                    "Settlements!A1:Z"
-                ]);
-
-                const memberRows = res[0]?.values || [];
-                if (memberRows.length > 1) {
-                    const mHeaders = SheetDataMapper.buildHeaderMap(memberRows[0]);
-                    const mDocs = memberRows
-                        .slice(1)
-                        .filter(nonEmptyRow)
-                        .map((r: any[], i: number) =>
-                            memberToDoc(SheetDataMapper.mapToMember(r, i + 2, mHeaders).entity, this.groupId)
-                        )
-                        .filter((d: any) => Boolean(d.userId));
-                    if (mDocs.length > 0) {
-                        await this.db.members.bulkUpsert(mDocs);
-                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, mDocs);
-                    }
-                }
-
-                const expenseRows = res[1]?.values || [];
-                if (expenseRows.length > 1) {
-                    const eHeaders = SheetDataMapper.buildHeaderMap(expenseRows[0]);
-                    const eDocs = expenseRows
-                        .slice(1)
-                        .filter(nonEmptyRow)
-                        .map((r: any[], i: number) =>
-                            expenseToDoc(SheetDataMapper.mapToExpense(r, i + 2, eHeaders).entity, this.groupId)
-                        )
-                        .filter((d: any) => Boolean(d.id));
-                    if (eDocs.length > 0) {
-                        await this.db.expenses.bulkUpsert(eDocs);
-                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, eDocs);
-                    }
-                }
-
-                const settlementRows = res[2]?.values || [];
-                if (settlementRows.length > 1) {
-                    const sHeaders = SheetDataMapper.buildHeaderMap(settlementRows[0]);
-                    const sDocs = settlementRows
-                        .slice(1)
-                        .filter(nonEmptyRow)
-                        .map((r: any[], i: number) =>
-                            settlementToDoc(SheetDataMapper.mapToSettlement(r, i + 2, sHeaders).entity, this.groupId)
-                        )
-                        .filter((d: any) => Boolean(d.id));
-                    if (sDocs.length > 0) {
-                        await this.db.settlements.bulkUpsert(sDocs);
-                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, sDocs);
-                    }
-                }
-
-                let categoryRows: any[][] = [];
-                try {
-                    const catRes = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
-                    categoryRows = catRes[0]?.values || [];
-                } catch {
-                    categoryRows = [];
-                }
-
-                if (categoryRows.length > 1) {
-                    const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
-                    const cDocs = categoryRows
-                        .slice(1)
-                        .filter(nonEmptyRow)
-                        .map((r: any[], i: number) =>
-                            categoryToDoc(SheetDataMapper.mapToCategory(r, i + 2, cHeaders).entity, this.groupId)
-                        )
-                        .filter((d: any) => Boolean(d.categoryId));
-                    if (cDocs.length > 0) {
-                        await this.db.collections.categories.bulkUpsert(cDocs);
-                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
-                    }
-                } else {
-                    const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
-                    await this.db.collections.categories.bulkUpsert(cDocs);
-                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
-                }
-            } else if (existingCategories.length === 0) {
-                let categoryRows: any[][] = [];
-                try {
-                    const res = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
-                    categoryRows = res[0]?.values || [];
-                } catch {
-                    categoryRows = [];
-                }
-                if (categoryRows.length > 1) {
-                    const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
-                    const cDocs = categoryRows
-                        .slice(1)
-                        .filter(nonEmptyRow)
-                        .map((r: any[], i: number) =>
-                            categoryToDoc(SheetDataMapper.mapToCategory(r, i + 2, cHeaders).entity, this.groupId)
-                        )
-                        .filter((d: any) => Boolean(d.categoryId));
-                    if (cDocs.length > 0) {
-                        await this.db.collections.categories.bulkUpsert(cDocs);
-                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
-                    }
-                } else {
-                    const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
-                    await this.db.collections.categories.bulkUpsert(cDocs);
-                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
+            const memberRows = res[0]?.values || [];
+            if (memberRows.length > 1) {
+                const mHeaders = SheetDataMapper.buildHeaderMap(memberRows[0]);
+                const mDocs = memberRows
+                    .slice(1)
+                    .filter(nonEmptyRow)
+                    .map((r: any[], i: number) =>
+                        memberToDoc(SheetDataMapper.mapToMember(r, i + 2, mHeaders).entity, this.groupId)
+                    )
+                    .filter((d: any) => Boolean(d.userId));
+                if (mDocs.length > 0) {
+                    await this.db.members.bulkUpsert(mDocs);
+                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, mDocs);
                 }
             }
-        } catch {
-            // Ignore hydration error if offline or group not yet created in remote storage
+
+            const expenseRows = res[1]?.values || [];
+            if (expenseRows.length > 1) {
+                const eHeaders = SheetDataMapper.buildHeaderMap(expenseRows[0]);
+                const eDocs = expenseRows
+                    .slice(1)
+                    .filter(nonEmptyRow)
+                    .map((r: any[], i: number) =>
+                        expenseToDoc(SheetDataMapper.mapToExpense(r, i + 2, eHeaders).entity, this.groupId)
+                    )
+                    .filter((d: any) => Boolean(d.id));
+                if (eDocs.length > 0) {
+                    await this.db.expenses.bulkUpsert(eDocs);
+                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, eDocs);
+                }
+            }
+
+            const settlementRows = res[2]?.values || [];
+            if (settlementRows.length > 1) {
+                const sHeaders = SheetDataMapper.buildHeaderMap(settlementRows[0]);
+                const sDocs = settlementRows
+                    .slice(1)
+                    .filter(nonEmptyRow)
+                    .map((r: any[], i: number) =>
+                        settlementToDoc(SheetDataMapper.mapToSettlement(r, i + 2, sHeaders).entity, this.groupId)
+                    )
+                    .filter((d: any) => Boolean(d.id));
+                if (sDocs.length > 0) {
+                    await this.db.settlements.bulkUpsert(sDocs);
+                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, sDocs);
+                }
+            }
+
+            let categoryRows: any[][] = [];
+            try {
+                const catRes = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
+                categoryRows = catRes[0]?.values || [];
+            } catch {
+                categoryRows = [];
+            }
+
+            if (categoryRows.length > 1) {
+                const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
+                const cDocs = categoryRows
+                    .slice(1)
+                    .filter(nonEmptyRow)
+                    .map((r: any[], i: number) =>
+                        categoryToDoc(SheetDataMapper.mapToCategory(r, i + 2, cHeaders).entity, this.groupId)
+                    )
+                    .filter((d: any) => Boolean(d.categoryId));
+                if (cDocs.length > 0) {
+                    await this.db.collections.categories.bulkUpsert(cDocs);
+                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
+                }
+            } else {
+                const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
+                await this.db.collections.categories.bulkUpsert(cDocs);
+                ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
+            }
+
+            ReplicationCoordinator.markGroupHydrated(this.db.name, this.groupId);
+        } else if (existingCategories.length === 0) {
+            let categoryRows: any[][] = [];
+            try {
+                const res = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
+                categoryRows = res[0]?.values || [];
+            } catch {
+                categoryRows = [];
+            }
+            if (categoryRows.length > 1) {
+                const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
+                const cDocs = categoryRows
+                    .slice(1)
+                    .filter(nonEmptyRow)
+                    .map((r: any[], i: number) =>
+                        categoryToDoc(SheetDataMapper.mapToCategory(r, i + 2, cHeaders).entity, this.groupId)
+                    )
+                    .filter((d: any) => Boolean(d.categoryId));
+                if (cDocs.length > 0) {
+                    await this.db.collections.categories.bulkUpsert(cDocs);
+                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
+                }
+            } else {
+                const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
+                await this.db.collections.categories.bulkUpsert(cDocs);
+                ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
+            }
         }
+    }
+
+    public async isGroupHydrated(): Promise<boolean> {
+        if (!this.db) return true;
+        await this.hydrateFromStorageIfNeeded();
+        if (ReplicationCoordinator.isGroupHydrated(this.db.name, this.groupId)) {
+            return true;
+        }
+        const [memberDocs, expenseDocs, settlementDocs] = await Promise.all([
+            this.db.members.find({ selector: { groupId: this.groupId } }).exec(),
+            this.db.expenses.find({ selector: { groupId: this.groupId } }).exec(),
+            this.db.settlements.find({ selector: { groupId: this.groupId } }).exec()
+        ]);
+        return (
+            memberDocs.some(d => !d.deletedAt) ||
+            expenseDocs.some(d => !d.deletedAt) ||
+            settlementDocs.some(d => !d.deletedAt)
+        );
     }
 
     private async touchGroup() {

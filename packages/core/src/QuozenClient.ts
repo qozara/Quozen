@@ -49,8 +49,16 @@ export class QuozenClient {
         );
     }
 
-    private triggerBackgroundSync(groupId?: string): void {
-        if (this.syncProvider && this.replication && this.syncProvider.isInitialized()) {
+    private async triggerBackgroundSync(groupId?: string): Promise<void> {
+        if (!this.syncProvider || !this.replication) return;
+        if (!this.syncProvider.isInitialized() && this.config.getToken?.()) {
+            try {
+                await this.syncProvider.initialize();
+            } catch {
+                return;
+            }
+        }
+        if (this.syncProvider.isInitialized()) {
             if (groupId && typeof (this.syncProvider as any).setActiveGroupId === "function") {
                 (this.syncProvider as any).setActiveGroupId(groupId);
             }
