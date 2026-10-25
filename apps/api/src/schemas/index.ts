@@ -94,7 +94,7 @@ export const SuccessSchema = z.object({
 }).openapi('SuccessResponse');
 
 export const LedgerAnalyticsSchema = z.object({
-    balances: z.record(z.number()).describe('A map of userId to their current balance. Positive means they are owed money, negative means they owe money.'),
+    balances: z.record(z.string(), z.number()).describe('A map of userId to their current balance. Positive means they are owed money, negative means they owe money.'),
     totalVolume: z.number().describe('The total amount of all expenses in the group'),
     expenseCount: z.number().describe('The number of expense records'),
     settlementCount: z.number().describe('The number of settlement records'),
@@ -108,7 +108,7 @@ export const SchemaStatusDTOSchema = z.object({
     latestVersion: z.number(),
     status: z.enum(['READY', 'UPGRADE_REQUIRED', 'CORRUPTED', 'INCOMPATIBLE']),
     missingTabs: z.array(z.string()),
-    missingColumns: z.record(z.array(z.string())),
+    missingColumns: z.record(z.string(), z.array(z.string())),
     canAutoMigrate: z.boolean(),
     lastModifiedTime: z.string().optional(),
 }).openapi('SchemaStatusDTO');

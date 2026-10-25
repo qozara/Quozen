@@ -26,6 +26,7 @@ import { useAutoSync } from "@/hooks/use-auto-sync";
 import AddExpenseDrawer from "@/components/add-expense-drawer";
 import SchemaRemediationModal from "@/components/schema-remediation-modal";
 import { AiFeatureProvider } from "@/features/agent/AiFeatureProvider";
+import { PwaUpdateProvider } from "@/hooks/use-pwa-update";
 import { quozen } from "@/lib/storage";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -318,9 +319,11 @@ function App() {
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <AuthProvider>
-            <AuthenticatedApp />
-          </AuthProvider>
+          <PwaUpdateProvider>
+            <AuthProvider>
+              <AuthenticatedApp />
+            </AuthProvider>
+          </PwaUpdateProvider>
         </TooltipProvider>
       </QueryClientProvider>
     </BrowserRouter>

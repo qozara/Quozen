@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/hooks/use-settings";
 import { useGroups } from "@/hooks/use-groups";
 import { useAutoSync } from "@/hooks/use-auto-sync";
+import { usePwaUpdate } from "@/hooks/use-pwa-update";
 import OnlineRequiredDialog from "@/components/online-required-dialog";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -64,6 +65,7 @@ export default function Profile() {
   const { settings, updateSettings, updateSettingsAsync } = useSettings();
   const { groups } = useGroups();
   const { t } = useTranslation();
+  const { needRefresh, isChecking: isCheckingUpdate, checkForUpdates, applyUpdate } = usePwaUpdate();
   const { } = useAiFeature();
   const [apiKey, setApiKey] = React.useState("");
   const [draftProvider, setDraftProvider] = React.useState(settings?.preferences?.aiProvider || "auto");
@@ -507,7 +509,10 @@ export default function Profile() {
               variant="ghost"
               className="w-full justify-start"
               data-testid="button-help"
-              onClick={() => window.location.href = `mailto:${import.meta.env.VITE_SUPPORT_EMAIL || "support@qozara.org"}`}
+              onClick={() => {
+                const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL;
+                if (supportEmail) window.location.href = `mailto:${supportEmail}`;
+              }}
             >
               <HelpCircle className="w-4 h-4 mr-3" />
               {t("profile.help")}
@@ -516,7 +521,10 @@ export default function Profile() {
               variant="ghost"
               className="w-full justify-start"
               data-testid="button-contact"
-              onClick={() => window.location.href = `mailto:${import.meta.env.VITE_SUPPORT_EMAIL || "support@qozara.org"}`}
+              onClick={() => {
+                const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL;
+                if (supportEmail) window.location.href = `mailto:${supportEmail}`;
+              }}
             >
               <Mail className="w-4 h-4 mr-3" />
               {t("profile.contact")}
@@ -540,8 +548,25 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      <div className="text-center text-xs text-muted-foreground py-4">
-        <p>Quozen version ({__COMMIT_HASH__})</p>
+      <div className="text-center text-xs text-muted-foreground py-4 space-y-1">
+        <div className="flex items-center justify-center gap-2">
+          <p>Quozen version ({__COMMIT_HASH__})</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => void (needRefresh ? applyUpdate() : checkForUpdates())}
+            disabled={isCheckingUpdate}
+            data-testid="button-check-updates"
+          >
+            <RefreshCw className={`w-3 h-3 mr-1 ${isCheckingUpdate ? "animate-spin" : ""}`} />
+            {isCheckingUpdate
+              ? t("pwa.checkingForUpdates")
+              : needRefresh
+                ? t("pwa.reload")
+                : t("pwa.checkForUpdates")}
+          </Button>
+        </div>
         <p>Decentralized Expense Sharing</p>
       </div>
 

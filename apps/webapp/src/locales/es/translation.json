@@ -115,7 +115,7 @@
         "switchModalDesc": "Selecciona un grupo para ver.",
         "nameLabel": "Nombre del Grupo",
         "membersLabel": "Miembros y Cuentas (Opcional)",
-        "membersHint": "Ingresa correos o nombres de cuenta, separados por comas (ej. ana@gmail.com, Familia García)",
+        "membersHint": "Ingresa correos o nombres de cuenta, separados por comas (ej. ana@example.com, Familia García)",
         "membersHint2": "Los correos invitan a usuarios de Google a conectarse. Los nombres sin correo crean cuentas compartidas o sin conexión.",
         "loadError": "Error al cargar detalles del grupo.",
         "createError": "Error al crear el grupo.",
@@ -401,5 +401,15 @@
             "editUnhydratedGroup": "La lista de miembros de este grupo aún no se ha descargado en tu dispositivo. Conéctate a Internet para editar este grupo.",
             "unhydratedGroup": "Los datos de este grupo aún no se han descargado en tu dispositivo. Conéctate a Internet primero o cambia a otro grupo descargado."
         }
+    },
+    "pwa": {
+        "updateAvailableTitle": "Actualización Disponible",
+        "updateAvailableDesc": "Una nueva versión de Quozen está lista.",
+        "reload": "Actualizar",
+        "checkForUpdates": "Buscar actualizaciones",
+        "checkingForUpdates": "Buscando...",
+        "upToDateTitle": "Actualizado",
+        "upToDateDesc": "Tienes instalada la última versión ({{version}}).",
+        "offlineCheckDesc": "Conéctate a Internet para buscar actualizaciones."
     }
 }
