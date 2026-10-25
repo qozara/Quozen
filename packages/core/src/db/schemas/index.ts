@@ -68,7 +68,7 @@ export interface CategoryDocType {
 
 export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
     title: "user_settings",
-    version: 0,
+    version: 1,
     description: "Global user preferences and cached group metadata stored locally and in Drive appDataFolder",
     primaryKey: "id",
     type: "object",
@@ -114,6 +114,31 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
         deletedAt: { type: ["string", "null"] }
     },
     required: ["id", "version", "groupCache", "preferences", "lastUpdated", "updatedAt"]
+};
+
+export const userSettingsMigrationStrategies = {
+    1: (oldDoc: any) => {
+        const nowIso = oldDoc.updatedAt || oldDoc.lastUpdated || new Date().toISOString();
+        return {
+            ...oldDoc,
+            version: oldDoc.version || 1,
+            activeGroupId: oldDoc.activeGroupId ?? null,
+            groupCache: Array.isArray(oldDoc.groupCache)
+                ? oldDoc.groupCache.map((g: any) => ({
+                    ...g,
+                    updatedAt: g.updatedAt || g.lastAccessed || nowIso
+                }))
+                : [],
+            preferences: {
+                defaultCurrency: "USD",
+                ...(oldDoc.preferences || {})
+            },
+            preferencesUpdatedAt: oldDoc.preferencesUpdatedAt || nowIso,
+            lastUpdated: oldDoc.lastUpdated || nowIso,
+            updatedAt: oldDoc.updatedAt || oldDoc.lastUpdated || nowIso,
+            deletedAt: oldDoc.deletedAt ?? null
+        };
+    }
 };
 
 export const expenseSchema: RxJsonSchema<ExpenseDocType> = {

@@ -54,6 +54,9 @@ vi.mock("@/hooks/use-toast", () => ({
 
 vi.mock("@/lib/storage", () => ({
   quozen: {
+    replication: {
+      sync: vi.fn().mockResolvedValue(undefined)
+    },
     groups: {
       importGroup: vi.fn(),
       create: vi.fn(),
@@ -167,6 +170,24 @@ describe("Groups Page", () => {
     const meatball2 = within(group2Card as HTMLElement).getByTestId("group-menu-trigger");
     expect(meatball2).toBeInTheDocument();
     expect(screen.getByText(en.groups.leaveAction)).toBeInTheDocument();
+  });
+
+  it("opens edit group dialog immediately when members are already in local storage", async () => {
+    (quozen.ledger as any).mockReturnValue({
+      getMembers: vi.fn().mockResolvedValue(mockGroup1Data.members)
+    });
+
+    render(<Groups />);
+    const group1Card = screen.getByText("Trip to Paris").closest('[data-testid="group-card"]');
+    const meatball = within(group1Card as HTMLElement).getByTestId("group-menu-trigger");
+    fireEvent.click(meatball);
+
+    const editBtn = screen.getByText(en.common.edit);
+    fireEvent.click(editBtn);
+
+    // Dialog should open with members loaded from local ledger
+    await waitFor(() => expect(screen.getByText(en.groups.edit)).toBeInTheDocument());
+    expect(screen.getByDisplayValue("Trip to Paris")).toBeInTheDocument();
   });
 
   it("prevents removing a member with existing expenses during edit", async () => {

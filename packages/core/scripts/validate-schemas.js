@@ -10,7 +10,6 @@ const V0_BASELINE = {
             "groupCache",
             "preferences",
             "encryptedApiKey",
-            "preferencesUpdatedAt",
             "lastUpdated",
             "updatedAt",
             "deletedAt"
@@ -77,6 +76,11 @@ const V0_BASELINE = {
     }
 };
 
+const MIGRATION_STRATEGIES_BY_TITLE = {
+    user_settings: schemas.userSettingsMigrationStrategies,
+    expenses: schemas.expenseMigrationStrategies
+};
+
 const allSchemas = [
     schemas.userSettingsSchema,
     schemas.expenseSchema,
@@ -120,10 +124,13 @@ for (const schema of allSchemas) {
             hasError = true;
         }
     } else if (schema.version > 0) {
-        if (schema.title === "expenses") {
-            const strategies = schemas.expenseMigrationStrategies;
-            if (!strategies || typeof strategies[1] !== "function") {
-                console.error(`\n[SCHEMA MIGRATION ERROR] Schema "${schema.title}" version is ${schema.version}, but expenseMigrationStrategies[1] is missing or invalid!`);
+        const strategies = MIGRATION_STRATEGIES_BY_TITLE[schema.title];
+        for (let v = 1; v <= schema.version; v++) {
+            if (!strategies || typeof strategies[v] !== "function") {
+                console.error(
+                    `\n[SCHEMA MIGRATION ERROR] Schema "${schema.title}" version is ${schema.version}, ` +
+                    `but migrationStrategies[${v}] is missing or invalid!`
+                );
                 hasError = true;
             }
         }

@@ -13,6 +13,7 @@ import { RxDBUpdatePlugin } from "rxdb/plugins/update";
 import { RxDBQueryBuilderPlugin } from "rxdb/plugins/query-builder";
 import {
     userSettingsSchema,
+    userSettingsMigrationStrategies,
     expenseSchema,
     expenseMigrationStrategies,
     settlementSchema,
@@ -60,24 +61,34 @@ export async function createQuozenDatabase(options?: QuozenDatabaseOptions): Pro
         multiInstance: options?.multiInstance ?? false
     });
 
-    await db.addCollections({
-        user_settings: {
-            schema: userSettingsSchema
-        },
-        expenses: {
-            schema: expenseSchema,
-            migrationStrategies: expenseMigrationStrategies
-        },
-        settlements: {
-            schema: settlementSchema
-        },
-        members: {
-            schema: memberSchema
-        },
-        categories: {
-            schema: categorySchema
+    try {
+        await db.addCollections({
+            user_settings: {
+                schema: userSettingsSchema,
+                migrationStrategies: userSettingsMigrationStrategies
+            },
+            expenses: {
+                schema: expenseSchema,
+                migrationStrategies: expenseMigrationStrategies
+            },
+            settlements: {
+                schema: settlementSchema
+            },
+            members: {
+                schema: memberSchema
+            },
+            categories: {
+                schema: categorySchema
+            }
+        });
+    } catch (err) {
+        try {
+            await db.close();
+        } catch {
+            // Ignore if already closed
         }
-    });
+        throw err;
+    }
 
     return db;
 }

@@ -55,7 +55,7 @@ export default function ActivityHub() {
     // Fetch Data
     const { data: ledger, isLoading } = useQuery({
         queryKey: ["drive", "group", activeGroupId],
-        queryFn: () => quozen.ledger(activeGroupId).getLedger(),
+        queryFn: () => quozen.ledger(activeGroupId, currentUserId).getLedger(),
         enabled: !!activeGroupId,
     });
 
@@ -128,7 +128,7 @@ export default function ActivityHub() {
 
     const deleteMutation = useMutation({
         mutationFn: async (s: Settlement) => {
-            return await quozen.ledger(activeGroupId).deleteSettlement(s.id);
+            return await quozen.ledger(activeGroupId, currentUserId).deleteSettlement(s.id);
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });

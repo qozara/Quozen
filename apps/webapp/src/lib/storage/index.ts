@@ -7,6 +7,7 @@ import {
     GoogleSheetsTabularDriver,
     CompositeCloudSyncProvider,
     getQuozenDatabase,
+    clearQuozenDatabase,
     type QuozenDatabase,
     type BlobStorageDriver,
     type CloudSyncProvider,
@@ -80,11 +81,23 @@ export const initQuozenStorage = async (): Promise<QuozenDatabase> => {
     dbInitPromise = getQuozenDatabase({
         name: "quozendb",
         storage
-    }).then(db => {
-        cachedDb = db;
-        cachedClient = null;
-        return db;
-    });
+    })
+        .catch(async (err: any) => {
+            if (err?.code === "DB6") {
+                console.warn("[QuozenStorage] RxDB schema hash mismatch (DB6) detected, resetting local cache database:", err);
+                return clearQuozenDatabase({
+                    name: "quozendb",
+                    storage
+                });
+            }
+            dbInitPromise = null;
+            throw err;
+        })
+        .then(db => {
+            cachedDb = db;
+            cachedClient = null;
+            return db;
+        });
 
     return dbInitPromise;
 };

@@ -14,7 +14,7 @@ import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
 import { OfflineOperationError } from "../errors";
 
 export class GroupRepository {
-    private accountIdCache = new Map<string, string>();
+    private accountIdCache = new Map<string, string | undefined>();
 
     constructor(
         private storage: IStorageLayer,
@@ -42,7 +42,9 @@ export class GroupRepository {
         }
         try {
             const settings = await this.getSettings();
-            return settings.groupCache.find(g => g.id === groupId)?.accountId;
+            const accountId = settings.groupCache.find(g => g.id === groupId)?.accountId;
+            this.accountIdCache.set(groupId, accountId);
+            return accountId;
         } catch {
             return undefined;
         }
@@ -196,6 +198,9 @@ export class GroupRepository {
                 (globalThis as any).navigator?.onLine === false;
             if (isOffline || (this.onMutation && !isMockE2E)) {
                 await this.onMutation?.(settings.activeGroupId || undefined);
+                return;
+            }
+            if (!this.blobDriver && !isMockE2E) {
                 return;
             }
         } else {
@@ -756,24 +761,27 @@ export class GroupRepository {
 
         const settings = await this.getSettings();
         const cachedGroup = settings.groupCache.find(g => g.id === groupId);
+        const nameChanged = !cachedGroup || cachedGroup.name !== name;
 
-        let pendingRename = false;
-        if (!isOffline) {
-            try {
-                await this.storage.updateFile(groupId, { name: newTitle });
-            } catch (err) {
-                if (this.db && isNetworkError(err)) {
-                    pendingRename = true;
-                } else if (!this.db) {
-                    throw err;
+        let pendingRename = Boolean(cachedGroup?.pendingRename);
+        if (nameChanged) {
+            if (!isOffline) {
+                try {
+                    await this.storage.updateFile(groupId, { name: newTitle });
+                    pendingRename = false;
+                } catch (err) {
+                    if (this.db && isNetworkError(err)) {
+                        pendingRename = true;
+                    } else if (!this.db) {
+                        throw err;
+                    }
                 }
+            } else {
+                pendingRename = true;
             }
-        } else {
-            pendingRename = true;
         }
 
         if (cachedGroup) {
-            const nameChanged = cachedGroup.name !== name;
             const renameChanged = cachedGroup.pendingRename !== pendingRename;
             cachedGroup.name = name;
             cachedGroup.pendingRename = pendingRename;

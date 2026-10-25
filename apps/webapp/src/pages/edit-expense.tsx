@@ -23,7 +23,7 @@ export default function EditExpense() {
 
   const { data: ledger, isLoading, refetch } = useQuery({
     queryKey: ["drive", "group", activeGroupId],
-    queryFn: () => quozen.ledger(activeGroupId!).getLedger(),
+    queryFn: () => quozen.ledger(activeGroupId!, currentUserId).getLedger(),
     enabled: !!activeGroupId,
   });
 
@@ -39,7 +39,7 @@ export default function EditExpense() {
     mutationFn: (updatedData: any) => {
       if (!activeGroupId || !expense) throw new Error("Missing required data");
 
-      return quozen.ledger(activeGroupId).updateExpense(
+      return quozen.ledger(activeGroupId, currentUserId).updateExpense(
         expense.id,
         {
           description: updatedData.description,
