@@ -13,7 +13,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SyncTrigger } from "./sync/SyncTrigger";
 
 export default function Header() {
-  const { activeGroupId } = useAppContext();
+  const { activeGroupId, currentUserId } = useAppContext();
   const [showGroupSwitcher, setShowGroupSwitcher] = useState(false);
   const queryClient = useQueryClient();
   const { t } = useTranslation();
