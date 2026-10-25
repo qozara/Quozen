@@ -32,7 +32,7 @@ export const authMiddleware = async (c: Context<AppEnv>, next: Next) => {
         const isTest = typeof (globalThis as any).process !== 'undefined' && (globalThis as any).process.env?.NODE_ENV === 'test';
 
         if (isTest) {
-            const user: User = { id: 'u1', email: 'test@quozen.com', name: 'Test User', username: 'testuser' };
+            const user: User = { id: 'u1', email: 'test@example.com', name: 'Test User', username: 'testuser' };
             c.set('user', user);
             c.set('quozen', new QuozenClient({ storage: testStorage, user }));
             return next();

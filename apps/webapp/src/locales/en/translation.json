@@ -115,7 +115,7 @@
         "switchModalDesc": "Select a group to view.",
         "nameLabel": "Group Name",
         "membersLabel": "Members & Accounts (Optional)",
-        "membersHint": "Enter emails or account names, separated by commas (e.g., alice@gmail.com, Garcia Family)",
+        "membersHint": "Enter emails or account names, separated by commas (e.g., alice@example.com, Garcia Family)",
         "membersHint2": "Emails invite Google users to log in. Names without emails create shared or offline accounts.",
         "loadError": "Failed to load group details.",
         "createError": "Failed to create group.",
@@ -401,5 +401,15 @@
             "editUnhydratedGroup": "This group's member list has not been downloaded to your device yet. Please connect to the internet to edit this group.",
             "unhydratedGroup": "This group's data has not been downloaded to your device yet. Please connect to the internet first or switch to an already downloaded group."
         }
+    },
+    "pwa": {
+        "updateAvailableTitle": "Update Available",
+        "updateAvailableDesc": "A new version of Quozen is ready.",
+        "reload": "Update",
+        "checkForUpdates": "Check for updates",
+        "checkingForUpdates": "Checking...",
+        "upToDateTitle": "Up to Date",
+        "upToDateDesc": "You are running the latest version ({{version}}).",
+        "offlineCheckDesc": "Connect to the internet to check for updates."
     }
 }

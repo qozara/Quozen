@@ -51,6 +51,17 @@ vi.mock("@/hooks/use-toast", () => ({
   }),
 }));
 
+const mockCheckForUpdates = vi.fn();
+const mockApplyUpdate = vi.fn();
+vi.mock("@/hooks/use-pwa-update", () => ({
+  usePwaUpdate: vi.fn(() => ({
+    needRefresh: false,
+    isChecking: false,
+    checkForUpdates: mockCheckForUpdates,
+    applyUpdate: mockApplyUpdate,
+  })),
+}));
+
 vi.mock("@/lib/storage", () => ({
   quozen: {
     groups: {
@@ -140,5 +151,16 @@ describe("Profile Page", () => {
 
     expect(window.location.reload).toHaveBeenCalled();
     Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+  });
+
+  it("renders check for updates button next to version hash and triggers checkForUpdates on click", () => {
+    render(<Profile />);
+
+    expect(screen.getByText(/Quozen version \(test-hash\)/i)).toBeInTheDocument();
+    const checkBtn = screen.getByTestId("button-check-updates");
+    expect(checkBtn).toBeInTheDocument();
+
+    fireEvent.click(checkBtn);
+    expect(mockCheckForUpdates).toHaveBeenCalledTimes(1);
   });
 });

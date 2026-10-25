@@ -23,7 +23,7 @@ export default defineConfig({
     react(),
     tsconfigPaths(),
     VitePWA({
-      registerType: "autoUpdate",
+      registerType: "prompt",
       manifest: false,
       includeAssets: [
         "favicon.ico",
@@ -34,26 +34,23 @@ export default defineConfig({
         "manifest.json",
       ],
       workbox: {
+        cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         navigateFallback: "index.html",
         runtimeCaching: [
           {
-            urlPattern: ({ request }) => request.mode === "navigate",
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "navigation-cache",
-            },
-          },
-          {
-            urlPattern: ({ request }) =>
-              request.destination === "style" ||
-              request.destination === "script" ||
-              request.destination === "image" ||
-              request.destination === "font",
+            urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
             handler: "CacheFirst",
             options: {
-              cacheName: "static-assets-cache",
+              cacheName: "google-fonts-cache",
+              expiration: {
+                maxEntries: 20,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
             },
           },
         ],
