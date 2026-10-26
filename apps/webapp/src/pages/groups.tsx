@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Users, Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2, Archive, ArchiveRestore } from "lucide-react";
+import { Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2, Archive, ArchiveRestore } from "lucide-react";
 import { MemberInput, Group, Member, GroupFileUnavailableError } from "@quozen/core";
+import { GroupIcon } from "@/components/group-icon";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -45,6 +46,7 @@ export default function Groups() {
     groupId?: string;
     initialName?: string;
     initialMembers?: string;
+    initialIcon?: string;
   }>({ open: false, mode: "create" });
 
   const [shareDialog, setShareDialog] = useState<{
@@ -134,7 +136,7 @@ export default function Groups() {
         .filter(m => m.role !== 'owner')
         .map(m => m.email || m.name || m.userId)
         .join(", ");
-      setDialogState({ open: true, mode: "edit", groupId: group.id, initialName: group.name, initialMembers: editableMembers });
+      setDialogState({ open: true, mode: "edit", groupId: group.id, initialName: group.name, initialMembers: editableMembers, initialIcon: group.icon });
     } catch (err) {
       toast({ title: t("common.error"), description: t("groups.loadError"), variant: "destructive" });
     } finally {
@@ -180,13 +182,13 @@ export default function Groups() {
       setOnlineRequired({ open: true, reason: "createGroup" });
       return;
     }
-    setDialogState({ open: true, mode: "create", initialName: "", initialMembers: "" });
+    setDialogState({ open: true, mode: "create", initialName: "", initialMembers: "", initialIcon: "" });
   };
 
   const createGroupMutation = useMutation({
-    mutationFn: async (data: { name: string, members: MemberInput[] }) => {
+    mutationFn: async (data: { name: string; members: MemberInput[]; icon?: string }) => {
       if (!user) throw new Error("User not authenticated");
-      return await quozen.groups.create(data.name, data.members);
+      return await quozen.groups.create(data.name, data.members, { icon: data.icon });
     },
     onSuccess: (newGroup) => {
       queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
@@ -204,8 +206,8 @@ export default function Groups() {
   });
 
   const updateGroupMutation = useMutation({
-    mutationFn: async (data: { groupId: string, name: string, members: MemberInput[] }) => {
-      return await quozen.groups.updateGroup(data.groupId, data.name, data.members);
+    mutationFn: async (data: { groupId: string; name: string; members: MemberInput[]; icon?: string }) => {
+      return await quozen.groups.updateGroup(data.groupId, data.name, data.members, { icon: data.icon });
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
@@ -315,6 +317,7 @@ export default function Groups() {
         mode={dialogState.mode}
         initialName={dialogState.initialName}
         initialMembers={dialogState.initialMembers}
+        initialIcon={dialogState.initialIcon}
         isPending={createGroupMutation.isPending || updateGroupMutation.isPending}
         onSubmit={(data) => {
           if (dialogState.mode === 'create') {
@@ -410,9 +413,12 @@ export default function Groups() {
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div className="flex items-start space-x-3 overflow-hidden">
-                          <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center shrink-0 border border-primary/20">
-                            <Users className="w-6 h-6 text-primary" />
-                          </div>
+                          <GroupIcon
+                            icon={group.icon}
+                            name={group.name}
+                            className="w-12 h-12 rounded-lg"
+                            iconClassName="w-6 h-6"
+                          />
                           <div className="flex-1 min-w-0">
                             <h3 className="font-semibold text-foreground truncate text-base">{group.name}</h3>
                             <div className="flex items-center gap-2 mt-1">
@@ -526,9 +532,18 @@ export default function Groups() {
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
                       <div className="flex items-start space-x-3 overflow-hidden">
-                        <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0 border border-muted-foreground/20">
-                          <Archive className="w-6 h-6 text-muted-foreground" />
-                        </div>
+                        {group.icon ? (
+                          <GroupIcon
+                            icon={group.icon}
+                            name={group.name}
+                            className="w-12 h-12 rounded-lg opacity-60 grayscale"
+                            iconClassName="w-6 h-6"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0 border border-muted-foreground/20">
+                            <Archive className="w-6 h-6 text-muted-foreground" />
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-foreground truncate text-base">{group.name}</h3>
                           <div className="flex items-center gap-2 mt-1">

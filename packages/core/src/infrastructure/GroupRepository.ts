@@ -319,7 +319,8 @@ export class GroupRepository {
                 ...(existing?.isHydrated !== undefined ? { isHydrated: existing.isHydrated } : {}),
                 ...(existing?.pendingRename !== undefined ? { pendingRename: existing.pendingRename } : {}),
                 ...(existing?.validationStatus !== undefined ? { validationStatus: existing.validationStatus } : {}),
-                ...(existing?.updatedAt ? { updatedAt: existing.updatedAt } : {})
+                ...(existing?.updatedAt ? { updatedAt: existing.updatedAt } : {}),
+                ...(existing?.icon !== undefined ? { icon: existing.icon } : {})
             };
         }).sort((a, b) => new Date(b.lastAccessed || 0).getTime() - new Date(a.lastAccessed || 0).getTime());
 
@@ -491,7 +492,7 @@ export class GroupRepository {
         await this.saveSettings(settings);
     }
 
-    async create(name: string, members: MemberInput[] = []): Promise<Group> {
+    async create(name: string, members: MemberInput[] = [], options?: { icon?: string }): Promise<Group> {
         if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
             throw new OfflineOperationError("Creating a group requires an internet connection.", "createGroup");
         }
@@ -528,6 +529,13 @@ export class GroupRepository {
             ""
         ]);
 
+        const metaRows: string[][] = [
+            ["key", "value", "updatedAt"]
+        ];
+        if (options?.icon) {
+            metaRows.push(["icon", options.icon, nowIso]);
+        }
+
         const dataToUpdate = [
             { range: "Expenses!A1", values: [[...SCHEMAS.Expenses]] },
             { range: "Settlements!A1", values: [[...SCHEMAS.Settlements]] },
@@ -536,7 +544,8 @@ export class GroupRepository {
             { range: "Categories!A1", values: [[...SCHEMAS.Categories]] },
             { range: "Categories!A2", values: initialCategories },
             { range: "_migrations!A1", values: [["version", "migrated_at"]] },
-            { range: "_migrations!A2", values: [[QuozenSchema.version, nowIso]] }
+            { range: "_migrations!A2", values: [[QuozenSchema.version, nowIso]] },
+            { range: "_meta!A1", values: metaRows }
         ];
 
         await this.storage.batchUpdateValues(fileId, dataToUpdate);
@@ -574,7 +583,18 @@ export class GroupRepository {
         }
 
         const settings = await this.getSettings();
-        if (!settings.groupCache.some(g => g.id === fileId)) {
+        const existingCached = settings.groupCache.find(g => g.id === fileId);
+        if (existingCached) {
+            existingCached.name = name;
+            existingCached.role = "owner";
+            existingCached.lastAccessed = nowIso;
+            existingCached.updatedAt = nowIso;
+            existingCached.validationStatus = ValidationStatus.READY;
+            existingCached.isHydrated = true;
+            if (options?.icon !== undefined) {
+                existingCached.icon = options.icon;
+            }
+        } else {
             settings.groupCache.unshift({
                 id: fileId,
                 name,
@@ -582,7 +602,8 @@ export class GroupRepository {
                 lastAccessed: nowIso,
                 updatedAt: nowIso,
                 validationStatus: ValidationStatus.READY,
-                isHydrated: true
+                isHydrated: true,
+                ...(options?.icon ? { icon: options.icon } : {})
             });
         }
         settings.activeGroupId = fileId;
@@ -593,7 +614,8 @@ export class GroupRepository {
             createdBy: "me",
             participants: initialMembers.map(m => m[0]),
             createdAt: new Date(),
-            isOwner: true
+            isOwner: true,
+            ...(options?.icon ? { icon: options.icon } : {})
         };
     }
 
@@ -742,6 +764,18 @@ export class GroupRepository {
 
         const nowIso = new Date().toISOString();
         const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
+        let groupIcon = cachedGroup?.icon || existingCachedGroup?.icon;
+        try {
+            const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C10"]);
+            const metaRows = metaRes[0]?.values || [];
+            const iconRow = metaRows.find((r: string[]) => r[0] === "icon");
+            if (iconRow && iconRow[1]) {
+                groupIcon = iconRow[1];
+            }
+        } catch {
+            // Older sheets might not have _meta tab
+        }
+
         if (!cachedGroup) {
             settings.groupCache.unshift({
                 id: spreadsheetId,
@@ -751,12 +785,16 @@ export class GroupRepository {
                 lastAccessed: nowIso,
                 updatedAt: nowIso,
                 validationStatus: validation.status,
-                isArchived: false
+                isArchived: false,
+                ...(groupIcon ? { icon: groupIcon } : {})
             });
         } else {
             cachedGroup.role = role;
             if (linkedAccountId) {
                 cachedGroup.accountId = linkedAccountId;
+            }
+            if (groupIcon) {
+                cachedGroup.icon = groupIcon;
             }
             cachedGroup.isArchived = false;
             cachedGroup.lastAccessed = nowIso;
@@ -776,7 +814,8 @@ export class GroupRepository {
             createdBy: "Unknown",
             participants: [],
             createdAt: new Date(),
-            isOwner: role === "owner"
+            isOwner: role === "owner",
+            ...(groupIcon ? { icon: groupIcon } : {})
         };
     }
 
@@ -858,7 +897,7 @@ export class GroupRepository {
         return expenses.some(e => e.paidByUserId === userId || e.splits.some(s => s.userId === userId && s.amount > 0));
     }
 
-    async updateGroup(groupId: string, name: string, members: MemberInput[]): Promise<void> {
+    async updateGroup(groupId: string, name: string, members: MemberInput[], options?: { icon?: string }): Promise<void> {
         const newTitle = `${QUOZEN_PREFIX}${name}`;
         const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
 
@@ -917,6 +956,44 @@ export class GroupRepository {
             await ledgerRepo.deleteMember(m.userId);
         }
 
+        if (!isOffline && options?.icon !== undefined) {
+            try {
+                let metaRows: any[][] = [];
+                try {
+                    const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C20"]);
+                    metaRows = metaRes[0]?.values || [];
+                } catch {
+                    // _meta tab might not exist in older spreadsheets
+                }
+
+                const nowIso = new Date().toISOString();
+                if (metaRows.length === 0) {
+                    metaRows = [
+                        ["key", "value", "updatedAt"],
+                        ["icon", options.icon, nowIso]
+                    ];
+                    await this.storage.batchUpdateValues(groupId, [
+                        { range: "_meta!A1", values: metaRows }
+                    ]);
+                } else {
+                    const iconIndex = metaRows.findIndex(r => r[0] === "icon");
+                    if (iconIndex >= 0) {
+                        metaRows[iconIndex] = ["icon", options.icon, nowIso];
+                        await this.storage.batchUpdateValues(groupId, [
+                            { range: `_meta!A${iconIndex + 1}:C${iconIndex + 1}`, values: [["icon", options.icon, nowIso]] }
+                        ]);
+                    } else {
+                        const nextRow = metaRows.length + 1;
+                        await this.storage.batchUpdateValues(groupId, [
+                            { range: `_meta!A${nextRow}:C${nextRow}`, values: [["icon", options.icon, nowIso]] }
+                        ]);
+                    }
+                }
+            } catch (metaErr) {
+                console.warn("Could not sync _meta tab:", metaErr);
+            }
+        }
+
         const settings = await this.getSettings();
         const cachedGroup = settings.groupCache.find(g => g.id === groupId);
         const nameChanged = !cachedGroup || cachedGroup.name !== name;
@@ -941,9 +1018,13 @@ export class GroupRepository {
 
         if (cachedGroup) {
             const renameChanged = cachedGroup.pendingRename !== pendingRename;
+            const iconChanged = options?.icon !== undefined && cachedGroup.icon !== options.icon;
             cachedGroup.name = name;
             cachedGroup.pendingRename = pendingRename;
-            if (nameChanged || renameChanged) {
+            if (options?.icon !== undefined) {
+                cachedGroup.icon = options.icon;
+            }
+            if (nameChanged || renameChanged || iconChanged) {
                 cachedGroup.updatedAt = new Date().toISOString();
                 await this.saveSettings(settings);
             }

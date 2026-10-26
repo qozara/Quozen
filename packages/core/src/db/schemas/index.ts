@@ -91,7 +91,8 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     isHydrated: { type: "boolean" },
                     pendingRename: { type: "boolean" },
                     updatedAt: { type: "string" },
-                    isArchived: { type: "boolean" }
+                    isArchived: { type: "boolean" },
+                    icon: { type: "string" }
                 },
                 required: ["id", "name", "role"]
             }
@@ -110,7 +111,8 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     isHydrated: { type: "boolean" },
                     pendingRename: { type: "boolean" },
                     updatedAt: { type: "string" },
-                    isArchived: { type: "boolean" }
+                    isArchived: { type: "boolean" },
+                    icon: { type: "string" }
                 },
                 required: ["id", "name", "role"]
             }
@@ -165,6 +167,13 @@ export const userSettingsMigrationStrategies = {
             ...oldDoc,
             version: 2,
             archivedGroupCache: Array.isArray(oldDoc.archivedGroupCache) ? oldDoc.archivedGroupCache : [],
+            updatedAt: oldDoc.updatedAt || new Date().toISOString()
+        };
+    },
+    3: (oldDoc: any) => {
+        return {
+            ...oldDoc,
+            version: 3,
             updatedAt: oldDoc.updatedAt || new Date().toISOString()
         };
     }

@@ -198,6 +198,28 @@ describe("Groups Page", () => {
     expect(group2Card).toHaveTextContent(en.roles.member);
   });
 
+  it("renders group cards with custom group icons", async () => {
+    (useGroups as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      groups: [
+        {
+          id: "group1",
+          name: "Trip to Paris",
+          description: "Summer vacation",
+          createdBy: "me",
+          participants: ["user1", "user2"],
+          createdAt: new Date().toISOString(),
+          isOwner: true,
+          icon: "preset:plane"
+        }
+      ],
+      isLoading: false
+    });
+
+    const { container } = render(<Groups />);
+    expect(screen.getByText("Trip to Paris")).toBeInTheDocument();
+    expect(container.querySelector("svg.lucide-plane")).toBeInTheDocument();
+  });
+
   it("shows Edit/Delete for owners and Leave for members", async () => {
     render(<Groups />);
     const group1Card = screen.getByText("Trip to Paris").closest('[data-testid="group-card"]');
