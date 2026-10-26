@@ -330,7 +330,7 @@ export class GroupRepository {
 
         const nowIso = new Date().toISOString();
         const settings: UserSettings = {
-            version: existingSettings?.version || 2,
+            version: existingSettings?.version || 3,
             activeGroupId,
             groupCache: visibleGroups,
             archivedGroupCache: existingSettings?.archivedGroupCache || [],
@@ -412,6 +412,16 @@ export class GroupRepository {
         settings.activeGroupId = groupId;
         if (cached) {
             cached.lastAccessed = new Date().toISOString();
+            if (!cached.icon && !isOffline) {
+                try {
+                    const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
+                    const metaRows = metaRes[0]?.values || [];
+                    const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                    if (iconRow && iconRow[1]) {
+                        cached.icon = iconRow[1];
+                    }
+                } catch {}
+            }
         }
         await this.saveSettings(settings);
     }
@@ -486,6 +496,19 @@ export class GroupRepository {
                 isArchived: false,
                 lastAccessed: new Date().toISOString()
             });
+        }
+
+        const targetGroup = settings.groupCache.find(g => g.id === groupId);
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (targetGroup && !targetGroup.icon && !isOffline) {
+            try {
+                const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
+                const metaRows = metaRes[0]?.values || [];
+                const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                if (iconRow && iconRow[1]) {
+                    targetGroup.icon = iconRow[1];
+                }
+            } catch {}
         }
 
         settings.activeGroupId = groupId;
