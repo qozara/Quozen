@@ -59,7 +59,7 @@ test.describe('Schema Remediation', () => {
                 const requestedRanges = urlObj.searchParams.getAll('ranges');
                 const valueRanges = requestedRanges.map(range => {
                     if (range.includes('_migrations')) {
-                        return { range, values: [['version', 'migrated_at'], ['2', new Date().toISOString()]] };
+                        return { range, values: [['version', 'migrated_at'], ['1', '2024-01-01'], ['2', '2026-01-01'], ['3', new Date().toISOString()]] };
                     } else if (range.includes('Expenses')) {
                         return { range, values: [['id', 'date', 'description', 'amount', 'paidBy', 'category', 'splits', 'meta']] };
                     } else if (range.includes('Settlements')) {
@@ -68,6 +68,8 @@ test.describe('Schema Remediation', () => {
                         return { range, values: [['userId', 'email', 'name', 'role', 'joinedAt']] };
                     } else if (range.includes('Categories')) {
                         return { range, values: [['id', 'name', 'icon', 'description', 'updatedAt', 'deletedAt']] };
+                    } else if (range.includes('_meta')) {
+                        return { range, values: [['key', 'value', 'updatedAt']] };
                     }
                     return { range, values: [] };
                 });
@@ -80,7 +82,8 @@ test.describe('Schema Remediation', () => {
                         { properties: { sheetId: 1, title: 'Settlements' } },
                         { properties: { sheetId: 2, title: 'Members' } },
                         { properties: { sheetId: 3, title: 'Categories' } },
-                        { properties: { sheetId: 4, title: '_migrations' } }
+                        { properties: { sheetId: 4, title: '_migrations' } },
+                        { properties: { sheetId: 5, title: '_meta' } }
                     ]
                 };
             }
