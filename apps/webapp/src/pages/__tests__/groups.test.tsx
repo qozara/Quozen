@@ -259,14 +259,14 @@ describe("Groups Page", () => {
     (quozen.ledger as any).mockReturnValue({
       getMembers: vi.fn().mockResolvedValue(mockGroup1Data.members)
     });
-    (quozen.replication.sync as any).mockClear();
+    ((quozen.replication as any).sync as any).mockClear();
 
     render(<Groups />);
     const editBtn = screen.getByText(en.common.edit);
     fireEvent.click(editBtn);
 
     await waitFor(() => expect(screen.getByText(en.groups.edit)).toBeInTheDocument());
-    expect(quozen.replication.sync).not.toHaveBeenCalled();
+    expect((quozen.replication as any).sync).not.toHaveBeenCalled();
   });
 
   it("prevents removing a member with existing expenses during edit", async () => {
