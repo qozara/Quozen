@@ -2,12 +2,16 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Home, Plus, Users, User, Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "@/context/app-context";
+import { useSettings } from "@/hooks/use-settings";
 
 export default function BottomNavigation() {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { setIsAddExpenseOpen } = useAppContext();
+  const { activeGroupId, setIsAddExpenseOpen } = useAppContext();
+  const { settings } = useSettings();
+
+  const isArchived = Boolean(activeGroupId && settings?.archivedGroupCache?.some(g => g.id === activeGroupId));
 
   const hiddenRoutes = ["/add-expense", "/edit-expense"];
   const shouldHide = hiddenRoutes.some(route => location.pathname.startsWith(route));
@@ -37,13 +41,17 @@ export default function BottomNavigation() {
               key={tab.id}
               onClick={() => {
                 if (isAddButton) {
+                  if (isArchived) return;
                   setIsAddExpenseOpen(true);
                 } else {
                   navigate(tab.path);
                 }
               }}
+              disabled={isAddButton && isArchived}
               className={`flex flex-col items-center py-2 px-4 ${isAddButton
-                ? "bg-primary text-primary-foreground rounded-full -mt-3 shadow-lg"
+                ? isArchived
+                  ? "bg-muted text-muted-foreground rounded-full -mt-3 shadow opacity-50 cursor-not-allowed"
+                  : "bg-primary text-primary-foreground rounded-full -mt-3 shadow-lg"
                 : isActive
                   ? "text-primary"
                   : "text-muted-foreground"

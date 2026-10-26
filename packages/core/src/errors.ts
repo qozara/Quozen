@@ -63,3 +63,16 @@ export class OfflineOperationError extends Error {
         Object.setPrototypeOf(this, OfflineOperationError.prototype);
     }
 }
+
+export class GroupFileUnavailableError extends Error {
+    constructor(
+        public readonly groupId: string,
+        public readonly groupName?: string,
+        public readonly reason: "trashed" | "deleted" = "deleted",
+        message = "The underlying spreadsheet file is no longer available in Google Drive."
+    ) {
+        super(message);
+        this.name = "GroupFileUnavailableError";
+        Object.setPrototypeOf(this, GroupFileUnavailableError.prototype);
+    }
+}

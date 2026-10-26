@@ -20,6 +20,8 @@ Quozen is built as a highly modular monorepo, decoupling core business logic fro
 ### 👥 Collaborative Groups & Flexible Accounts
 - **Magic Link Sharing**: Generate a unique link to let anyone join the group instantly with automatic permissions handling.
 - **Share via Email**: Invite friends directly via their Google account.
+- **Archive & Unarchive Groups**: Archive obsolete or settled groups to declutter your active group list. Archived groups are read-only, organized in a dedicated "Archived" tab, and evaluated with strict laziness (zero remote Google Drive/Sheets calls). Restore them anytime with a single click.
+- **Drive Deletion Detection & Self-Healing**: Detects if a spreadsheet file was trashed or deleted in Google Drive, informs the user with an alert, and auto-prunes the entry from active and archived lists.
 - **Personal, Shared & Offline Accounts**: Decouples logged-in Google **Users** from group ledger **Accounts**:
   - **Personal Account**: Default 1:1 account for an individual user.
   - **Shared Account**: Multiple logged-in users (e.g., a family, a couple, or a subgroup of friends) can link to and co-manage a single consolidated account that counts as one share in group splits.

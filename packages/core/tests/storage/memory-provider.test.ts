@@ -81,7 +81,7 @@ describe('QuozenClient GroupRepository Integration', () => {
 
         const settings = await client.groups.getSettings();
 
-        expect(settings.version).toBe(1);
+        expect(settings.version).toBe(2);
         expect(settings.groupCache).toHaveLength(1);
         expect(settings.groupCache[0].name).toBe("Group Initial");
         expect(settings.preferences.defaultCurrency).toBe("USD");

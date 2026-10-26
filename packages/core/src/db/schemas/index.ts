@@ -7,6 +7,7 @@ export interface UserSettingsDocType {
     version: number;
     activeGroupId: string | null;
     groupCache: CachedGroup[];
+    archivedGroupCache?: CachedGroup[];
     preferences: UserSettings["preferences"];
     encryptedApiKey?: string;
     preferencesUpdatedAt?: string;
@@ -68,7 +69,7 @@ export interface CategoryDocType {
 
 export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
     title: "user_settings",
-    version: 1,
+    version: 2,
     description: "Global user preferences and cached group metadata stored locally and in Drive appDataFolder",
     primaryKey: "id",
     type: "object",
@@ -89,7 +90,27 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     validationStatus: { type: "string" },
                     isHydrated: { type: "boolean" },
                     pendingRename: { type: "boolean" },
-                    updatedAt: { type: "string" }
+                    updatedAt: { type: "string" },
+                    isArchived: { type: "boolean" }
+                },
+                required: ["id", "name", "role"]
+            }
+        },
+        archivedGroupCache: {
+            type: "array",
+            items: {
+                type: "object",
+                properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                    role: { type: "string", enum: ["owner", "member"] },
+                    accountId: { type: "string" },
+                    lastAccessed: { type: "string" },
+                    validationStatus: { type: "string" },
+                    isHydrated: { type: "boolean" },
+                    pendingRename: { type: "boolean" },
+                    updatedAt: { type: "string" },
+                    isArchived: { type: "boolean" }
                 },
                 required: ["id", "name", "role"]
             }
@@ -137,6 +158,14 @@ export const userSettingsMigrationStrategies = {
             lastUpdated: oldDoc.lastUpdated || nowIso,
             updatedAt: oldDoc.updatedAt || oldDoc.lastUpdated || nowIso,
             deletedAt: oldDoc.deletedAt ?? null
+        };
+    },
+    2: (oldDoc: any) => {
+        return {
+            ...oldDoc,
+            version: 2,
+            archivedGroupCache: Array.isArray(oldDoc.archivedGroupCache) ? oldDoc.archivedGroupCache : [],
+            updatedAt: oldDoc.updatedAt || new Date().toISOString()
         };
     }
 };
@@ -384,9 +413,10 @@ export function userSettingsToDoc(settings: UserSettings, id = "global_settings"
     const nowIso = settings.lastUpdated || new Date().toISOString();
     return {
         id,
-        version: settings.version || 1,
+        version: settings.version || 2,
         activeGroupId: settings.activeGroupId ?? null,
         groupCache: (settings.groupCache || []).map(g => ({ ...g })),
+        archivedGroupCache: (settings.archivedGroupCache || []).map(g => ({ ...g })),
         preferences: { ...settings.preferences },
         encryptedApiKey: settings.encryptedApiKey,
         preferencesUpdatedAt: settings.preferencesUpdatedAt,
@@ -401,6 +431,7 @@ export function docToUserSettings(doc: UserSettingsDocType | DeepReadonlyObject<
         version: doc.version,
         activeGroupId: doc.activeGroupId,
         groupCache: (doc.groupCache || []).map(g => ({ ...g })),
+        archivedGroupCache: Array.isArray(doc.archivedGroupCache) ? doc.archivedGroupCache.map(g => ({ ...g })) : [],
         preferences: { ...doc.preferences },
         lastUpdated: doc.lastUpdated || doc.updatedAt
     };

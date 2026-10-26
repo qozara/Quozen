@@ -15,8 +15,19 @@ export function useGroups() {
         isOwner: cg.role === "owner",
     })) || [];
 
+    const archivedGroups: Group[] = settings?.archivedGroupCache?.map((cg) => ({
+        id: cg.id,
+        name: cg.name,
+        description: "Archived Group",
+        createdBy: "Unknown",
+        participants: [],
+        createdAt: cg.lastAccessed ? new Date(cg.lastAccessed) : new Date(),
+        isOwner: cg.role === "owner",
+    })) || [];
+
     return {
         groups,
+        archivedGroups,
         isLoading,
         error
     };

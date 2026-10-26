@@ -9,6 +9,7 @@ import { useSettings } from "@/hooks/use-settings";
 import { useGroups } from "@/hooks/use-groups";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import en from "@/locales/en/translation.json";
+import { GroupFileUnavailableError } from "@quozen/core";
 
 vi.mock("@/context/app-context", () => ({
   useAppContext: vi.fn(),
@@ -62,7 +63,9 @@ vi.mock("@/lib/storage", () => ({
       create: vi.fn(),
       updateGroup: vi.fn(),
       deleteGroup: vi.fn(),
-      leaveGroup: vi.fn()
+      leaveGroup: vi.fn(),
+      archiveGroup: vi.fn(),
+      unarchiveGroup: vi.fn()
     },
     ledger: vi.fn(() => ({ getMembers: vi.fn() }))
   }
@@ -72,8 +75,47 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: any) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: any) => <>{children}</>,
   DropdownMenuContent: ({ children }: any) => <>{children}</>,
-  DropdownMenuItem: ({ children, onClick }: any) => <div onClick={onClick} role="menuitem">{children}</div>,
+  DropdownMenuItem: ({ children, onClick, ...props }: any) => <div onClick={onClick} role="menuitem" {...props}>{children}</div>,
 }));
+
+vi.mock("@/components/ui/tabs", () => {
+  const React = require("react");
+  const TabsContext = React.createContext({ activeValue: "active", onValueChange: (_val: string) => {} });
+
+  return {
+    Tabs: ({ children, value, onValueChange, className }: any) => (
+      <TabsContext.Provider value={{ activeValue: value, onValueChange }}>
+        <div className={className} data-value={value}>{children}</div>
+      </TabsContext.Provider>
+    ),
+    TabsList: ({ children, className }: any) => (
+      <div className={className} role="tablist">{children}</div>
+    ),
+    TabsTrigger: ({ children, value, className, onClick, ...props }: any) => {
+      const { activeValue, onValueChange } = React.useContext(TabsContext);
+      return (
+        <button
+          type="button"
+          role="tab"
+          className={className}
+          data-state={value === activeValue ? "active" : "inactive"}
+          onClick={(e) => {
+            onValueChange?.(value);
+            onClick?.(e);
+          }}
+          {...props}
+        >
+          {children}
+        </button>
+      );
+    },
+    TabsContent: ({ children, value, className }: any) => {
+      const { activeValue } = React.useContext(TabsContext);
+      if (value !== activeValue) return null;
+      return <div className={className} data-state="active">{children}</div>;
+    }
+  };
+});
 
 describe("Groups Page", () => {
   const mockUser = { id: "user1", name: "Alice", email: "alice@example.com" };
@@ -125,6 +167,7 @@ describe("Groups Page", () => {
     });
     (useGroups as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       groups: mockGroups,
+      archivedGroups: [],
       isLoading: false
     });
     (useQuery as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ data: undefined });
@@ -371,6 +414,120 @@ describe("Groups Page", () => {
         const dialog = screen.getByTestId("online-required-dialog");
         expect(dialog).toBeInTheDocument();
         expect(within(dialog).getByText(/charlie@example\.com/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("Archive & Unarchive Groups", () => {
+    it("renders tabs for Active and Archived groups", () => {
+      render(<Groups />);
+      expect(screen.getByTestId("tab-active-groups")).toBeInTheDocument();
+      expect(screen.getByTestId("tab-archived-groups")).toBeInTheDocument();
+      expect(screen.getByTestId("tab-active-groups")).toHaveTextContent(`${en.groups.tabs.active} (2)`);
+      expect(screen.getByTestId("tab-archived-groups")).toHaveTextContent(`${en.groups.tabs.archived} (0)`);
+    });
+
+    it("shows Archive option in dropdown for both owner and member groups", () => {
+      render(<Groups />);
+      const archiveMenuItems = screen.getAllByTestId("menuitem-archive");
+      expect(archiveMenuItems.length).toBe(2);
+      expect(screen.getAllByText(en.groups.archiveAction).length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("opens archive confirmation dialog and calls archiveGroup on confirm", async () => {
+      (quozen.groups.archiveGroup as any).mockResolvedValueOnce(undefined);
+
+      render(<Groups />);
+      const group1Card = screen.getByText("Trip to Paris").closest('[data-testid="group-card"]');
+      const meatball = within(group1Card as HTMLElement).getByTestId("group-menu-trigger");
+      fireEvent.click(meatball);
+
+      const archiveBtn = within(group1Card as HTMLElement).getByTestId("menuitem-archive");
+      fireEvent.click(archiveBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(en.groups.archive)).toBeInTheDocument();
+      });
+
+      const confirmBtn = screen.getByTestId("alert-action-confirm");
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(quozen.groups.archiveGroup).toHaveBeenCalledWith("group1");
+      });
+    });
+
+    it("shows empty state when switching to Archived tab with no archived groups", () => {
+      render(<Groups />);
+      const archivedTab = screen.getByTestId("tab-archived-groups");
+      fireEvent.pointerDown(archivedTab, { button: 0 });
+      fireEvent.click(archivedTab);
+
+      expect(screen.getByText(en.groups.noArchived)).toBeInTheDocument();
+    });
+
+    it("renders archived groups with Unarchive button and handles unarchive", async () => {
+      const archivedGroup = {
+        id: "archived-1",
+        name: "Old Trip 2024",
+        description: "Archived Group",
+        createdBy: "Unknown",
+        participants: [],
+        createdAt: new Date(),
+        isOwner: true,
+      };
+
+      (useGroups as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+        groups: [mockGroups[0]],
+        archivedGroups: [archivedGroup],
+        isLoading: false,
+      });
+
+      (quozen.groups.unarchiveGroup as any).mockResolvedValueOnce(undefined);
+
+      render(<Groups />);
+      const archivedTab = screen.getByTestId("tab-archived-groups");
+      fireEvent.pointerDown(archivedTab, { button: 0 });
+      fireEvent.click(archivedTab);
+
+      expect(screen.getByText("Old Trip 2024")).toBeInTheDocument();
+      expect(screen.getByText(en.groups.tabs.archived)).toBeInTheDocument();
+
+      const unarchiveBtn = screen.getByTestId("button-unarchive");
+      fireEvent.click(unarchiveBtn);
+
+      await waitFor(() => {
+        expect(quozen.groups.unarchiveGroup).toHaveBeenCalledWith("archived-1");
+      });
+    });
+
+    it("shows toast when archiving a file that was trashed/deleted in Google Drive", async () => {
+      (quozen.groups.archiveGroup as any).mockRejectedValueOnce(
+        new GroupFileUnavailableError("group1", "Trip to Paris", "trashed")
+      );
+
+      render(<Groups />);
+      const group1Card = screen.getByText("Trip to Paris").closest('[data-testid="group-card"]');
+      const meatball = within(group1Card as HTMLElement).getByTestId("group-menu-trigger");
+      fireEvent.click(meatball);
+
+      const archiveBtn = within(group1Card as HTMLElement).getByTestId("menuitem-archive");
+      fireEvent.click(archiveBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(en.groups.archive)).toBeInTheDocument();
+      });
+
+      const confirmBtn = screen.getByTestId("alert-action-confirm");
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: en.groups.fileUnavailableTitle,
+            variant: "destructive"
+          })
+        );
       });
     });
   });
