@@ -133,5 +133,30 @@ describe("Group Icon & Metadata Tab (Issue: Group Icon)", () => {
             const finalSettings = await repo.getSettings();
             expect(finalSettings.groupCache.find(g => g.id === group.id)?.icon).toBe("preset:tent");
         });
+
+        it("safeguards against writing oversized icon (> 49000 chars) to _meta tab during create and updateGroup", async () => {
+            const oversizedIcon = "data:image/jpeg;base64," + "X".repeat(55000);
+
+            // In create: should not write cell with > 49000 chars to _meta tab
+            const group = await repo.create("Big Photo Club", [], { icon: oversizedIcon });
+            expect(group.id).toBeDefined();
+
+            const metaValues = await (adapter as any).batchGetValues(group.id, ["_meta!A1:C10"]);
+            const rows = metaValues[0]?.values || [];
+            const iconRow = rows.find((r: string[]) => r[0] === "icon");
+            // Icon row should either not be present or not exceed 49000 chars
+            if (iconRow) {
+                expect(iconRow[1].length).toBeLessThanOrEqual(49000);
+            }
+
+            // In updateGroup: updating with oversized icon should not write oversized cell to _meta
+            await repo.updateGroup(group.id, "Big Photo Club Renamed", [], { icon: oversizedIcon });
+            const metaValuesAfter = await (adapter as any).batchGetValues(group.id, ["_meta!A1:C10"]);
+            const rowsAfter = metaValuesAfter[0]?.values || [];
+            const iconRowAfter = rowsAfter.find((r: string[]) => r[0] === "icon");
+            if (iconRowAfter) {
+                expect(iconRowAfter[1].length).toBeLessThanOrEqual(49000);
+            }
+        });
     });
 });

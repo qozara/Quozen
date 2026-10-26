@@ -568,7 +568,11 @@ export class GroupRepository {
             ["key", "value", "updatedAt"]
         ];
         if (options?.icon) {
-            metaRows.push(["icon", options.icon, nowIso]);
+            if (options.icon.length <= 49000) {
+                metaRows.push(["icon", options.icon, nowIso]);
+            } else {
+                console.warn("[GroupRepository] Icon exceeds Google Sheets single cell limit (50000 chars), skipping _meta write");
+            }
         }
 
         const dataToUpdate = [
@@ -992,40 +996,44 @@ export class GroupRepository {
         }
 
         if (!isOffline && options?.icon !== undefined) {
-            try {
-                let metaRows: any[][] = [];
+            if (options.icon.length > 49000) {
+                console.warn("[GroupRepository] Icon exceeds Google Sheets single cell limit (50000 chars), skipping _meta write");
+            } else {
                 try {
-                    const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C20"]);
-                    metaRows = metaRes[0]?.values || [];
-                } catch {
-                    // _meta tab might not exist in older spreadsheets
-                }
+                    let metaRows: any[][] = [];
+                    try {
+                        const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C20"]);
+                        metaRows = metaRes[0]?.values || [];
+                    } catch {
+                        // _meta tab might not exist in older spreadsheets
+                    }
 
-                const nowIso = new Date().toISOString();
-                if (metaRows.length === 0) {
-                    metaRows = [
-                        ["key", "value", "updatedAt"],
-                        ["icon", options.icon, nowIso]
-                    ];
-                    await this.storage.batchUpdateValues(groupId, [
-                        { range: "_meta!A1", values: metaRows }
-                    ]);
-                } else {
-                    const iconIndex = metaRows.findIndex(r => r[0] === "icon");
-                    if (iconIndex >= 0) {
-                        metaRows[iconIndex] = ["icon", options.icon, nowIso];
+                    const nowIso = new Date().toISOString();
+                    if (metaRows.length === 0) {
+                        metaRows = [
+                            ["key", "value", "updatedAt"],
+                            ["icon", options.icon, nowIso]
+                        ];
                         await this.storage.batchUpdateValues(groupId, [
-                            { range: `_meta!A${iconIndex + 1}:C${iconIndex + 1}`, values: [["icon", options.icon, nowIso]] }
+                            { range: "_meta!A1", values: metaRows }
                         ]);
                     } else {
-                        const nextRow = metaRows.length + 1;
-                        await this.storage.batchUpdateValues(groupId, [
-                            { range: `_meta!A${nextRow}:C${nextRow}`, values: [["icon", options.icon, nowIso]] }
-                        ]);
+                        const iconIndex = metaRows.findIndex(r => r[0] === "icon");
+                        if (iconIndex >= 0) {
+                            metaRows[iconIndex] = ["icon", options.icon, nowIso];
+                            await this.storage.batchUpdateValues(groupId, [
+                                { range: `_meta!A${iconIndex + 1}:C${iconIndex + 1}`, values: [["icon", options.icon, nowIso]] }
+                            ]);
+                        } else {
+                            const nextRow = metaRows.length + 1;
+                            await this.storage.batchUpdateValues(groupId, [
+                                { range: `_meta!A${nextRow}:C${nextRow}`, values: [["icon", options.icon, nowIso]] }
+                            ]);
+                        }
                     }
+                } catch (metaErr) {
+                    console.warn("Could not sync _meta tab:", metaErr);
                 }
-            } catch (metaErr) {
-                console.warn("Could not sync _meta tab:", metaErr);
             }
         }
 
