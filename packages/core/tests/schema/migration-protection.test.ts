@@ -142,13 +142,14 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
                     { properties: { sheetId: 2, title: "Settlements" } },
                     { properties: { sheetId: 3, title: "Members" } },
                     { properties: { sheetId: 4, title: "Categories" } },
-                    { properties: { sheetId: 5, title: "_migrations" } }
+                    { properties: { sheetId: 5, title: "_migrations" } },
+                    { properties: { sheetId: 6, title: "_meta" } }
                 ]
             }),
             batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) => {
                 if (ranges && ranges[0] && ranges[0].includes("_migrations")) {
                     return Promise.resolve({
-                        valueRanges: [{ values: [["version", "migrated_at"], ["1", "2024-01-01"], ["2", "2026-01-01"]] }]
+                        valueRanges: [{ values: [["version", "migrated_at"], ["1", "2024-01-01"], ["2", "2026-01-01"], [String(QuozenSchema.version), "2026-03-01"]] }]
                     });
                 }
                 // Return header without 'amount' column in Expenses
@@ -157,7 +158,8 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
                         { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] },
                         { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
                         { values: [["userId", "email", "name", "role", "joinedAt"]] },
-                        { values: [["id", "name", "icon", "description"]] }
+                        { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] },
+                        { values: [["key", "value", "updatedAt"]] }
                     ]
                 });
             }),
@@ -170,10 +172,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
         const health = await service.checkHealth("v2-tampered-group");
 
-        // Version is 2, matches latest, but structure is invalid -> THIS is corruption!
+        // Version matches latest, but structure is invalid -> THIS is corruption!
         expect(health.status).toBe(ValidationStatus.CORRUPTED);
         expect(health.canAutoMigrate).toBe(false);
-        expect(health.currentVersion).toBe(2);
+        expect(health.currentVersion).toBe(QuozenSchema.version);
     });
 
     it("repairFile delegates to migrateFile if spreadsheet version is behind expected", async () => {

@@ -69,7 +69,7 @@ export interface CategoryDocType {
 
 export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
     title: "user_settings",
-    version: 2,
+    version: 3,
     description: "Global user preferences and cached group metadata stored locally and in Drive appDataFolder",
     primaryKey: "id",
     type: "object",
@@ -422,7 +422,7 @@ export function userSettingsToDoc(settings: UserSettings, id = "global_settings"
     const nowIso = settings.lastUpdated || new Date().toISOString();
     return {
         id,
-        version: settings.version || 2,
+        version: settings.version || 3,
         activeGroupId: settings.activeGroupId ?? null,
         groupCache: (settings.groupCache || []).map(g => ({ ...g })),
         archivedGroupCache: (settings.archivedGroupCache || []).map(g => ({ ...g })),
