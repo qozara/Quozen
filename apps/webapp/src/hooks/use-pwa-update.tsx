@@ -38,11 +38,41 @@ export function PwaUpdateProvider({ children }: { children: React.ReactNode }) {
   toastRef.current = toast;
 
   const applyUpdate = useCallback(async () => {
-    if (updateSwRef.current) {
-      await updateSwRef.current(true);
-    } else {
-      window.location.reload();
+    let reloaded = false;
+    const reload = () => {
+      if (!reloaded) {
+        reloaded = true;
+        window.location.reload();
+      }
+    };
+
+    // 1. Listen for native controllerchange so as soon as new SW activates, we reload
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("controllerchange", reload, { once: true });
     }
+
+    try {
+      // 2. Post SKIP_WAITING to waiting service worker if available
+      let reg = registrationRef.current;
+      if (!reg && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        reg = await navigator.serviceWorker.getRegistration();
+        registrationRef.current = reg;
+      }
+
+      if (reg?.waiting) {
+        reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      }
+
+      // 3. Call vite-plugin-pwa updateSW callback if registered
+      if (updateSwRef.current) {
+        await updateSwRef.current(true);
+      }
+    } catch (e) {
+      console.warn("[PWA] Error applying update:", e);
+    }
+
+    // 4. Fallback timeout: If controllerchange has not fired after 500ms, force reload
+    setTimeout(reload, 500);
   }, []);
 
   const showUpdateToast = useCallback(() => {
@@ -50,6 +80,7 @@ export function PwaUpdateProvider({ children }: { children: React.ReactNode }) {
     toastRef.current({
       title: tRef.current("pwa.updateAvailableTitle"),
       description: tRef.current("pwa.updateAvailableDesc"),
+      duration: 30000,
       action: (
         <ToastAction
           altText={tRef.current("pwa.reload")}

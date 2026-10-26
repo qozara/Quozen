@@ -163,4 +163,22 @@ describe("Profile Page", () => {
     fireEvent.click(checkBtn);
     expect(mockCheckForUpdates).toHaveBeenCalledTimes(1);
   });
+
+  it("renders Update button next to version hash when needRefresh is true and calls applyUpdate on click", async () => {
+    const { usePwaUpdate } = vi.mocked(await import("@/hooks/use-pwa-update"));
+    usePwaUpdate.mockReturnValueOnce({
+      needRefresh: true,
+      isChecking: false,
+      checkForUpdates: mockCheckForUpdates,
+      applyUpdate: mockApplyUpdate,
+    });
+
+    render(<Profile />);
+
+    const updateBtn = screen.getByTestId("button-check-updates");
+    expect(updateBtn).toHaveTextContent(en.pwa.reload);
+
+    fireEvent.click(updateBtn);
+    expect(mockApplyUpdate).toHaveBeenCalledTimes(1);
+  });
 });
