@@ -111,5 +111,27 @@ describe("Group Icon & Metadata Tab (Issue: Group Icon)", () => {
             const afterActivate = await repo.getSettings();
             expect(afterActivate.groupCache.find(g => g.id === group.id)?.icon).toBe("preset:mountain");
         });
+
+        it("populates missing icon in groupCache from _meta even if group is ALREADY the activeGroupId", async () => {
+            const group = await repo.create("Camping Trip", [], { icon: "preset:tent" });
+
+            // Ensure group is activeGroupId
+            const settings = await repo.getSettings();
+            expect(settings.activeGroupId).toBe(group.id);
+
+            // Simulate icon missing from cache on reload
+            const cached = settings.groupCache.find(g => g.id === group.id)!;
+            delete cached.icon;
+            await repo.saveSettings(settings);
+
+            const reloadedSettings = await repo.getSettings();
+            expect(reloadedSettings.groupCache.find(g => g.id === group.id)?.icon).toBeUndefined();
+
+            // When updateActiveGroup is called on reload with the SAME active group
+            await repo.updateActiveGroup(group.id);
+
+            const finalSettings = await repo.getSettings();
+            expect(finalSettings.groupCache.find(g => g.id === group.id)?.icon).toBe("preset:tent");
+        });
     });
 });

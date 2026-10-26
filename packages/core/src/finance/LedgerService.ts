@@ -351,12 +351,13 @@ export class LedgerService {
     async getLedger(): Promise<Ledger> {
         await this.ensureSchemaHealth();
 
-        const [expenses, settlements, members, categories, isHydrated] = await Promise.all([
+        const [expenses, settlements, members, categories, isHydrated, icon] = await Promise.all([
             this.repo.getExpenses(),
             this.repo.getSettlements(),
             this.repo.getMembers(),
             typeof this.repo.getCategories === "function" ? this.repo.getCategories() : Promise.resolve(DEFAULT_CATEGORIES),
-            this.isGroupHydrated()
+            this.isGroupHydrated(),
+            typeof (this.repo as any).getGroupIcon === "function" ? (this.repo as any).getGroupIcon() : Promise.resolve(undefined)
         ]);
 
         const effectiveAccountId = await this.resolveEffectiveAccountId();
@@ -386,6 +387,6 @@ export class LedgerService {
             }
         }
 
-        return new Ledger({ expenses, settlements, members, categories, isHydrated });
+        return new Ledger({ expenses, settlements, members, categories, isHydrated, icon });
     }
 }

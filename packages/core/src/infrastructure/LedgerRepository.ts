@@ -42,6 +42,45 @@ export class LedgerRepository {
         return Boolean(this.db);
     }
 
+    public async getGroupIcon(): Promise<string | undefined> {
+        if (this.db) {
+            try {
+                const doc = await this.db.user_settings.findOne("global_settings").exec();
+                if (doc && !doc.deletedAt) {
+                    const cached = doc.groupCache?.find((g: any) => g.id === this.groupId);
+                    if (cached?.icon) return cached.icon;
+                }
+            } catch {}
+        }
+        if (this.storage && this.groupId) {
+            const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+            if (!isOffline) {
+                try {
+                    const metaRes = await this.storage.batchGetValues(this.groupId, ["_meta!A1:C10"]);
+                    const metaRows = metaRes[0]?.values || [];
+                    const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                    if (iconRow && iconRow[1]) {
+                        const icon = iconRow[1];
+                        if (this.db) {
+                            void this.db.user_settings.findOne("global_settings").exec().then(async (doc) => {
+                                if (doc && !doc.deletedAt) {
+                                    const json = JSON.parse(JSON.stringify(doc.toJSON()));
+                                    const cached = json.groupCache?.find((g: any) => g.id === this.groupId);
+                                    if (cached && !cached.icon) {
+                                        cached.icon = icon;
+                                        await this.db!.user_settings.upsert(json);
+                                    }
+                                }
+                            }).catch(() => {});
+                        }
+                        return icon;
+                    }
+                } catch {}
+            }
+        }
+        return undefined;
+    }
+
     private notifyMutation(): void {
         if (this.onMutation) {
             try {

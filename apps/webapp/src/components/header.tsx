@@ -42,8 +42,9 @@ export default function Header() {
   });
 
   const activeGroup = groups.find((g) => g.id === activeGroupId);
+  const activeIcon = activeGroup?.icon || ledger?.icon;
   const memberCount = ledger?.members?.length || 0;
-  const bgStyle = getGroupPresetBackground(activeGroup?.icon);
+  const bgStyle = getGroupPresetBackground(activeIcon);
   const hasCustomBanner = !isSubPage && Boolean(bgStyle);
 
   const isSyncing = isGroupsLoading || isDataFetching;
@@ -59,7 +60,7 @@ export default function Header() {
     <>
       <header
         className={cn(
-          "relative border-b border-border sticky top-0 z-40 transition-all overflow-hidden",
+          "relative border-b border-border sticky top-0 z-40 transition-all",
           hasCustomBanner ? "bg-card/75 backdrop-blur-md px-4 py-4" : "bg-card px-4 py-3"
         )}
         data-testid="header"
@@ -102,7 +103,7 @@ export default function Header() {
             ) : (
               <>
                 <GroupIcon
-                  icon={activeGroup?.icon}
+                  icon={activeIcon}
                   name={activeGroup?.name}
                   className="w-10 h-10 shadow-sm"
                   iconClassName="w-5 h-5"

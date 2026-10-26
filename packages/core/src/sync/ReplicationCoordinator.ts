@@ -374,7 +374,10 @@ export class ReplicationCoordinator {
                 });
             }
 
-            const updatedGroupIds = new Set<string>((mergedDoc.groupCache || []).map((g: any) => g.id));
+            const updatedGroupIds = new Set<string>([
+                ...(mergedDoc.groupCache || []).map((g: any) => g.id),
+                ...(mergedDoc.archivedGroupCache || []).map((g: any) => g.id)
+            ]);
             ReplicationCoordinator.persistSyncedGroupIds(this.db.name, updatedGroupIds);
             this.lastSyncedAtByDocId.set("global_settings", mergedDoc.updatedAt);
             ReplicationCoordinator.persistCheckpointMap(this.db.name, this.lastSyncedAtByDocId);
@@ -385,10 +388,17 @@ export class ReplicationCoordinator {
                 groupCache: (remoteDoc.groupCache || []).map((g: any) => ({
                     ...g,
                     isHydrated: isGroupHydrated(g.id)
+                })),
+                archivedGroupCache: (remoteDoc.archivedGroupCache || []).map((g: any) => ({
+                    ...g,
+                    isHydrated: isGroupHydrated(g.id)
                 }))
             };
             await collection.upsert(docToSave);
-            const updatedGroupIds = new Set<string>((docToSave.groupCache || []).map((g: any) => g.id));
+            const updatedGroupIds = new Set<string>([
+                ...(docToSave.groupCache || []).map((g: any) => g.id),
+                ...(docToSave.archivedGroupCache || []).map((g: any) => g.id)
+            ]);
             ReplicationCoordinator.persistSyncedGroupIds(this.db.name, updatedGroupIds);
             this.lastSyncedAtByDocId.set("global_settings", docToSave.updatedAt);
             ReplicationCoordinator.persistCheckpointMap(this.db.name, this.lastSyncedAtByDocId);
@@ -397,7 +407,10 @@ export class ReplicationCoordinator {
                 collection: "user_settings",
                 documents: [localDoc]
             });
-            const updatedGroupIds = new Set<string>((localDoc.groupCache || []).map((g: any) => g.id));
+            const updatedGroupIds = new Set<string>([
+                ...(localDoc.groupCache || []).map((g: any) => g.id),
+                ...(localDoc.archivedGroupCache || []).map((g: any) => g.id)
+            ]);
             ReplicationCoordinator.persistSyncedGroupIds(this.db.name, updatedGroupIds);
             this.lastSyncedAtByDocId.set("global_settings", localDoc.updatedAt);
             ReplicationCoordinator.persistCheckpointMap(this.db.name, this.lastSyncedAtByDocId);

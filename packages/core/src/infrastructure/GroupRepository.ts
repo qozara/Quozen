@@ -368,9 +368,12 @@ export class GroupRepository {
 
     async updateActiveGroup(groupId: string): Promise<void> {
         const settings = await this.getSettings();
-        if (settings.activeGroupId === groupId) return;
-
         const cached = settings.groupCache.find(g => g.id === groupId);
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+
+        if (settings.activeGroupId === groupId && cached?.icon) {
+            return;
+        }
 
         const health = await this.checkFileHealth(groupId);
         if (!health.available) {
@@ -393,12 +396,21 @@ export class GroupRepository {
             settings.activeGroupId = groupId;
             if (cached) {
                 cached.lastAccessed = new Date().toISOString();
+                if (!cached.icon && !isOffline) {
+                    try {
+                        const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
+                        const metaRows = metaRes[0]?.values || [];
+                        const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                        if (iconRow && iconRow[1]) {
+                            cached.icon = iconRow[1];
+                        }
+                    } catch {}
+                }
             }
             await this.saveSettings(settings);
             return;
         }
 
-        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
         if (!isOffline) {
             const validation = await this.validateQuozenSpreadsheet(groupId);
             if (validation.status === ValidationStatus.CORRUPTED || validation.status === ValidationStatus.INCOMPATIBLE) {

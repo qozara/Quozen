@@ -76,4 +76,10 @@ describe("Header Component with Group Icon & Hero Banner", () => {
         // The plane preset icon SVG should be rendered
         expect(container.querySelector("svg.lucide-plane")).toBeInTheDocument();
     });
+
+    it("does not have overflow-hidden on header so popovers and sync status trigger are not clipped", () => {
+        renderHeader("/");
+        const header = screen.getByTestId("header");
+        expect(header.className).not.toContain("overflow-hidden");
+    });
 });
