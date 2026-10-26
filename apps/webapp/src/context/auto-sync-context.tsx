@@ -212,12 +212,15 @@ export function AutoSyncProvider({
                     void queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
                 }
             } else if (newStatus !== prev) {
-                if (newStatus === "corrupted") {
-                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "CORRUPTED" }));
-                } else if (newStatus === "upgrade_required") {
-                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "UPGRADE_REQUIRED" }));
-                } else if (newStatus === "incompatible") {
-                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "INCOMPATIBLE" }));
+                const targetGroupId = provider?.getActiveGroupId?.() || activeGroupId;
+                const isForActiveGroup = !targetGroupId || targetGroupId === activeGroupId;
+
+                if (newStatus === "corrupted" && isForActiveGroup) {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "CORRUPTED", groupId: targetGroupId } }));
+                } else if (newStatus === "upgrade_required" && isForActiveGroup) {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "UPGRADE_REQUIRED", groupId: targetGroupId } }));
+                } else if (newStatus === "incompatible" && isForActiveGroup) {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "INCOMPATIBLE", groupId: targetGroupId } }));
                 } else if (newStatus === "auth_failed") {
                     const err = (statusError !== undefined ? statusError : null)
                         || replication?.getLastError?.()

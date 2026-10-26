@@ -15,6 +15,7 @@ export interface SchemaStatusDTO extends Omit<GDocsSchemaStatusDTO, "lastModifie
 }
 
 export class ValidationService {
+    private static inFlightMigrations = new Map<string, Promise<void>>();
     public readonly client: GoogleSheetsFetchClient;
     public readonly engine: SchemaEngine;
 
@@ -76,23 +77,37 @@ export class ValidationService {
     }
 
     public async migrateFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
-        if (expectedLastModified) {
-            const res = (await this.client.getFileAppProperties(spreadsheetId)) as any;
-            const currentModified = res?.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
-            const expectedModified = new Date(expectedLastModified).getTime();
-            if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
-                throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
-            }
+        const inFlight = ValidationService.inFlightMigrations.get(spreadsheetId);
+        if (inFlight) {
+            return inFlight;
         }
 
-        try {
-            await this.engine.migrate(spreadsheetId, QuozenSchema, migrations);
-            await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
-        } catch (e: any) {
-            if (e?.message?.toLowerCase().includes("incompatible")) {
-                throw new SchemaIncompatibleError("Cannot migrate spreadsheet: the schema is from a newer version of Quozen.");
+        const migrationPromise = (async () => {
+            if (expectedLastModified) {
+                const res = (await this.client.getFileAppProperties(spreadsheetId)) as any;
+                const currentModified = res?.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
+                const expectedModified = new Date(expectedLastModified).getTime();
+                if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
+                    throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
+                }
             }
-            throw e;
+
+            try {
+                await this.engine.migrate(spreadsheetId, QuozenSchema, migrations);
+                await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
+            } catch (e: any) {
+                if (e?.message?.toLowerCase().includes("incompatible")) {
+                    throw new SchemaIncompatibleError("Cannot migrate spreadsheet: the schema is from a newer version of Quozen.");
+                }
+                throw e;
+            }
+        })();
+
+        ValidationService.inFlightMigrations.set(spreadsheetId, migrationPromise);
+        try {
+            await migrationPromise;
+        } finally {
+            ValidationService.inFlightMigrations.delete(spreadsheetId);
         }
     }
 

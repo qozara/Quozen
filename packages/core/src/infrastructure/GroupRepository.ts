@@ -371,7 +371,21 @@ export class GroupRepository {
         const cached = settings.groupCache.find(g => g.id === groupId);
         const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
 
-        if (settings.activeGroupId === groupId && cached?.icon) {
+        if (settings.activeGroupId === groupId) {
+            if (cached?.icon !== undefined) {
+                return;
+            }
+            if (cached && !isOffline && this.storage) {
+                try {
+                    const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
+                    const metaRows = metaRes[0]?.values || [];
+                    const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                    cached.icon = (iconRow && iconRow[1]) ? iconRow[1] : "";
+                } catch {
+                    cached.icon = "";
+                }
+                await this.saveSettings(settings);
+            }
             return;
         }
 
@@ -396,15 +410,15 @@ export class GroupRepository {
             settings.activeGroupId = groupId;
             if (cached) {
                 cached.lastAccessed = new Date().toISOString();
-                if (!cached.icon && !isOffline) {
+                if (cached.icon === undefined && !isOffline) {
                     try {
                         const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
                         const metaRows = metaRes[0]?.values || [];
                         const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
-                        if (iconRow && iconRow[1]) {
-                            cached.icon = iconRow[1];
-                        }
-                    } catch {}
+                        cached.icon = (iconRow && iconRow[1]) ? iconRow[1] : "";
+                    } catch {
+                        cached.icon = "";
+                    }
                 }
             }
             await this.saveSettings(settings);
@@ -424,15 +438,15 @@ export class GroupRepository {
         settings.activeGroupId = groupId;
         if (cached) {
             cached.lastAccessed = new Date().toISOString();
-            if (!cached.icon && !isOffline) {
+            if (cached.icon === undefined && !isOffline) {
                 try {
                     const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
                     const metaRows = metaRes[0]?.values || [];
                     const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
-                    if (iconRow && iconRow[1]) {
-                        cached.icon = iconRow[1];
-                    }
-                } catch {}
+                    cached.icon = (iconRow && iconRow[1]) ? iconRow[1] : "";
+                } catch {
+                    cached.icon = "";
+                }
             }
         }
         await this.saveSettings(settings);
@@ -630,9 +644,7 @@ export class GroupRepository {
             existingCached.updatedAt = nowIso;
             existingCached.validationStatus = ValidationStatus.READY;
             existingCached.isHydrated = true;
-            if (options?.icon !== undefined) {
-                existingCached.icon = options.icon;
-            }
+            existingCached.icon = options?.icon || "";
         } else {
             settings.groupCache.unshift({
                 id: fileId,
@@ -642,7 +654,7 @@ export class GroupRepository {
                 updatedAt: nowIso,
                 validationStatus: ValidationStatus.READY,
                 isHydrated: true,
-                ...(options?.icon ? { icon: options.icon } : {})
+                icon: options?.icon || ""
             });
         }
         settings.activeGroupId = fileId;

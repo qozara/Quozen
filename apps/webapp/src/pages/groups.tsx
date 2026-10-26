@@ -122,10 +122,6 @@ export default function Groups() {
         } catch (syncErr) {
           console.warn("Could not sync group before editing:", syncErr);
         }
-      } else if (isOnline && quozen.replication) {
-        void quozen.replication.sync(group.id).catch((syncErr) => {
-          console.warn("Could not sync group in background:", syncErr);
-        });
       }
       if (!isOnline && members.length === 0) {
         setOnlineRequired({ open: true, reason: "editUnhydratedGroup" });

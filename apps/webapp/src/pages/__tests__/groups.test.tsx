@@ -255,6 +255,20 @@ describe("Groups Page", () => {
     expect(screen.getByDisplayValue("Trip to Paris")).toBeInTheDocument();
   });
 
+  it("does not trigger remote replication.sync when opening edit dialog if members are already cached locally", async () => {
+    (quozen.ledger as any).mockReturnValue({
+      getMembers: vi.fn().mockResolvedValue(mockGroup1Data.members)
+    });
+    (quozen.replication.sync as any).mockClear();
+
+    render(<Groups />);
+    const editBtn = screen.getByText(en.common.edit);
+    fireEvent.click(editBtn);
+
+    await waitFor(() => expect(screen.getByText(en.groups.edit)).toBeInTheDocument());
+    expect(quozen.replication.sync).not.toHaveBeenCalled();
+  });
+
   it("prevents removing a member with existing expenses during edit", async () => {
         (quozen.ledger as any).mockReturnValue({
       getMembers: vi.fn().mockResolvedValue(mockGroup1Data.members)

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { useAppContext } from "@/context/app-context";
@@ -14,6 +14,7 @@ export default function SchemaRemediationModal() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const hasTriggeredRef = useRef(false);
 
   // Sync internal state when context changes
   if (!!schemaErrorStatus && !isOpen) {
@@ -34,15 +35,20 @@ export default function SchemaRemediationModal() {
     onSuccess: () => {
       toast({ title: t("common.success"), description: t("schemaRemediation.successDesc") });
       setSchemaErrorStatus(null);
+      hasTriggeredRef.current = false;
       if (quozen.syncProvider && typeof (quozen.syncProvider as any).setStatus === "function") {
         (quozen.syncProvider as any).setStatus("idle");
       }
       if (quozen.replication && activeGroupId) {
         void quozen.replication.sync(activeGroupId).catch(() => {});
       }
-      queryClient.invalidateQueries();
+      void queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      if (activeGroupId) {
+        void queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+      }
     },
     onError: (err: any) => {
+      hasTriggeredRef.current = false;
       toast({ variant: "destructive", title: t("common.error"), description: err.message || t("schemaRemediation.errorDesc") });
     }
   });
@@ -89,16 +95,20 @@ export default function SchemaRemediationModal() {
 
   // Auto-upgrade on group open when migration is required
   useEffect(() => {
-    if (schemaErrorStatus === 'UPGRADE_REQUIRED' && activeGroupId && !isRepairing) {
+    if (schemaErrorStatus === 'UPGRADE_REQUIRED' && activeGroupId && !isRepairing && !hasTriggeredRef.current) {
+      hasTriggeredRef.current = true;
       repair();
     }
-  }, [schemaErrorStatus, activeGroupId]);
+    if (!schemaErrorStatus) {
+      hasTriggeredRef.current = false;
+    }
+  }, [schemaErrorStatus, activeGroupId, isRepairing]);
 
   if (!schemaErrorStatus) return null;
 
   return (
     <Drawer open={isOpen} onOpenChange={(o) => {
-        if (!o) setSchemaErrorStatus(null);
+        if (!o && !isRepairing) setSchemaErrorStatus(null);
     }}>
       <DrawerContent>
         <DrawerHeader>
@@ -132,10 +142,12 @@ export default function SchemaRemediationModal() {
             </>
           ) : (
             <>
-              <Button onClick={() => repair()} disabled={isRepairing}>
+              <Button onClick={() => { if (!isRepairing) repair(); }} disabled={isRepairing}>
                 {isRepairing ? t("schemaRemediation.working") : (schemaErrorStatus === 'UPGRADE_REQUIRED' ? t("schemaRemediation.upgradeNow") : t("schemaRemediation.attemptRepair"))}
               </Button>
-              <Button variant="outline" onClick={() => setSchemaErrorStatus(null)}>{t("schemaRemediation.dismiss")}</Button>
+              <Button variant="outline" onClick={() => setSchemaErrorStatus(null)} disabled={isRepairing}>
+                {t("schemaRemediation.dismiss")}
+              </Button>
             </>
           )}
         </DrawerFooter>

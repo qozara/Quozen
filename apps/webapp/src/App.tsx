@@ -125,13 +125,22 @@ export function AuthenticatedApp() {
 
   useEffect(() => {
     const handleSchemaError = (e: any) => {
-      setSchemaErrorStatus(e.detail);
+      const detail = e.detail;
+      if (typeof detail === "object" && detail !== null) {
+        if (detail.groupId && activeGroupId && detail.groupId !== activeGroupId) {
+          return;
+        }
+        setSchemaErrorStatus(detail.status);
+      } else {
+        setSchemaErrorStatus(detail);
+      }
     };
     window.addEventListener('schema-error', handleSchemaError);
     return () => window.removeEventListener('schema-error', handleSchemaError);
-  }, []);
+  }, [activeGroupId]);
 
   const handleSetActiveGroupId = (groupId: string) => {
+    if (groupId && groupId === activeGroupId) return;
     setActiveGroupIdState(groupId);
     if (typeof sessionStorage !== "undefined") {
       if (groupId) {

@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { GroupRepository } from "../../src/infrastructure/GroupRepository";
+import { LedgerRepository } from "../../src/infrastructure/LedgerRepository";
 import { InMemoryAdapter } from "../../src/storage/memory-adapter";
 import { User } from "../../src/domain/models";
 import { userSettingsSchema } from "../../src/db/schemas";
@@ -157,6 +158,36 @@ describe("Group Icon & Metadata Tab (Issue: Group Icon)", () => {
             if (iconRowAfter) {
                 expect(iconRowAfter[1].length).toBeLessThanOrEqual(49000);
             }
+        });
+
+        it("does not repeatedly call batchGetValues or checkFileHealth when updateActiveGroup is called on a group with NO icon", async () => {
+            const group = await repo.create("Book Club", []);
+            // Group has no icon. Activate once.
+            await repo.updateActiveGroup(group.id);
+
+            const batchGetSpy = vi.spyOn(adapter, "batchGetValues");
+            const checkHealthSpy = vi.spyOn(repo as any, "checkFileHealth");
+
+            // Calling updateActiveGroup again for the SAME active group
+            await repo.updateActiveGroup(group.id);
+
+            expect(batchGetSpy).not.toHaveBeenCalled();
+            expect(checkHealthSpy).not.toHaveBeenCalled();
+        });
+
+        it("caches missing icon so LedgerRepository.getGroupIcon does not repeatedly query _meta", async () => {
+            const group = await repo.create("Coffee Lovers", []);
+            const ledgerRepo = new LedgerRepository(adapter as any, group.id);
+
+            // First call might hit adapter if not cached
+            await ledgerRepo.getGroupIcon();
+
+            const batchGetSpy = vi.spyOn(adapter, "batchGetValues");
+
+            // Second call MUST not hit adapter
+            const icon = await ledgerRepo.getGroupIcon();
+            expect(icon).toBeUndefined();
+            expect(batchGetSpy).not.toHaveBeenCalled();
         });
     });
 });
