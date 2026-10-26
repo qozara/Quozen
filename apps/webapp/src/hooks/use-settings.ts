@@ -108,6 +108,9 @@ export function useSettings() {
         return { ...old, activeGroupId: groupId };
       });
       queryClient.invalidateQueries({ queryKey: queryKey });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: queryKey });
     }
   });
 
@@ -129,6 +132,84 @@ export function useSettings() {
     }
   });
 
+  const archiveGroupMutation = useMutation({
+    mutationFn: (groupId: string) => {
+      return quozen.groups.archiveGroup(groupId);
+    },
+    onMutate: async (groupId: string) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousSettings = queryClient.getQueryData<UserSettings>(queryKey);
+
+      queryClient.setQueryData<UserSettings | undefined>(queryKey, (old) => {
+        if (!old) return old;
+        const target = old.groupCache.find(g => g.id === groupId);
+        const remaining = old.groupCache.filter(g => g.id !== groupId);
+        const archived = [
+          ...(old.archivedGroupCache || []).filter(g => g.id !== groupId),
+          ...(target ? [{ ...target, isArchived: true, lastAccessed: new Date().toISOString() }] : [])
+        ];
+        return {
+          ...old,
+          groupCache: remaining,
+          archivedGroupCache: archived,
+          activeGroupId: old.activeGroupId === groupId ? (remaining[0]?.id || null) : old.activeGroupId
+        };
+      });
+
+      return { previousSettings };
+    },
+    onError: (err: any, _groupId, context) => {
+      if (err?.name === "GroupFileUnavailableError") {
+        return;
+      }
+      if (context?.previousSettings) {
+        queryClient.setQueryData(queryKey, context.previousSettings);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
+    }
+  });
+
+  const unarchiveGroupMutation = useMutation({
+    mutationFn: (groupId: string) => {
+      return quozen.groups.unarchiveGroup(groupId);
+    },
+    onMutate: async (groupId: string) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousSettings = queryClient.getQueryData<UserSettings>(queryKey);
+
+      queryClient.setQueryData<UserSettings | undefined>(queryKey, (old) => {
+        if (!old) return old;
+        const target = old.archivedGroupCache?.find(g => g.id === groupId);
+        const remainingArchived = (old.archivedGroupCache || []).filter(g => g.id !== groupId);
+        const restored = [
+          ...(target ? [{ ...target, isArchived: false, lastAccessed: new Date().toISOString() }] : []),
+          ...old.groupCache.filter(g => g.id !== groupId)
+        ];
+        return {
+          ...old,
+          groupCache: restored,
+          archivedGroupCache: remainingArchived,
+          activeGroupId: groupId
+        };
+      });
+
+      return { previousSettings };
+    },
+    onError: (err: any, _groupId, context) => {
+      if (err?.name === "GroupFileUnavailableError") {
+        return;
+      }
+      if (context?.previousSettings) {
+        queryClient.setQueryData(queryKey, context.previousSettings);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey });
+    }
+  });
+
   return {
     settings: query.data,
     isLoading: query.isLoading,
@@ -139,5 +220,9 @@ export function useSettings() {
     updateActiveGroup: activeGroupMutation.mutate,
     updateGroupAccount: groupAccountMutation.mutate,
     updateGroupAccountAsync: groupAccountMutation.mutateAsync,
+    archiveGroup: archiveGroupMutation.mutate,
+    archiveGroupAsync: archiveGroupMutation.mutateAsync,
+    unarchiveGroup: unarchiveGroupMutation.mutate,
+    unarchiveGroupAsync: unarchiveGroupMutation.mutateAsync,
   };
 }

@@ -91,7 +91,11 @@ export class QuozenClient {
             validationSvc,
             groupId,
             activeAccountId,
-            () => this.groups.getGroupAccountId(groupId)
+            () => this.groups.getGroupAccountId(groupId),
+            async () => {
+                const settings = await this.groups.getSettings();
+                return settings.archivedGroupCache?.some(g => g.id === groupId) ?? false;
+            }
         );
     }
 

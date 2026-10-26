@@ -75,12 +75,14 @@ export interface CachedGroup {
     isHydrated?: boolean;
     pendingRename?: boolean;
     updatedAt?: string;
+    isArchived?: boolean;
 }
 
 export interface UserSettings {
     version: number;
     activeGroupId: string | null;
     groupCache: CachedGroup[];
+    archivedGroupCache?: CachedGroup[];
     preferences: {
         defaultCurrency: string;
         theme?: "light" | "dark" | "system";

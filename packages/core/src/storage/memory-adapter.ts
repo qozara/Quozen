@@ -14,6 +14,7 @@ interface MockSheet {
     properties?: Record<string, string>;
     sheetData?: Record<string, any[][]>;
     sheetIds?: Record<string, number>;
+    trashed?: boolean;
 }
 
 /**
@@ -89,6 +90,9 @@ export class InMemoryAdapter implements IStorageLayer {
 
         for (const [id, sheet] of this.sheets.entries()) {
             let match = true;
+            if (typeof queryOrOptions === 'string' && queryOrOptions.includes("trashed = false") && sheet.trashed) {
+                match = false;
+            }
 
             if (typeof queryOrOptions === 'string') {
                 if (queryOrOptions.includes("name = 'quozen-settings.json'") && sheet.name !== "quozen-settings.json") match = false;
@@ -130,6 +134,11 @@ export class InMemoryAdapter implements IStorageLayer {
 
     // --- IStorageLayer Additions (SDK Backend Mock) ---
 
+    trashFile(fileId: string): void {
+        const sheet = this.sheets.get(fileId);
+        if (sheet) sheet.trashed = true;
+    }
+
     async getFile(fileId: string, options?: { alt?: string; fields?: string }): Promise<any> {
         const sheet = this.sheets.get(fileId);
         if (!sheet) throw new Error("File not found");
@@ -140,7 +149,8 @@ export class InMemoryAdapter implements IStorageLayer {
             id: fileId,
             name: sheet.name,
             properties: sheet.properties,
-            modifiedTime: sheet.modifiedTime
+            modifiedTime: sheet.modifiedTime,
+            trashed: Boolean(sheet.trashed)
         };
     }
 

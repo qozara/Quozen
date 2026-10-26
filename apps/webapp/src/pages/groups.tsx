@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Users, Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2 } from "lucide-react";
-import { MemberInput, Group, Member } from "@quozen/core";
+import { Users, Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2, Archive, ArchiveRestore } from "lucide-react";
+import { MemberInput, Group, Member, GroupFileUnavailableError } from "@quozen/core";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,9 +33,11 @@ export default function Groups() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { groups } = useGroups();
+  const { groups = [], archivedGroups = [] } = useGroups();
   const { settings } = useSettings();
   const { t } = useTranslation();
+
+  const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
 
   const [dialogState, setDialogState] = useState<{
     open: boolean;
@@ -52,7 +55,7 @@ export default function Groups() {
 
   const [alertState, setAlertState] = useState<{
     open: boolean;
-    type: "delete" | "leave";
+    type: "delete" | "leave" | "archive";
     group?: Group;
   }>({ open: false, type: "delete" });
 
@@ -162,6 +165,16 @@ export default function Groups() {
     setAlertState({ open: true, type: "leave", group });
   };
 
+  const handleArchiveClick = (e: React.MouseEvent, group: Group) => {
+    e.stopPropagation();
+    setAlertState({ open: true, type: "archive", group });
+  };
+
+  const handleUnarchiveClick = (e: React.MouseEvent, group: Group) => {
+    e.stopPropagation();
+    unarchiveGroupMutation.mutate(group.id);
+  };
+
   const openCreateDialog = () => {
     if (!isOnline) {
       setOnlineRequired({ open: true, reason: "createGroup" });
@@ -226,6 +239,65 @@ export default function Groups() {
     onError: (error) => toast({ title: t("common.error"), description: error instanceof Error ? error.message : t("common.genericError"), variant: "destructive" })
   });
 
+  const archiveGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      return await quozen.groups.archiveGroup(groupId);
+    },
+    onSuccess: (_, groupId) => {
+      queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      setAlertState(prev => ({ ...prev, open: false }));
+      if (groupId === activeGroupId) {
+        const remaining = groups.filter(g => g.id !== groupId);
+        setActiveGroupId(remaining[0]?.id || "");
+      }
+    },
+    onError: (error: any) => {
+      if (error?.name === "GroupFileUnavailableError" || error instanceof GroupFileUnavailableError) {
+        toast({
+          title: t("groups.fileUnavailableTitle"),
+          description: t("groups.fileUnavailableDesc", { name: error.groupName || alertState.group?.name || "" }),
+          variant: "destructive"
+        });
+        queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      } else {
+        toast({
+          title: t("common.error"),
+          description: error instanceof Error ? error.message : t("common.genericError"),
+          variant: "destructive"
+        });
+      }
+      setAlertState(prev => ({ ...prev, open: false }));
+    }
+  });
+
+  const unarchiveGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      return await quozen.groups.unarchiveGroup(groupId);
+    },
+    onSuccess: (_, groupId) => {
+      queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      setActiveGroupId(groupId);
+      setActiveTab("active");
+    },
+    onError: (error: any, groupId) => {
+      if (error?.name === "GroupFileUnavailableError" || error instanceof GroupFileUnavailableError) {
+        const target = archivedGroups.find(g => g.id === groupId);
+        toast({
+          title: t("groups.fileUnavailableTitle"),
+          description: t("groups.fileUnavailableDesc", { name: error.groupName || target?.name || "" }),
+          variant: "destructive"
+        });
+        queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      } else {
+        toast({
+          title: t("common.error"),
+          description: error instanceof Error ? error.message : t("common.genericError"),
+          variant: "destructive"
+        });
+      }
+    }
+  });
+
   return (
     <div className="mx-4 mt-4 pb-20">
       <div className="flex items-center justify-between mb-6">
@@ -285,68 +357,204 @@ export default function Groups() {
         groupName={shareDialog.groupName}
       />
 
-      <div className="space-y-4">
-        {groups.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 px-6 text-center border-2 border-dashed border-muted rounded-xl bg-muted/10">
-            <div className="w-20 h-20 bg-background rounded-full flex items-center justify-center mb-4 shadow-sm">
-              <FolderSearch className="w-10 h-10 text-muted-foreground/50" />
+      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as "active" | "archived")} className="w-full">
+        <TabsList className="grid w-full grid-cols-2 mb-4">
+          <TabsTrigger value="active" data-testid="tab-active-groups">
+            {t("groups.tabs.active")} ({groups.length})
+          </TabsTrigger>
+          <TabsTrigger value="archived" data-testid="tab-archived-groups">
+            {t("groups.tabs.archived")} ({archivedGroups.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="active" className="space-y-4 mt-0">
+          {groups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 px-6 text-center border-2 border-dashed border-muted rounded-xl bg-muted/10">
+              <div className="w-20 h-20 bg-background rounded-full flex items-center justify-center mb-4 shadow-sm">
+                <FolderSearch className="w-10 h-10 text-muted-foreground/50" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">{t("groups.empty.title")}</h3>
+              <p className="text-sm text-muted-foreground mb-6 max-w-[280px]">
+                {t("groups.empty.magicLinkHint")}
+              </p>
+              <div className="w-full max-w-xs space-y-3">
+                <Button onClick={openCreateDialog} className="w-full h-12 shadow-md" data-testid="button-empty-create-group">
+                  <Plus className="w-4 h-4 mr-2" />
+                  {t("groups.empty.create")}
+                </Button>
+                <Button variant="ghost" onClick={handleImportClick} className="w-full h-12 text-muted-foreground hover:text-primary hover:bg-primary/5">
+                  {t("groups.empty.recoverHint")}
+                </Button>
+              </div>
             </div>
-            <h3 className="text-lg font-semibold mb-2">{t("groups.empty.title")}</h3>
-            <p className="text-sm text-muted-foreground mb-6 max-w-[280px]">
-              {t("groups.empty.magicLinkHint")}
-            </p>
-            <div className="w-full max-w-xs space-y-3">
-              <Button onClick={openCreateDialog} className="w-full h-12 shadow-md" data-testid="button-empty-create-group">
-                <Plus className="w-4 h-4 mr-2" />
-                {t("groups.empty.create")}
-              </Button>
-              <Button variant="ghost" onClick={handleImportClick} className="w-full h-12 text-muted-foreground hover:text-primary hover:bg-primary/5">
-                {t("groups.empty.recoverHint")}
-              </Button>
+          ) : (
+            <>
+              {groups.map((group) => {
+                const isActive = group.id === activeGroupId;
+                const isLoadingThisGroup = loadingGroupId === group.id;
+                return (
+                  <Card
+                    key={group.id}
+                    data-testid="group-card"
+                    className={cn(
+                      "cursor-pointer transition-all hover:bg-accent/50",
+                      isActive ? "ring-2 ring-primary border-primary" : "",
+                      isLoadingThisGroup ? "opacity-75" : ""
+                    )}
+                    onClick={() => {
+                      if (!isActive && !loadingGroupId) {
+                        setActiveGroupId(group.id);
+                      }
+                    }}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start space-x-3 overflow-hidden">
+                          <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center shrink-0 border border-primary/20">
+                            <Users className="w-6 h-6 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-foreground truncate text-base">{group.name}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant={group.isOwner ? "secondary" : "outline"} className="text-[10px] px-1.5 py-0 h-5 font-normal">
+                                {group.isOwner ? <Shield className="w-3 h-3 mr-1" /> : <User className="w-3 h-3 mr-1" />}
+                                {group.isOwner ? t("roles.owner") : t("roles.member")}
+                              </Badge>
+                              {isActive && (
+                                <Badge variant="default" className="text-[10px] px-1.5 py-0 h-5 bg-primary text-primary-foreground border-transparent">
+                                  {t("groups.current")}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                onClick={(e) => e.stopPropagation()}
+                                disabled={isLoadingThisGroup}
+                                data-testid="group-menu-trigger"
+                              >
+                                {isLoadingThisGroup ? (
+                                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                                ) : (
+                                  <MoreVertical className="w-4 h-4" />
+                                )}
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {group.isOwner ? (
+                                <>
+                                  <DropdownMenuItem onClick={(e) => handleShareClick(e, group)}>
+                                    <Share2 className="w-4 h-4 mr-2" /> {t("common.share")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={(e) => handleEditClick(e, group)} data-testid="menuitem-edit">
+                                    <Pencil className="w-4 h-4 mr-2" /> {t("common.edit")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={(e) => handleArchiveClick(e, group)} data-testid="menuitem-archive">
+                                    <Archive className="w-4 h-4 mr-2" /> {t("groups.archiveAction")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={(e) => handleDeleteClick(e, group)} data-testid="menuitem-delete"
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-2" /> {t("common.delete")}
+                                  </DropdownMenuItem>
+                                </>
+                              ) : (
+                                <>
+                                  <DropdownMenuItem onClick={(e) => handleArchiveClick(e, group)} data-testid="menuitem-archive">
+                                    <Archive className="w-4 h-4 mr-2" /> {t("groups.archiveAction")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={(e) => handleLeaveClick(e, group)}
+                                  >
+                                    <LogOut className="w-4 h-4 mr-2" /> {t("groups.leaveAction")}
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+
+              {/* Recovery Footer */}
+              <div className="mt-8 text-center border-t pt-6">
+                <p className="text-xs text-muted-foreground mb-3">{t("groups.recover")}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleImportClick}
+                  className="gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  {t("groups.findInDrive")}
+                </Button>
+              </div>
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="archived" className="space-y-4 mt-0">
+          {archivedGroups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 px-6 text-center border-2 border-dashed border-muted rounded-xl bg-muted/10">
+              <div className="w-20 h-20 bg-background rounded-full flex items-center justify-center mb-4 shadow-sm">
+                <Archive className="w-10 h-10 text-muted-foreground/50" />
+              </div>
+              <h3 className="text-lg font-semibold mb-2">{t("groups.noArchived")}</h3>
+              <p className="text-sm text-muted-foreground max-w-[280px]">
+                {t("groups.noArchivedDesc")}
+              </p>
             </div>
-          </div>
-        ) : (
-          <>
-            {groups.map((group) => {
-              const isActive = group.id === activeGroupId;
-              const isLoadingThisGroup = loadingGroupId === group.id;
-              return (
+          ) : (
+            <div className="space-y-4">
+              {archivedGroups.map((group) => (
                 <Card
                   key={group.id}
-                  data-testid="group-card"
-                  className={cn(
-                    "cursor-pointer transition-all hover:bg-accent/50",
-                    isActive ? "ring-2 ring-primary border-primary" : "",
-                    isLoadingThisGroup ? "opacity-75" : ""
-                  )}
-                  onClick={() => {
-                    if (!isActive && !loadingGroupId) {
-                      setActiveGroupId(group.id);
-                    }
-                  }}
+                  data-testid="archived-group-card"
+                  className="bg-muted/20 border-dashed"
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between">
                       <div className="flex items-start space-x-3 overflow-hidden">
-                        <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center shrink-0 border border-primary/20">
-                          <Users className="w-6 h-6 text-primary" />
+                        <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0 border border-muted-foreground/20">
+                          <Archive className="w-6 h-6 text-muted-foreground" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-foreground truncate text-base">{group.name}</h3>
                           <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-normal text-muted-foreground">
+                              <Archive className="w-3 h-3 mr-1" />
+                              {t("groups.tabs.archived")}
+                            </Badge>
                             <Badge variant={group.isOwner ? "secondary" : "outline"} className="text-[10px] px-1.5 py-0 h-5 font-normal">
                               {group.isOwner ? <Shield className="w-3 h-3 mr-1" /> : <User className="w-3 h-3 mr-1" />}
                               {group.isOwner ? t("roles.owner") : t("roles.member")}
                             </Badge>
-                            {isActive && (
-                              <Badge variant="default" className="text-[10px] px-1.5 py-0 h-5 bg-primary text-primary-foreground border-transparent">
-                                {t("groups.current")}
-                              </Badge>
-                            )}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => handleUnarchiveClick(e, group)}
+                          disabled={unarchiveGroupMutation.isPending}
+                          data-testid="button-unarchive"
+                          className="h-8 gap-1.5 text-xs"
+                        >
+                          <ArchiveRestore className="w-3.5 h-3.5" />
+                          {t("groups.unarchiveAction")}
+                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -354,38 +562,22 @@ export default function Groups() {
                               size="icon"
                               className="h-8 w-8 text-muted-foreground hover:text-foreground"
                               onClick={(e) => e.stopPropagation()}
-                              disabled={isLoadingThisGroup}
-                              data-testid="group-menu-trigger"
+                              data-testid="archived-group-menu-trigger"
                             >
-                              {isLoadingThisGroup ? (
-                                <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                              ) : (
-                                <MoreVertical className="w-4 h-4" />
-                              )}
+                              <MoreVertical className="w-4 h-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            {group.isOwner ? (
-                              <>
-                                <DropdownMenuItem onClick={(e) => handleShareClick(e, group)}>
-                                  <Share2 className="w-4 h-4 mr-2" /> {t("common.share")}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={(e) => handleEditClick(e, group)} data-testid="menuitem-edit">
-                                  <Pencil className="w-4 h-4 mr-2" /> {t("common.edit")}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onClick={(e) => handleDeleteClick(e, group)} data-testid="menuitem-delete"
-                                >
-                                  <Trash2 className="w-4 h-4 mr-2" /> {t("common.delete")}
-                                </DropdownMenuItem>
-                              </>
-                            ) : (
+                            <DropdownMenuItem onClick={(e) => handleUnarchiveClick(e, group)} data-testid="menuitem-unarchive">
+                              <ArchiveRestore className="w-4 h-4 mr-2" /> {t("groups.unarchiveAction")}
+                            </DropdownMenuItem>
+                            {group.isOwner && (
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
-                                onClick={(e) => handleLeaveClick(e, group)}
+                                onClick={(e) => handleDeleteClick(e, group)}
+                                data-testid="menuitem-delete"
                               >
-                                <LogOut className="w-4 h-4 mr-2" /> {t("groups.leaveAction")}
+                                <Trash2 className="w-4 h-4 mr-2" /> {t("common.delete")}
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
@@ -394,39 +586,29 @@ export default function Groups() {
                     </div>
                   </CardContent>
                 </Card>
-              );
-            })}
-
-            {/* Recovery Footer */}
-            <div className="mt-8 text-center border-t pt-6">
-              <p className="text-xs text-muted-foreground mb-3">{t("groups.recover")}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleImportClick}
-                className="gap-2"
-              >
-                <Download className="w-4 h-4" />
-                {t("groups.findInDrive")}
-              </Button>
+              ))}
             </div>
-          </>
-        )}
-      </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <AlertDialog
         open={alertState.open}
         onOpenChange={(open) => {
-          if (deleteGroupMutation.isPending || leaveGroupMutation.isPending) return;
+          if (deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending) return;
           if (!open) setAlertState(prev => ({ ...prev, open }));
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{alertState.type === 'delete' ? t("groups.delete") : t("groups.leave")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {alertState.type === 'delete' ? t("groups.delete") : alertState.type === 'archive' ? t("groups.archive") : t("groups.leave")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {alertState.type === 'delete'
                 ? t("groups.confirmDelete", { name: alertState.group?.name })
+                : alertState.type === 'archive'
+                ? t("groups.confirmArchive", { name: alertState.group?.name })
                 : (() => {
                     const cachedGroup = settings?.groupCache?.find(g => g.id === alertState.group?.id);
                     const isLinkedToDifferentAccount = cachedGroup?.accountId && user?.id && cachedGroup.accountId !== user.id;
@@ -439,26 +621,32 @@ export default function Groups() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending}>
+            <AlertDialogCancel disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending}>
               {t("common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               data-testid="alert-action-confirm"
-              disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending}
+              disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending}
               onClick={(e) => {
                 e.preventDefault();
-                if (!alertState.group || deleteGroupMutation.isPending || leaveGroupMutation.isPending) return;
-                alertState.type === 'delete' ? deleteGroupMutation.mutate(alertState.group.id) : leaveGroupMutation.mutate(alertState.group.id);
+                if (!alertState.group || deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending) return;
+                if (alertState.type === 'archive') {
+                  archiveGroupMutation.mutate(alertState.group.id);
+                } else if (alertState.type === 'delete') {
+                  deleteGroupMutation.mutate(alertState.group.id);
+                } else {
+                  leaveGroupMutation.mutate(alertState.group.id);
+                }
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className={alertState.type === 'archive' ? "" : "bg-destructive text-destructive-foreground hover:bg-destructive/90"}
             >
-              {deleteGroupMutation.isPending || leaveGroupMutation.isPending ? (
+              {deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {alertState.type === 'delete' ? t("groups.deleting") : t("groups.leaving")}
+                  {alertState.type === 'delete' ? t("groups.deleting") : alertState.type === 'archive' ? t("groups.archiving") : t("groups.leaving")}
                 </>
               ) : (
-                alertState.type === 'delete' ? t("groups.deleteAction") : t("groups.leaveAction")
+                alertState.type === 'delete' ? t("groups.deleteAction") : alertState.type === 'archive' ? t("groups.archiveAction") : t("groups.leaveAction")
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

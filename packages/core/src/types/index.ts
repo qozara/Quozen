@@ -120,6 +120,16 @@ export interface IStorageProvider {
     leaveGroup(groupId: string, userId: string, userEmail: string): Promise<void>;
 
     /**
+     * Archive an expenses group, removing it from active group processing.
+     */
+    archiveGroup(groupId: string): Promise<void>;
+
+    /**
+     * Unarchive an expenses group, restoring it to the active list.
+     */
+    unarchiveGroup(groupId: string): Promise<void>;
+
+    /**
      * Toggle file permissions between Restricted and Public (Anyone with link can write).
      */
     setGroupPermissions(groupId: string, access: 'public' | 'restricted'): Promise<void>;

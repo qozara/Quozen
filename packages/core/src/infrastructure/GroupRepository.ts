@@ -11,7 +11,7 @@ import { userSettingsToDoc, docToUserSettings, memberToDoc, categoryToDoc } from
 import type { BlobStorageDriver } from "../sync/types";
 import { isNetworkError } from "../sync/CompositeCloudSyncProvider";
 import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
-import { OfflineOperationError } from "../errors";
+import { OfflineOperationError, GroupFileUnavailableError } from "../errors";
 
 export class GroupRepository {
     private accountIdCache = new Map<string, string | undefined>();
@@ -25,8 +25,26 @@ export class GroupRepository {
         private onMutation?: (groupId?: string) => void
     ) { }
 
+    private migrateSettingsToV2(settings: UserSettings): UserSettings {
+        if (!settings.version || settings.version < 2) {
+            settings.version = 2;
+        }
+        if (!Array.isArray(settings.archivedGroupCache)) {
+            settings.archivedGroupCache = [];
+        }
+        return settings;
+    }
+
     private syncAccountIdCache(settings: UserSettings): UserSettings {
+        this.migrateSettingsToV2(settings);
         for (const cached of settings.groupCache || []) {
+            if (cached.accountId) {
+                this.accountIdCache.set(cached.id, cached.accountId);
+            } else if (this.accountIdCache.has(cached.id)) {
+                cached.accountId = this.accountIdCache.get(cached.id);
+            }
+        }
+        for (const cached of settings.archivedGroupCache || []) {
             if (cached.accountId) {
                 this.accountIdCache.set(cached.id, cached.accountId);
             } else if (this.accountIdCache.has(cached.id)) {
@@ -71,9 +89,10 @@ export class GroupRepository {
             }
             if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
                 return {
-                    version: 1,
+                    version: 2,
                     activeGroupId: null,
                     groupCache: [],
+                    archivedGroupCache: [],
                     preferences: { defaultCurrency: "USD", theme: "system" },
                     lastUpdated: new Date().toISOString()
                 };
@@ -89,9 +108,10 @@ export class GroupRepository {
             } catch (blobErr: any) {
                 if (isOffline) {
                     return {
-                        version: 1,
+                        version: 2,
                         activeGroupId: null,
                         groupCache: [],
+                        archivedGroupCache: [],
                         preferences: { defaultCurrency: "USD", theme: "system" },
                         lastUpdated: new Date().toISOString()
                     };
@@ -119,9 +139,10 @@ export class GroupRepository {
         } catch (storageErr: any) {
             if (isOffline) {
                 return {
-                    version: 1,
+                    version: 2,
                     activeGroupId: null,
                     groupCache: [],
+                    archivedGroupCache: [],
                     preferences: { defaultCurrency: "USD", theme: "system" },
                     lastUpdated: new Date().toISOString()
                 };
@@ -153,9 +174,10 @@ export class GroupRepository {
             } catch (e: any) {
                 if (isOffline) {
                     return {
-                        version: 1,
+                        version: 2,
                         activeGroupId: null,
                         groupCache: [],
+                        archivedGroupCache: [],
                         preferences: { defaultCurrency: "USD", theme: "system" },
                         lastUpdated: new Date().toISOString()
                     };
@@ -262,6 +284,16 @@ export class GroupRepository {
                     existingSettings = docToUserSettings(doc.toJSON());
                 }
             } catch {}
+        } else {
+            try {
+                const sFiles = await this.storage.listFiles(`name = '${SETTINGS_FILE_NAME}' and trashed = false`);
+                if (sFiles.length > 0) {
+                    const data = await this.storage.getFile(sFiles[0].id, { alt: 'media' });
+                    if (data && data.version) {
+                        existingSettings = data as UserSettings;
+                    }
+                }
+            } catch {}
         }
 
         const files = await this.storage.listFiles(`properties has { key='quozen_type' and value='group' } and trashed = false`);
@@ -272,7 +304,10 @@ export class GroupRepository {
             }
         }
 
-        const visibleGroups: CachedGroup[] = files.map(file => {
+        const archivedIds = new Set((existingSettings?.archivedGroupCache || []).map(g => g.id));
+        const filteredFiles = files.filter(f => !archivedIds.has(f.id));
+
+        const visibleGroups: CachedGroup[] = filteredFiles.map(file => {
             const existing = existingGroupMap.get(file.id);
             const accountId = this.accountIdCache.get(file.id) || existing?.accountId;
             return {
@@ -294,9 +329,10 @@ export class GroupRepository {
 
         const nowIso = new Date().toISOString();
         const settings: UserSettings = {
-            version: existingSettings?.version || 1,
+            version: existingSettings?.version || 2,
             activeGroupId,
             groupCache: visibleGroups,
+            archivedGroupCache: existingSettings?.archivedGroupCache || [],
             preferences: existingSettings?.preferences ? { ...existingSettings.preferences } : { defaultCurrency: "USD", theme: "system" },
             ...(existingSettings?.preferencesUpdatedAt ? { preferencesUpdatedAt: existingSettings.preferencesUpdatedAt } : {}),
             ...(existingSettings?.encryptedApiKey ? { encryptedApiKey: existingSettings.encryptedApiKey } : {}),
@@ -306,11 +342,48 @@ export class GroupRepository {
         return settings;
     }
 
+    private async checkFileHealth(groupId: string): Promise<{ available: boolean; reason?: "trashed" | "deleted" }> {
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (isOffline) {
+            return { available: true };
+        }
+        try {
+            const meta = await this.storage.getFile(groupId, { fields: "id,name,trashed" });
+            if (meta?.trashed) {
+                return { available: false, reason: "trashed" };
+            }
+            return { available: true };
+        } catch (err: any) {
+            const msg = (err?.message || "").toLowerCase();
+            if (msg.includes("404") || msg.includes("not found") || msg.includes("410") || err?.name === "NotFoundError") {
+                return { available: false, reason: "deleted" };
+            }
+            if (isNetworkError(err)) {
+                return { available: true };
+            }
+            throw err;
+        }
+    }
+
     async updateActiveGroup(groupId: string): Promise<void> {
         const settings = await this.getSettings();
         if (settings.activeGroupId === groupId) return;
 
         const cached = settings.groupCache.find(g => g.id === groupId);
+
+        const health = await this.checkFileHealth(groupId);
+        if (!health.available) {
+            this.accountIdCache.delete(groupId);
+            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+            if (settings.archivedGroupCache) {
+                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
+            }
+            if (settings.activeGroupId === groupId) {
+                settings.activeGroupId = settings.groupCache[0]?.id || null;
+            }
+            await this.saveSettings(settings);
+            throw new GroupFileUnavailableError(groupId, cached?.name, health.reason);
+        }
 
         if (this.db) {
             if (cached?.validationStatus === ValidationStatus.CORRUPTED || cached?.validationStatus === ValidationStatus.INCOMPATIBLE) {
@@ -339,6 +412,82 @@ export class GroupRepository {
         if (cached) {
             cached.lastAccessed = new Date().toISOString();
         }
+        await this.saveSettings(settings);
+    }
+
+    async archiveGroup(groupId: string): Promise<void> {
+        const settings = await this.getSettings();
+        const cached = settings.groupCache.find(g => g.id === groupId);
+        const groupName = cached?.name;
+
+        const health = await this.checkFileHealth(groupId);
+        if (!health.available) {
+            this.accountIdCache.delete(groupId);
+            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+            if (settings.archivedGroupCache) {
+                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
+            }
+            if (settings.activeGroupId === groupId) {
+                settings.activeGroupId = settings.groupCache[0]?.id || null;
+            }
+            await this.saveSettings(settings);
+            throw new GroupFileUnavailableError(groupId, groupName, health.reason);
+        }
+
+        if (!settings.archivedGroupCache) {
+            settings.archivedGroupCache = [];
+        }
+
+        settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+
+        if (!settings.archivedGroupCache.some(g => g.id === groupId)) {
+            settings.archivedGroupCache.unshift({
+                ...(cached || { id: groupId, name: groupName || "Archived Group", role: "member" as const }),
+                isArchived: true,
+                lastAccessed: new Date().toISOString()
+            });
+        }
+
+        if (settings.activeGroupId === groupId) {
+            settings.activeGroupId = settings.groupCache[0]?.id || null;
+        }
+
+        this.accountIdCache.delete(groupId);
+        await this.saveSettings(settings);
+    }
+
+    async unarchiveGroup(groupId: string): Promise<void> {
+        const settings = await this.getSettings();
+        const archived = settings.archivedGroupCache?.find(g => g.id === groupId);
+        const groupName = archived?.name;
+
+        const health = await this.checkFileHealth(groupId);
+        if (!health.available) {
+            this.accountIdCache.delete(groupId);
+            if (settings.archivedGroupCache) {
+                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
+            }
+            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+            if (settings.activeGroupId === groupId) {
+                settings.activeGroupId = settings.groupCache[0]?.id || null;
+            }
+            await this.saveSettings(settings);
+            throw new GroupFileUnavailableError(groupId, groupName, health.reason);
+        }
+
+        if (settings.archivedGroupCache) {
+            settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
+        }
+
+        if (!settings.groupCache.some(g => g.id === groupId)) {
+            settings.groupCache.unshift({
+                ...(archived || { id: groupId, name: groupName || "Group", role: "member" as const }),
+                isArchived: false,
+                lastAccessed: new Date().toISOString()
+            });
+        }
+
+        settings.activeGroupId = groupId;
         await this.saveSettings(settings);
     }
 
@@ -587,6 +736,10 @@ export class GroupRepository {
         const groupName = validation.name || "Imported Group";
         const cleanName = groupName.startsWith(QUOZEN_PREFIX) ? groupName.slice(QUOZEN_PREFIX.length) : groupName;
 
+        if (settings.archivedGroupCache) {
+            settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== spreadsheetId);
+        }
+
         const nowIso = new Date().toISOString();
         const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
         if (!cachedGroup) {
@@ -597,13 +750,15 @@ export class GroupRepository {
                 ...(linkedAccountId ? { accountId: linkedAccountId } : {}),
                 lastAccessed: nowIso,
                 updatedAt: nowIso,
-                validationStatus: validation.status
+                validationStatus: validation.status,
+                isArchived: false
             });
         } else {
             cachedGroup.role = role;
             if (linkedAccountId) {
                 cachedGroup.accountId = linkedAccountId;
             }
+            cachedGroup.isArchived = false;
             cachedGroup.lastAccessed = nowIso;
             cachedGroup.updatedAt = nowIso;
             cachedGroup.validationStatus = validation.status;
@@ -690,6 +845,9 @@ export class GroupRepository {
         this.accountIdCache.delete(groupId);
         const settings = await this.getSettings();
         settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+        if (settings.archivedGroupCache) {
+            settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
+        }
         if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
         await this.saveSettings(settings);
     }

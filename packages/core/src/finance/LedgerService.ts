@@ -14,8 +14,18 @@ export class LedgerService {
         private validationSvc?: ValidationService,
         private groupId?: string,
         private activeAccountId?: string,
-        private getActiveAccountId?: () => Promise<string | undefined>
+        private getActiveAccountId?: () => Promise<string | undefined>,
+        private checkIsArchived?: () => Promise<boolean>
     ) { }
+
+    private async assertNotArchived(): Promise<void> {
+        if (this.checkIsArchived) {
+            const isArchived = await this.checkIsArchived();
+            if (isArchived) {
+                throw new Error("Cannot modify an archived group. Please unarchive it first.");
+            }
+        }
+    }
 
     private async resolveEffectiveAccountId(): Promise<string | undefined> {
         if (this.activeAccountId) return this.activeAccountId;
@@ -107,6 +117,7 @@ export class LedgerService {
     }
 
     async addExpense(payload: CreateExpenseDTO): Promise<Expense> {
+        await this.assertNotArchived();
         const members = await this.assertMembership();
         this.assertValidAmount(payload.amount, "Expense amount");
 
@@ -157,6 +168,7 @@ export class LedgerService {
     }
 
     async updateExpense(expenseId: string, payload: UpdateExpenseDTO, expectedLastModified?: Date): Promise<void> {
+        await this.assertNotArchived();
         await this.assertMembership();
         if (payload.amount !== undefined) {
             this.assertValidAmount(payload.amount, "Expense amount");
@@ -212,6 +224,7 @@ export class LedgerService {
     }
 
     async deleteExpense(expenseId: string): Promise<void> {
+        await this.assertNotArchived();
         await this.assertMembership();
         await this.repo.deleteExpense(expenseId);
     }
@@ -221,6 +234,7 @@ export class LedgerService {
     }
 
     async addSettlement(payload: CreateSettlementDTO): Promise<Settlement> {
+        await this.assertNotArchived();
         await this.assertMembership();
         this.assertValidAmount(payload.amount, "Settlement amount");
         if (payload.fromUserId === payload.toUserId) {
@@ -243,6 +257,7 @@ export class LedgerService {
     }
 
     async updateSettlement(settlementId: string, payload: UpdateSettlementDTO): Promise<void> {
+        await this.assertNotArchived();
         await this.assertMembership();
         if (payload.amount !== undefined) {
             this.assertValidAmount(payload.amount, "Settlement amount");
@@ -274,6 +289,7 @@ export class LedgerService {
     }
 
     async deleteSettlement(settlementId: string): Promise<void> {
+        await this.assertNotArchived();
         await this.assertMembership();
         await this.repo.deleteSettlement(settlementId);
     }
@@ -283,6 +299,7 @@ export class LedgerService {
     }
 
     async renameMember(userId: string, newName: string): Promise<void> {
+        await this.assertNotArchived();
         const trimmed = newName.trim();
         if (!trimmed) throw new Error("Account name cannot be empty");
         const members = await this.repo.getMembers();
@@ -296,6 +313,7 @@ export class LedgerService {
     }
 
     async removeUnusedMember(userId: string): Promise<boolean> {
+        await this.assertNotArchived();
         const [members, expenses, settlements] = await Promise.all([
             this.repo.getMembers(),
             this.repo.getExpenses(),

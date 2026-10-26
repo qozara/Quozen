@@ -15,7 +15,7 @@ import JoinPage from "@/pages/join";
 import BottomNavigation from "@/components/bottom-navigation";
 import Header from "@/components/header";
 import SiteFooter from "@/components/site-footer";
-import { AppContext } from "@/context/app-context";
+import { AppContext, useAppContext } from "@/context/app-context";
 import { AuthProvider, useAuth } from "@/context/auth-provider";
 import { useSettings } from "@/hooks/use-settings";
 import { useGroups } from "@/hooks/use-groups";
@@ -28,6 +28,7 @@ import SchemaRemediationModal from "@/components/schema-remediation-modal";
 import { AiFeatureProvider } from "@/features/agent/AiFeatureProvider";
 import { PwaUpdateProvider } from "@/hooks/use-pwa-update";
 import { quozen } from "@/lib/storage";
+import { AlertCircle } from "lucide-react";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -51,14 +52,25 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
   const autoSync = useAutoSync();
+  const { activeGroupId } = useAppContext();
+  const { settings } = useSettings();
+  const { t } = useTranslation();
   // Safe destructuring in case context is missing (though provider wraps this)
   const triggerSync = autoSync?.triggerSync || (async () => { });
   const isEnabled = autoSync?.isEnabled || false;
   const isPaused = autoSync?.isPaused || false;
 
+  const isArchived = Boolean(activeGroupId && settings?.archivedGroupCache?.some(g => g.id === activeGroupId));
+
   return (
     <div className="max-w-md mx-auto bg-background shadow-2xl min-h-screen relative border-x border-border">
       <Header />
+      {isArchived && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 text-amber-900 dark:text-amber-200 px-4 py-2 text-xs flex items-center gap-2" data-testid="archived-banner">
+          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>{t("groups.readOnlyBanner")}</span>
+        </div>
+      )}
       <main className="pb-20 relative">
         <PullToRefresh
           onRefresh={triggerSync}
