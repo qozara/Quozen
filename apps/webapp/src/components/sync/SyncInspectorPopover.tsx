@@ -56,7 +56,7 @@ export const SyncInspectorPopover: React.FC<SyncInspectorPopoverProps> = ({ onCl
 
     return (
         <div
-            className="w-72 rounded-2xl bg-popover/95 backdrop-blur-xl shadow-xl border border-border p-4 z-50 text-popover-foreground"
+            className="w-72 rounded-2xl bg-popover shadow-xl border border-border p-4 text-popover-foreground"
             role="dialog"
             aria-label={t("sync.title")}
             data-testid="sync-inspector-popover"

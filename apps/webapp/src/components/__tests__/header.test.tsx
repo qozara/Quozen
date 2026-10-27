@@ -77,6 +77,11 @@ describe("Header Component with Group Icon & Hero Banner", () => {
         expect(container.querySelector("svg.lucide-plane")).toBeInTheDocument();
     });
 
+    it("renders blurred preset icon watermark graphic in hero banner when preset icon is active", () => {
+        renderHeader("/");
+        expect(screen.getByTestId("hero-blurred-preset-icon")).toBeInTheDocument();
+    });
+
     it("does not have overflow-hidden on header so popovers and sync status trigger are not clipped", () => {
         renderHeader("/");
         const header = screen.getByTestId("header");

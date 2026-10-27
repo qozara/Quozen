@@ -11,7 +11,7 @@ import { Button } from "./ui/button";
 import { useAppContext } from "@/context/app-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SyncTrigger } from "./sync/SyncTrigger";
-import { GroupIcon, getGroupPresetBackground } from "./group-icon";
+import { GroupIcon, getGroupPresetBackground, GROUP_ICON_PRESETS } from "./group-icon";
 
 export default function Header() {
   const { activeGroupId, currentUserId } = useAppContext();
@@ -44,6 +44,9 @@ export default function Header() {
   const activeGroup = groups.find((g) => g.id === activeGroupId);
   const activeIcon = activeGroup?.icon || ledger?.icon;
   const memberCount = ledger?.members?.length || 0;
+  const activePreset = activeIcon?.startsWith("preset:")
+    ? GROUP_ICON_PRESETS.find((p) => p.id === activeIcon)
+    : null;
   const bgStyle = getGroupPresetBackground(activeIcon);
   const hasCustomBanner = !isSubPage && Boolean(bgStyle);
 
@@ -61,8 +64,13 @@ export default function Header() {
       <header
         className={cn(
           "relative border-b border-border sticky top-0 z-40 transition-all",
-          hasCustomBanner ? "bg-card/75 backdrop-blur-md px-4 py-4" : "bg-card px-4 py-3"
+          hasCustomBanner ? "backdrop-blur-md px-4 py-4" : "bg-card px-4 py-3"
         )}
+        style={{
+          backgroundColor: hasCustomBanner
+            ? "color-mix(in srgb, var(--card) 80%, transparent)"
+            : undefined
+        }}
         data-testid="header"
       >
         {/* Taller Hero Blurred Banner */}
@@ -72,13 +80,28 @@ export default function Header() {
             aria-hidden="true"
             className="absolute inset-0 -z-10 pointer-events-none overflow-hidden"
           >
-            <div
-              className="absolute -inset-4 bg-cover bg-center blur-2xl opacity-30 dark:opacity-25 transform scale-125"
-              style={{
-                background: bgStyle?.startsWith("url") ? undefined : bgStyle || undefined,
-                backgroundImage: bgStyle?.startsWith("url") ? bgStyle : undefined
-              }}
-            />
+            {activePreset ? (
+              <div className="absolute inset-0 overflow-hidden">
+                <div
+                  className="absolute -inset-4 blur-2xl opacity-60 dark:opacity-45 transform scale-125"
+                  style={{ background: activePreset.cssGradient }}
+                />
+                <div
+                  data-testid="hero-blurred-preset-icon"
+                  className="absolute right-6 -top-6 opacity-35 dark:opacity-25 blur-[1.5px] pointer-events-none transform rotate-12"
+                >
+                  <activePreset.icon className="w-32 h-32 text-foreground" />
+                </div>
+              </div>
+            ) : (
+              <div
+                className="absolute -inset-4 bg-cover bg-center blur-2xl opacity-40 dark:opacity-30 transform scale-125"
+                style={{
+                  background: bgStyle?.startsWith("url") ? undefined : bgStyle || undefined,
+                  backgroundImage: bgStyle?.startsWith("url") ? bgStyle : undefined
+                }}
+              />
+            )}
             <div className="absolute inset-0 bg-gradient-to-b from-card/30 via-card/60 to-card/90" />
           </div>
         )}
