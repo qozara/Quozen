@@ -400,16 +400,20 @@ export class GroupRepository {
             }
         }
 
-        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-            window.dispatchEvent(new CustomEvent("group-file-unavailable", {
-                detail: {
-                    groupId,
-                    groupName: resolvedName,
-                    reason,
-                    fallbackGroupId: settings.activeGroupId,
-                    hasRemainingGroups: settings.groupCache.length > 0
-                }
-            }));
+        const win = typeof globalThis !== "undefined" ? (globalThis as any).window : undefined;
+        if (win && typeof win.dispatchEvent === "function") {
+            const CustomEventImpl = (globalThis as any).CustomEvent;
+            if (typeof CustomEventImpl === "function") {
+                win.dispatchEvent(new CustomEventImpl("group-file-unavailable", {
+                    detail: {
+                        groupId,
+                        groupName: resolvedName,
+                        reason,
+                        fallbackGroupId: settings.activeGroupId,
+                        hasRemainingGroups: settings.groupCache.length > 0
+                    }
+                }));
+            }
         }
     }
 
