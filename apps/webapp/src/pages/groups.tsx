@@ -210,7 +210,21 @@ export default function Groups() {
       if (variables.groupId) queryClient.invalidateQueries({ queryKey: ["drive", "group", variables.groupId] });
       setDialogState(prev => ({ ...prev, open: false }));
     },
-    onError: (error) => toast({ title: t("common.error"), description: error instanceof Error ? error.message : t("common.genericError"), variant: "destructive" })
+    onError: (error: any) => {
+      if (error?.name === "GroupFileUnavailableError" || error instanceof GroupFileUnavailableError) {
+        window.dispatchEvent(new CustomEvent("group-file-unavailable", {
+          detail: {
+            groupId: error.groupId,
+            groupName: error.groupName,
+            reason: error.reason || "deleted"
+          }
+        }));
+        setDialogState(prev => ({ ...prev, open: false }));
+        queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      } else {
+        toast({ title: t("common.error"), description: error instanceof Error ? error.message : t("common.genericError"), variant: "destructive" });
+      }
+    }
   });
 
   const deleteGroupMutation = useMutation({
@@ -251,6 +265,13 @@ export default function Groups() {
     },
     onError: (error: any) => {
       if (error?.name === "GroupFileUnavailableError" || error instanceof GroupFileUnavailableError) {
+        window.dispatchEvent(new CustomEvent("group-file-unavailable", {
+          detail: {
+            groupId: error.groupId || alertState.group?.id,
+            groupName: error.groupName || alertState.group?.name || "",
+            reason: error.reason || "deleted"
+          }
+        }));
         toast({
           title: t("groups.fileUnavailableTitle"),
           description: t("groups.fileUnavailableDesc", { name: error.groupName || alertState.group?.name || "" }),
@@ -280,6 +301,13 @@ export default function Groups() {
     onError: (error: any, groupId) => {
       if (error?.name === "GroupFileUnavailableError" || error instanceof GroupFileUnavailableError) {
         const target = archivedGroups.find(g => g.id === groupId);
+        window.dispatchEvent(new CustomEvent("group-file-unavailable", {
+          detail: {
+            groupId: error.groupId || groupId,
+            groupName: error.groupName || target?.name || "",
+            reason: error.reason || "deleted"
+          }
+        }));
         toast({
           title: t("groups.fileUnavailableTitle"),
           description: t("groups.fileUnavailableDesc", { name: error.groupName || target?.name || "" }),

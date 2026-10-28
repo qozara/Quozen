@@ -135,6 +135,19 @@ export class ReplicationCoordinator {
         }
     }
 
+    public static unmarkGroupHydrated(dbName: string, groupId: string): void {
+        const set = ReplicationCoordinator.getHydratedGroupSet(dbName);
+        set.delete(groupId);
+        try {
+            const storage = (globalThis as any).localStorage;
+            if (storage && typeof storage.setItem === "function") {
+                storage.setItem(`quozen_hydrated_groups_${dbName}`, JSON.stringify(Array.from(set)));
+            }
+        } catch {
+            // Ignore storage quota or private mode errors
+        }
+    }
+
     public static getSyncedGroupIds(dbName: string): Set<string> {
         let set = ReplicationCoordinator.syncedGroupIdsByDbName.get(dbName);
         if (!set) {

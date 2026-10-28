@@ -366,6 +366,53 @@ export class GroupRepository {
         }
     }
 
+    async purgeUnavailableGroup(groupId: string, groupName?: string, reason: "trashed" | "deleted" = "deleted"): Promise<void> {
+        this.accountIdCache.delete(groupId);
+        const settings = await this.getSettings();
+        const cached = settings.groupCache.find(g => g.id === groupId) || settings.archivedGroupCache?.find(g => g.id === groupId);
+        const resolvedName = groupName || cached?.name || "Group";
+
+        settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+        if (settings.archivedGroupCache) {
+            settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
+        }
+
+        const wasActive = settings.activeGroupId === groupId;
+        if (wasActive) {
+            settings.activeGroupId = settings.groupCache[0]?.id || null;
+        }
+        const nowIso = new Date().toISOString();
+        settings.lastUpdated = nowIso;
+
+        await this.saveSettings(settings);
+
+        if (this.db) {
+            try {
+                ReplicationCoordinator.unmarkGroupHydrated(this.db.name, groupId);
+                await Promise.all([
+                    (this.db as any).expenses?.find({ selector: { groupId } }).remove(),
+                    (this.db as any).settlements?.find({ selector: { groupId } }).remove(),
+                    (this.db as any).members?.find({ selector: { groupId } }).remove(),
+                    (this.db as any).categories?.find({ selector: { groupId } }).remove(),
+                ]);
+            } catch (err) {
+                console.warn("[GroupRepository] Failed to purge RxDB collections for group", groupId, err);
+            }
+        }
+
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+            window.dispatchEvent(new CustomEvent("group-file-unavailable", {
+                detail: {
+                    groupId,
+                    groupName: resolvedName,
+                    reason,
+                    fallbackGroupId: settings.activeGroupId,
+                    hasRemainingGroups: settings.groupCache.length > 0
+                }
+            }));
+        }
+    }
+
     async updateActiveGroup(groupId: string): Promise<void> {
         const settings = await this.getSettings();
         const cached = settings.groupCache.find(g => g.id === groupId);
@@ -391,15 +438,7 @@ export class GroupRepository {
 
         const health = await this.checkFileHealth(groupId);
         if (!health.available) {
-            this.accountIdCache.delete(groupId);
-            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-            if (settings.archivedGroupCache) {
-                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
-            }
-            if (settings.activeGroupId === groupId) {
-                settings.activeGroupId = settings.groupCache[0]?.id || null;
-            }
-            await this.saveSettings(settings);
+            await this.purgeUnavailableGroup(groupId, cached?.name, health.reason);
             throw new GroupFileUnavailableError(groupId, cached?.name, health.reason);
         }
 
@@ -459,15 +498,7 @@ export class GroupRepository {
 
         const health = await this.checkFileHealth(groupId);
         if (!health.available) {
-            this.accountIdCache.delete(groupId);
-            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-            if (settings.archivedGroupCache) {
-                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
-            }
-            if (settings.activeGroupId === groupId) {
-                settings.activeGroupId = settings.groupCache[0]?.id || null;
-            }
-            await this.saveSettings(settings);
+            await this.purgeUnavailableGroup(groupId, groupName, health.reason);
             throw new GroupFileUnavailableError(groupId, groupName, health.reason);
         }
 
@@ -503,15 +534,7 @@ export class GroupRepository {
 
         const health = await this.checkFileHealth(groupId);
         if (!health.available) {
-            this.accountIdCache.delete(groupId);
-            if (settings.archivedGroupCache) {
-                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
-            }
-            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-            if (settings.activeGroupId === groupId) {
-                settings.activeGroupId = settings.groupCache[0]?.id || null;
-            }
-            await this.saveSettings(settings);
+            await this.purgeUnavailableGroup(groupId, groupName, health.reason);
             throw new GroupFileUnavailableError(groupId, groupName, health.reason);
         }
 
@@ -939,14 +962,7 @@ export class GroupRepository {
             throw new OfflineOperationError("This operation requires an internet connection.", "deleteGroup");
         }
         await this.storage.deleteFile(groupId);
-        this.accountIdCache.delete(groupId);
-        const settings = await this.getSettings();
-        settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-        if (settings.archivedGroupCache) {
-            settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
-        }
-        if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
-        await this.saveSettings(settings);
+        await this.purgeUnavailableGroup(groupId, undefined, "deleted");
     }
 
     async checkMemberHasExpenses(groupId: string, userId: string): Promise<boolean> {
@@ -956,6 +972,14 @@ export class GroupRepository {
     }
 
     async updateGroup(groupId: string, name: string, members: MemberInput[], options?: { icon?: string }): Promise<void> {
+        const health = await this.checkFileHealth(groupId);
+        if (!health.available) {
+            const settings = await this.getSettings();
+            const cached = settings.groupCache.find(g => g.id === groupId) || settings.archivedGroupCache?.find(g => g.id === groupId);
+            await this.purgeUnavailableGroup(groupId, cached?.name || name, health.reason);
+            throw new GroupFileUnavailableError(groupId, cached?.name || name, health.reason);
+        }
+
         const newTitle = `${QUOZEN_PREFIX}${name}`;
         const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
 

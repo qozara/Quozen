@@ -9,7 +9,7 @@ import type {
     SyncStatus
 } from "./types";
 import { SETTINGS_FILE_NAME, QUOZEN_PREFIX } from "../types";
-import { TableNotFoundError } from "../errors";
+import { TableNotFoundError, GroupFileUnavailableError } from "../errors";
 import { SheetDataMapper, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP, DEFAULT_CATEGORY_MAP } from "../infrastructure/SheetDataMapper";
 import { mergeUserSettingsDocs } from "./UserSettingsMerger";
 import {
@@ -320,10 +320,9 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                     return results;
                 }
             } catch (healthErr: any) {
-                const healthMsg = String(healthErr?.message || healthErr);
-                if (healthMsg.includes("404") || healthMsg.toLowerCase().includes("not found")) {
-                    console.warn(`[Sync] Group spreadsheet ${targetGroupId} checkHealth 404, skipping.`);
-                    return results;
+                const healthMsg = String(healthErr?.message || healthErr).toLowerCase();
+                if (healthMsg.includes("404") || healthMsg.includes("not found") || healthMsg.includes("410") || healthErr?.name === "NotFoundError" || healthMsg.includes("trash")) {
+                    throw new GroupFileUnavailableError(targetGroupId, undefined, healthMsg.includes("trash") ? "trashed" : "deleted");
                 }
                 if (healthErr?.name === "SchemaIncompatibleError") {
                     this.setStatus("incompatible");
@@ -355,13 +354,13 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                                 results.push({ collection, groupId: targetGroupId, documents });
                             }
                         } catch (tabErr: any) {
-                            const errMsg = String(tabErr?.message || tabErr);
+                            const errMsg = String(tabErr?.message || tabErr).toLowerCase();
                             if (tabErr instanceof TableNotFoundError || tabErr?.name === "TableNotFoundError") {
                                 // Missing table on unmigrated sheet -> signal upgrade_required
                                 this.setStatus("upgrade_required");
                                 return results;
-                            } else if (errMsg.includes("404") || errMsg.toLowerCase().includes("not found")) {
-                                console.warn(`[Sync] Group spreadsheet ${targetGroupId} not found (404), skipping.`);
+                            } else if (errMsg.includes("404") || errMsg.includes("not found") || errMsg.includes("410") || tabErr?.name === "NotFoundError" || errMsg.includes("trash")) {
+                                throw new GroupFileUnavailableError(targetGroupId, undefined, errMsg.includes("trash") ? "trashed" : "deleted");
                             } else {
                                 throw tabErr;
                             }
@@ -534,6 +533,10 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
     private handleSyncException(err: any): void {
         this.lastError = err;
         const msg = String(err?.message || err);
+        if (err instanceof GroupFileUnavailableError || err?.name === "GroupFileUnavailableError") {
+            this.setStatus("idle", err);
+            return;
+        }
         if (err?.name === "SchemaIncompatibleError" || msg.includes("incompatible")) {
             this.setStatus("incompatible", err);
             return;

@@ -25,6 +25,7 @@ import PullToRefresh from "@/components/pull-to-refresh";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import AddExpenseDrawer from "@/components/add-expense-drawer";
 import SchemaRemediationModal from "@/components/schema-remediation-modal";
+import GroupUnavailableModal from "@/components/group-unavailable-modal";
 import { AiFeatureProvider } from "@/features/agent/AiFeatureProvider";
 import { PwaUpdateProvider } from "@/hooks/use-pwa-update";
 import { quozen } from "@/lib/storage";
@@ -83,6 +84,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
       <BottomNavigation />
       <AddExpenseDrawer />
       <SchemaRemediationModal />
+      <GroupUnavailableModal />
     </div>
   );
 };

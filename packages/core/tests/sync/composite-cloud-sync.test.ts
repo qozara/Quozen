@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { GroupFileUnavailableError } from "../../src/errors";
 import {
     CompositeCloudSyncProvider,
     GoogleDriveBlobDriver,
@@ -269,7 +270,7 @@ describe("Phase 2: Composite Cloud Sync Provider & Storage Drivers (Quomida Patt
         expect(pulled.some(p => p.collection === "expenses")).toBe(false);
     });
 
-    it("pull() gracefully handles 404 Not Found error without setting error status", async () => {
+    it("pull() throws GroupFileUnavailableError on 404 Not Found error without setting error status", async () => {
         const mockBlobDriver = {
             id: "mock-blob",
             name: "Mock Blob",
@@ -291,8 +292,8 @@ describe("Phase 2: Composite Cloud Sync Provider & Storage Drivers (Quomida Patt
         });
 
         await provider.initialize();
-        const pulled = await provider.pull("missing-group-404");
+        await expect(provider.pull("missing-group-404")).rejects.toThrow(GroupFileUnavailableError);
 
-        expect(provider.getStatus()).toBe("idle");
+        expect(provider.getStatus()).not.toBe("error");
     });
 });
