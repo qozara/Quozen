@@ -475,15 +475,18 @@ export class GroupRepository {
             settings.archivedGroupCache = [];
         }
 
+        const nowIso = new Date().toISOString();
+        const base = cached || (settings.archivedGroupCache || []).find(g => g.id === groupId);
         settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-
-        if (!settings.archivedGroupCache.some(g => g.id === groupId)) {
-            settings.archivedGroupCache.unshift({
-                ...(cached || { id: groupId, name: groupName || "Archived Group", role: "member" as const }),
+        settings.archivedGroupCache = [
+            {
+                ...(base || { id: groupId, name: groupName || "Archived Group", role: "member" as const }),
                 isArchived: true,
-                lastAccessed: new Date().toISOString()
-            });
-        }
+                lastAccessed: nowIso,
+                updatedAt: nowIso
+            },
+            ...settings.archivedGroupCache.filter(g => g.id !== groupId)
+        ];
 
         if (settings.activeGroupId === groupId) {
             settings.activeGroupId = settings.groupCache[0]?.id || null;
@@ -516,13 +519,17 @@ export class GroupRepository {
             settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
         }
 
-        if (!settings.groupCache.some(g => g.id === groupId)) {
-            settings.groupCache.unshift({
-                ...(archived || { id: groupId, name: groupName || "Group", role: "member" as const }),
+        const nowIso = new Date().toISOString();
+        const base = archived || settings.groupCache.find(g => g.id === groupId);
+        settings.groupCache = [
+            {
+                ...(base || { id: groupId, name: groupName || "Group", role: "member" as const }),
                 isArchived: false,
-                lastAccessed: new Date().toISOString()
-            });
-        }
+                lastAccessed: nowIso,
+                updatedAt: nowIso
+            },
+            ...settings.groupCache.filter(g => g.id !== groupId)
+        ];
 
         const targetGroup = settings.groupCache.find(g => g.id === groupId);
         const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;

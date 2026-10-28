@@ -7,6 +7,11 @@ function parseTimestamp(val?: string | number | null): number {
     return isNaN(t) ? 0 : t;
 }
 
+function getGroupEntryTime(entry?: CachedGroup | null): number {
+    if (!entry) return 0;
+    return Math.max(parseTimestamp(entry.updatedAt), parseTimestamp(entry.lastAccessed));
+}
+
 export interface MergeUserSettingsOptions {
     syncedGroupIds?: Set<string>;
     lastSyncedAt?: string;
@@ -116,8 +121,8 @@ export function mergeUserSettingsDocs(
         remoteEntry: CachedGroup,
         isArchivedContext = false
     ): { winner: CachedGroup; updateLocal: boolean; pushRemote: boolean } => {
-        const localTime = parseTimestamp(localEntry.updatedAt || localEntry.lastAccessed);
-        const remoteTime = parseTimestamp(remoteEntry.updatedAt || remoteEntry.lastAccessed);
+        const localTime = getGroupEntryTime(localEntry);
+        const remoteTime = getGroupEntryTime(remoteEntry);
 
         const lAcc = parseTimestamp(localEntry.lastAccessed);
         const rAcc = parseTimestamp(remoteEntry.lastAccessed);
@@ -190,8 +195,8 @@ export function mergeUserSettingsDocs(
             // Check if local has it in archivedGroupCache
             const localArchivedEntry = localArchivedMap.get(id);
             if (localArchivedEntry) {
-                const localTime = parseTimestamp(localArchivedEntry.updatedAt || localArchivedEntry.lastAccessed);
-                const remoteTime = parseTimestamp(remoteEntry.updatedAt || remoteEntry.lastAccessed);
+                const localTime = getGroupEntryTime(localArchivedEntry);
+                const remoteTime = getGroupEntryTime(remoteEntry);
                 if (remoteTime > localTime) {
                     // Remote unarchived or updated group more recently
                     mergedGroupsMap.set(id, { ...remoteEntry, ...(remoteEntry.icon ?? localArchivedEntry.icon ? { icon: remoteEntry.icon ?? localArchivedEntry.icon } : {}) });
@@ -215,16 +220,16 @@ export function mergeUserSettingsDocs(
             // Check if remote has it in archivedGroupCache
             const remoteArchivedEntry = remoteArchivedMap.get(id);
             if (remoteArchivedEntry) {
-                const localTime = parseTimestamp(localEntry.updatedAt || localEntry.lastAccessed);
-                const remoteTime = parseTimestamp(remoteArchivedEntry.updatedAt || remoteArchivedEntry.lastAccessed);
-                if (localTime > remoteTime) {
-                    // Local unarchived or updated group more recently
+                const localTime = getGroupEntryTime(localEntry);
+                const remoteTime = getGroupEntryTime(remoteArchivedEntry);
+                if (localTime >= remoteTime) {
+                    // Local unarchived or updated group more recently (or tied)
                     mergedGroupsMap.set(id, { ...localEntry, ...(localEntry.icon ?? remoteArchivedEntry.icon ? { icon: localEntry.icon ?? remoteArchivedEntry.icon } : {}) });
                     shouldPushRemote = true;
                 }
-                // If remoteTime >= localTime, it stays in archived (handled in archived merge)
+                // If remoteTime > localTime, it stays in archived (handled in archived merge)
             } else {
-                const localTime = parseTimestamp(localEntry.updatedAt || localEntry.lastAccessed);
+                const localTime = getGroupEntryTime(localEntry);
                 const inSynced = syncedGroupIds ? syncedGroupIds.has(id) : false;
                 // Remote deleted it if it was previously synced and local has not modified it since last sync
                 if (
@@ -261,8 +266,8 @@ export function mergeUserSettingsDocs(
         if (!remoteArchivedMap.has(id)) {
             const remoteActiveEntry = remoteGroupsMap.get(id);
             if (remoteActiveEntry) {
-                const localTime = parseTimestamp(localEntry.updatedAt || localEntry.lastAccessed);
-                const remoteTime = parseTimestamp(remoteActiveEntry.updatedAt || remoteActiveEntry.lastAccessed);
+                const localTime = getGroupEntryTime(localEntry);
+                const remoteTime = getGroupEntryTime(remoteActiveEntry);
                 if (localTime >= remoteTime) {
                     // Local archived it more recently than remote was active
                     const winnerIcon = localEntry.icon ?? remoteActiveEntry.icon;
@@ -282,8 +287,8 @@ export function mergeUserSettingsDocs(
         if (!localArchivedMap.has(id)) {
             const localActiveEntry = localGroupsMap.get(id);
             if (localActiveEntry) {
-                const localTime = parseTimestamp(localActiveEntry.updatedAt || localActiveEntry.lastAccessed);
-                const remoteTime = parseTimestamp(remoteEntry.updatedAt || remoteEntry.lastAccessed);
+                const localTime = getGroupEntryTime(localActiveEntry);
+                const remoteTime = getGroupEntryTime(remoteEntry);
                 if (remoteTime > localTime) {
                     // Remote archived it more recently than local was active
                     const winnerIcon = remoteEntry.icon ?? localActiveEntry.icon;
