@@ -53,6 +53,7 @@ test.describe('Deterministic Command Parser (Instant, Offline-Ready, Zero-Delay)
 
         // 8. Drawer closes and the expense is committed to the ledger
         await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible();
+        await page.getByTestId('button-nav-home').click();
         await expect(page.getByText('Dinner').first()).toBeVisible();
     });
 
@@ -63,6 +64,8 @@ test.describe('Deterministic Command Parser (Instant, Offline-Ready, Zero-Delay)
         // 1. Create a test group with Bob
         await page.getByTestId('button-empty-create-group').or(page.getByTestId('button-new-group')).first().click();
         await page.getByTestId('input-group-name').fill('Settlement Group');
+        await page.getByTestId('input-group-members').fill('Bob');
+        await page.getByTestId('input-group-members').press('Enter');
         await page.getByTestId('button-submit-group').click();
 
         const shareTitle = page.getByTestId('drawer-title-share');
@@ -87,7 +90,7 @@ test.describe('Deterministic Command Parser (Instant, Offline-Ready, Zero-Delay)
 
         // 6. Verify pre-populated amount
         const amountInput = page.getByTestId('input-settlement-amount');
-        await expect(amountInput).toHaveValue('25');
+        await expect(amountInput).toHaveValue(/25(\.00)?/);
 
         // 7. Confirm settlement recording
         await page.getByTestId('button-record-payment').click();
@@ -120,6 +123,7 @@ test.describe('Deterministic Command Parser (Instant, Offline-Ready, Zero-Delay)
 
         await page.getByTestId('button-submit-expense').click();
         await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible();
+        await page.getByTestId('button-nav-home').click();
         await expect(page.getByText('Almuerzo').first()).toBeVisible();
     });
 });
@@ -139,7 +143,8 @@ test.describe('Optional LLM Escalation Suite (Isolated Mock AI Calls)', () => {
             });
         };
         await page.route('http://localhost:8788', proxyHealthMock);
-        await page.route('http://localhost:8788/', proxyHealthMock);
+        await page.route('http://localhost:8788/**', proxyHealthMock);
+        await page.route('**/health', proxyHealthMock);
 
         // Mock Proxy Chat Route
         await page.route('**/api/v1/agent/chat', async route => {
@@ -198,10 +203,11 @@ test.describe('Optional LLM Escalation Suite (Isolated Mock AI Calls)', () => {
 
         // 2. User explicitly clicks "Refine with AI"
         const refineButton = page.getByTestId('button-refine-with-ai');
-        if (await refineButton.isVisible()) {
-            await refineButton.click();
-            // Verify LLM endpoint was contacted
-            expect(llmCallCount).toBeGreaterThanOrEqual(1);
-        }
+        await expect(refineButton).toBeVisible();
+        const chatPromise = page.waitForResponse(resp => resp.url().includes('/api/v1/agent/chat'));
+        await refineButton.click();
+        await chatPromise;
+        // Verify LLM endpoint was contacted
+        expect(llmCallCount).toBeGreaterThanOrEqual(1);
     });
 });

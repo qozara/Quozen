@@ -94,7 +94,7 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 enableLocalAi,
                 encryptedApiKey,
                 baseUrl: enableLocalAi ? (ollamaBaseUrl || (import.meta as any).env.VITE_OLLAMA_URL || 'http://localhost:11434/api') : undefined,
-                proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
+                proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL || 'http://localhost:8788',
                 ollamaModel: ollamaModel || (import.meta as any).env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
                 byokProvider: byokProvider || 'google'
             };

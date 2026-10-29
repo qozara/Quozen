@@ -72,7 +72,7 @@ export default function AddExpenseDrawer() {
         setIsRefining(true);
         try {
             const escalator = new LlmIntentEscalator({
-                proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
+                proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL || 'http://localhost:8788',
                 provider: settings?.preferences?.aiProvider as any,
                 ciphertext: settings?.encryptedApiKey,
                 enableLocalAi: settings?.preferences?.enableLocalAi ?? false,

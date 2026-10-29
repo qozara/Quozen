@@ -9,6 +9,7 @@ const baseURL = `http://localhost:${VITE_PORT}`;
 
 // Force mock storage globally so both the webServer and the Playwright runner (isMockMode) agree
 process.env.VITE_USE_MOCK_STORAGE = 'remote';
+process.env.VITE_AI_PROXY_URL = process.env.VITE_AI_PROXY_URL || 'http://localhost:8788';
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -56,6 +57,7 @@ export default defineConfig({
     env: {
       // Force mock storage for E2E tests to ensure reliable execution without real Google Auth
       VITE_USE_MOCK_STORAGE: 'remote',
+      VITE_AI_PROXY_URL: process.env.VITE_AI_PROXY_URL || 'http://localhost:8788',
     }
   },
 });
