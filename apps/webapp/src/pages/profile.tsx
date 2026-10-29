@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/auth-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { User as UserIcon, Settings, HelpCircle, LogOut, Mail, RefreshCw, AlertCircle, Coins, Globe, Sparkles, Key, Bot } from "lucide-react";
+import { User as UserIcon, Settings, HelpCircle, LogOut, Mail, RefreshCw, AlertCircle, Coins, Globe, Zap, Key, Bot } from "lucide-react";
 import { quozen } from "@/lib/storage";
 import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/hooks/use-settings";
@@ -382,11 +382,11 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      {/* AI Assistant */}
+      {/* Assistant */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center">
-            <Sparkles className="w-5 h-5 mr-2 text-primary" />
+            <Zap className="w-5 h-5 mr-2 text-primary" />
             {t("profile.aiAssistant")}
           </CardTitle>
         </CardHeader>

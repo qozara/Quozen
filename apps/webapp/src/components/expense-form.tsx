@@ -18,7 +18,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useOptionalAuth } from "@/context/auth-provider";
-import { Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
+import { Zap, AlertTriangle, RefreshCw } from "lucide-react";
 
 const distributeAmount = (total: number, count: number): number[] => {
   if (count <= 0) return [];
@@ -313,7 +313,7 @@ export default function ExpenseForm({
         <div className="mb-4 p-3 rounded-xl bg-primary/5 border border-primary/20 space-y-2" data-testid="draft-confirmation-banner">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span className="font-semibold text-primary flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-primary" />
+              <Zap className="w-3.5 h-3.5 text-primary" />
               {t("agent.draftReviewTitle", "Draft Review")}
             </span>
             {draftMeta?.rawInput && (
@@ -459,7 +459,7 @@ export default function ExpenseForm({
               {isRefiningWithAi ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Sparkles className="w-3.5 h-3.5 text-primary" />
+                <Zap className="w-3.5 h-3.5 text-primary" />
               )}
               {t("agent.refineWithAi", "Not quite right? Refine with AI")}
             </Button>

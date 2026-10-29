@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
 import { Member, Settlement, SettlementDraft } from "@quozen/core";
-import { ArrowRightLeft, Trash2, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
+import { ArrowRightLeft, Trash2, Zap, AlertTriangle, RefreshCw } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -205,7 +205,7 @@ export default function SettlementModal({
               <div className="mb-4 p-3 rounded-xl bg-primary/5 border border-primary/20 space-y-1 text-left" data-testid="settlement-draft-banner">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span className="font-semibold text-primary flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-primary" />
+                    <Zap className="w-3.5 h-3.5 text-primary" />
                     {t("agent.draftReviewTitle", "Draft Review")}
                   </span>
                   {draftMeta?.rawInput && (
@@ -346,7 +346,7 @@ export default function SettlementModal({
                 {isRefiningWithAi ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <Sparkles className="w-3.5 h-3.5 text-primary" />
+                  <Zap className="w-3.5 h-3.5 text-primary" />
                 )}
                 {t("agent.refineWithAi", "Not quite right? Refine with AI")}
               </Button>
