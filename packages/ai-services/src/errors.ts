@@ -34,7 +34,10 @@ export function classifyAiError(err: unknown): AiCommandError {
   if (/Failed to fetch|Network error|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
     return new AiCommandError('NETWORK_ERROR', msg, err);
   }
-  if (/Unauthorized|401|403|Forbidden|expired Google token|Invalid.*token/i.test(msg)) {
+  if (
+    /Unauthorized|401|403|Forbidden|expired Google token/i.test(msg) ||
+    (/invalid/i.test(msg) && /token/i.test(msg))
+  ) {
     return new AiCommandError('AUTHENTICATION_REQUIRED', msg, err);
   }
 
