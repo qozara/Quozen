@@ -31,21 +31,26 @@ The `MockServer` intercepts network requests in Playwright to simulate backend c
 - When `VITE_USE_MOCK_STORAGE=remote` (or `true`), the application uses the `RemoteMockAdapter` which routes requests to the Playwright `MockServer`.
 - The `setupAuth(page)` utility in Playwright tests detects this mode and injects a static `mock-token-123` into localStorage, completely bypassing the Google OAuth login flow for fast, reliable, unattended CI execution.
 
-## AI & Agent Testing
+## Natural Language & AI Testing
 
-To achieve a full, extensible suite, we have restructured the AI tests into distinct tiers:
+We strictly separate **instant deterministic parsing** from **optional LLM escalation**:
 
-### Tier 1: Pure Unit Tests (Fast, No LLM, No Network)
-* **Goal:** Verify the internal logic, error catching, and routing of the Quozen AI modules.
-* **Files:** `AiProviderFactory.test.ts`, `QuozenAI.unit.test.ts`
-* We mock the LLM to return garbage data, missing parameters, and unsupported tools to ensure our core never crashes.
+### Tier 1: Deterministic Parser & Draft Tests (Fast, 0ms Network, 0 Tokens)
+* **Goal:** Verify localized grammars, currency tokens, relative dates, participant matching, and draft confirmation logic across English (`en`) and Spanish (`es`).
+* **Files:** `packages/core/tests/parser/command-draft-service.test.ts`, `apps/webapp/tests/agent-drawer.spec.ts` (Deterministic Suite).
+* **Guarantees:** Runs 100% offline with zero dependencies on LLMs or external network endpoints.
 
-### Tier 2: The LLM Intelligence Matrix (Live LLM + InMemory Storage)
+### Tier 2: AI Provider & Escalation Unit Tests (Mocked LLM)
+* **Goal:** Verify the internal logic, error catching, and routing of the Quozen AI modules and hexagonal escalation adapter.
+* **Files:** `AiProviderFactory.test.ts`, `LlmIntentEscalator.test.ts`, `QuozenAI.unit.test.ts`
+* We mock the LLM to return structured responses, errors, and rate limits to ensure our core never crashes.
+
+### Tier 3: The LLM Intelligence Matrix (Live LLM + InMemory Storage)
 * **Goal:** Evaluate the chosen LLM's ability to extract intent and pick the right tools from natural language, using the blazing-fast `InMemoryAdapter`.
 * **File:** `llm-behavior.test.ts`
 * **Architecture:** A data-driven test array (matrix) testing Expense Creation, Settlement Creation, Language Support, and Out-of-Bounds Rejection. Runs via `npm run test:ai:llm-behavior` (requires local Ollama).
 
-### Tier 3: E2E Infrastructure Smoke Test (Live LLM + Proxy + Real Drive)
+### Tier 4: E2E Infrastructure Smoke Test (Live LLM + Proxy + Real Drive)
 * **Goal:** Prove the physical network architecture works without getting rate-limited by Google.
 * **File:** `infrastructure-smoke.test.ts`
 * **Architecture:** A single test block that creates a real group, asks the AI to add an expense, asks the AI to settle the debt, verifies the real Google Sheet balances are $0.00, and deletes the group. Runs via `npm run test:ai:live-smoke-test`.
