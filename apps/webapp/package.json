@@ -5,7 +5,7 @@
     "private": true,
     "scripts": {
         "dev": "vite",
-        "build": "vite build",
+        "build": "npm run build --workspace=@quozen/core && npm run build --workspace=@quozen/ai-services && vite build",
         "preview": "vite preview",
         "check": "tsc --noEmit",
         "test": "vitest run",

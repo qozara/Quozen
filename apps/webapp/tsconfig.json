@@ -21,6 +21,12 @@
       ],
       "@quozen/core/*": [
         "../../packages/core/src/*"
+      ],
+      "@quozen/ai-services": [
+        "../../packages/ai-services/src"
+      ],
+      "@quozen/ai-services/*": [
+        "../../packages/ai-services/src/*"
       ]
     },
     "types": [
