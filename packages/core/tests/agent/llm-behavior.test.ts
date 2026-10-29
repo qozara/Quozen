@@ -8,9 +8,11 @@ import * as path from 'path';
 
 // This completely skips the suite in CI environments (GitHub Actions, Vercel)
 // or if the developer hasn't explicitly opted in.
+// NOTE: Fast, deterministic expense & settlement logging tests (without Ollama or delays)
+// are in packages/core/tests/parser/deterministic-commands.test.ts
 const shouldRun = !process.env.CI && process.env.RUN_LOCAL_LLM_TESTS === 'true';
 
-describe.runIf(shouldRun)('AI Goal: Intelligence Validation (Ollama + InMemory)', () => {
+describe.runIf(shouldRun)('AI Goal: Live LLM Inference Benchmark (Ollama + InMemory)', () => {
     let client: QuozenClient;
     let ai: QuozenAI;
     let groupId: string;

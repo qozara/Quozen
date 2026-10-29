@@ -312,6 +312,23 @@ export class StandardCommandParser {
   private extractPrimaryAmount(text: string, pack: ParserLocalePack): { amount?: number; remainingText: string } {
     let currentText = text;
 
+    // Pattern A1: Digits with multiplier word (e.g. "15 lucas", "15k", "5 grand", "2 mil")
+    const multKeys = Object.keys(pack.numberMultipliers).join('|');
+    if (multKeys) {
+      const digitWithMultRegex = new RegExp(`(?:[\\$€£]\\s*)?(\\d+(?:[.,]\\d+)?)\\s*(${multKeys})\\b`, 'iu');
+      const digitWithMultMatch = currentText.match(digitWithMultRegex);
+      if (digitWithMultMatch && digitWithMultMatch[1] && digitWithMultMatch[2]) {
+        const rawNum = digitWithMultMatch[1];
+        const multKey = digitWithMultMatch[2].toLowerCase();
+        const mult = pack.numberMultipliers[multKey] || 1;
+        const parsed = this.parseNumericValue(rawNum, pack) * mult;
+        if (parsed > 0) {
+          currentText = currentText.replace(digitWithMultMatch[0], ' ').trim();
+          return { amount: parsed, remainingText: currentText };
+        }
+      }
+    }
+
     // Pattern A: Standard digits with optional currency signs ($50, 45.50, 12.500, 3000)
     const digitMatch = currentText.match(/(?:[\$€£]\s*)?(\d+(?:[.,]\d+)?)(?:\s*(?:dollars?|bucks?|pesos?|usd|ars|mangos?))?/i);
     if (digitMatch && digitMatch[1]) {

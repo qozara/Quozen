@@ -71,6 +71,10 @@ export class CommandDraftService {
 
     // 2. Member Gazetteer & Resolution Helper
     const ambiguities: string[] = [];
+    const pushAmbiguity = (code: string) => {
+      if (!ambiguities.includes(code)) ambiguities.push(code);
+    };
+
     const resolveMember = (token?: string): Member | undefined => {
       if (!token) return undefined;
       const cleanToken = stripAccents(token.trim().toLowerCase());
@@ -89,7 +93,7 @@ export class CommandDraftService {
       });
       if (firstNameMatches.length === 1) return firstNameMatches[0];
       if (firstNameMatches.length > 1) {
-        ambiguities.push(`ambiguous_member:${token}`);
+        pushAmbiguity(`ambiguous_member:${token}`);
         return undefined;
       }
 
@@ -101,7 +105,7 @@ export class CommandDraftService {
         });
         if (prefixMatches.length === 1) return prefixMatches[0];
         if (prefixMatches.length > 1) {
-          ambiguities.push(`ambiguous_member:${token}`);
+          pushAmbiguity(`ambiguous_member:${token}`);
           return undefined;
         }
       }
@@ -114,14 +118,21 @@ export class CommandDraftService {
         });
         if (fuzzyMatches.length === 1) return fuzzyMatches[0];
         if (fuzzyMatches.length > 1) {
-          ambiguities.push(`ambiguous_member:${token}`);
+          pushAmbiguity(`ambiguous_member:${token}`);
           return undefined;
         }
       }
 
-      ambiguities.push(`unmatched_member:${token}`);
+      pushAmbiguity(`unmatched_member:${token}`);
       return undefined;
     };
+
+    // Pre-resolve tokens to detect ambiguities for optional escalation
+    if (parsed.payerToken) resolveMember(parsed.payerToken);
+    if (parsed.recipientToken) resolveMember(parsed.recipientToken);
+    for (const t of parsed.participantTokens) resolveMember(t);
+    for (const t of parsed.excludedTokens) resolveMember(t);
+    for (const item of parsed.exactAmountTokens) resolveMember(item.memberToken);
 
     // 3. Optional JIT LLM Escalation check
     let isAiEscalated = false;
