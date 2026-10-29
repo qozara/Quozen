@@ -181,4 +181,30 @@ describe("Profile Page", () => {
     fireEvent.click(updateBtn);
     expect(mockApplyUpdate).toHaveBeenCalledTimes(1);
   });
+
+  it("renders local network access toggle (disabled by default)", () => {
+    render(<Profile />);
+
+    const switchToggle = screen.getByTestId("switch-enable-local-ai");
+    expect(switchToggle).toBeInTheDocument();
+    expect(switchToggle).toHaveAttribute("data-state", "unchecked");
+  });
+
+  it("shows warning when local provider is selected without local network access enabled", () => {
+    (useSettings as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      settings: {
+        preferences: {
+          defaultCurrency: "USD",
+          aiProvider: "local",
+          enableLocalAi: false
+        },
+        groupCache: []
+      },
+      updateSettings: mockUpdateSettings,
+    });
+
+    render(<Profile />);
+
+    expect(screen.getByTestId("warning-local-ai-disabled")).toBeInTheDocument();
+  });
 });

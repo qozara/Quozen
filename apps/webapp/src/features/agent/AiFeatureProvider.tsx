@@ -42,6 +42,7 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const { settings, isLoading: settingsLoading } = useSettings();
 
     const aiProvider = settings?.preferences?.aiProvider;
+    const enableLocalAi = settings?.preferences?.enableLocalAi ?? false;
     const encryptedApiKey = settings?.encryptedApiKey;
     const ollamaBaseUrl = settings?.preferences?.ollamaBaseUrl;
     const ollamaModel = settings?.preferences?.ollamaModel;
@@ -52,7 +53,7 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     // Reset cached provider when AI settings change
     useEffect(() => {
         resolvedProviderRef.current = null;
-    }, [aiProvider, encryptedApiKey, ollamaBaseUrl, ollamaModel, byokProvider]);
+    }, [aiProvider, enableLocalAi, encryptedApiKey, ollamaBaseUrl, ollamaModel, byokProvider]);
 
     // Inspect AI availability (hide/show AI icon) on boot and when AI settings change
     useEffect(() => {
@@ -75,7 +76,7 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             status: 'available',
             provider: resolvedProviderRef.current || undefined
         }));
-    }, [aiProvider, encryptedApiKey, ollamaBaseUrl, ollamaModel, byokProvider, settingsLoading]);
+    }, [aiProvider, enableLocalAi, encryptedApiKey, ollamaBaseUrl, ollamaModel, byokProvider, settingsLoading]);
 
     const getOrResolveProvider = useCallback(async (): Promise<AiProvider | null> => {
         if (resolvedProviderRef.current) {
@@ -90,8 +91,9 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         try {
             const config = {
                 providerPreference: providerPreference as any,
+                enableLocalAi,
                 encryptedApiKey,
-                baseUrl: ollamaBaseUrl || (import.meta as any).env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
+                baseUrl: enableLocalAi ? (ollamaBaseUrl || (import.meta as any).env.VITE_OLLAMA_URL || 'http://localhost:11434/api') : undefined,
                 proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
                 ollamaModel: ollamaModel || (import.meta as any).env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
                 byokProvider: byokProvider || 'google'

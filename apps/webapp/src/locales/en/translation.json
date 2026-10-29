@@ -278,6 +278,9 @@
         "activeGroups": "Active Groups",
         "scanFailed": "Scan Failed",
         "scanFailedDesc": "Could not scan Drive",
+        "enableLocalAi": "Allow Local Network Access (Ollama)",
+        "enableLocalAiDesc": "Allow Quozen to connect to local services on your device (e.g. localhost:11434). Keep disabled if you don't use Ollama to avoid browser permission popups.",
+        "localAiDisabledWarning": "Local network access is currently disabled. Please enable it below to allow connections to Ollama.",
         "aiNotAvailable": "AI features are currently not available.",
         "aiNotConfiguredBuild": "AI features disabled via build configuration."
     },

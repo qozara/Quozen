@@ -38,6 +38,7 @@ export const useAgent = () => {
                     proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
                     provider: settings?.preferences?.aiProvider as any,
                     ciphertext: settings?.encryptedApiKey,
+                    enableLocalAi: settings?.preferences?.enableLocalAi ?? false,
                     ollamaBaseUrl: settings?.preferences?.ollamaBaseUrl,
                     ollamaModel: settings?.preferences?.ollamaModel
                 });

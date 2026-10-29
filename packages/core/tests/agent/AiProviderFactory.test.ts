@@ -3,6 +3,7 @@ import { AiProviderFactory } from '../../src/agent/providers/AiProviderFactory';
 import { ProxyAiProvider } from '../../src/agent/providers/ProxyAiProvider';
 import { WindowAiProvider } from '../../src/agent/providers/WindowAiProvider';
 import { LocalOllamaProvider } from '../../src/agent/providers/LocalOllamaProvider';
+import { DisabledAiProvider } from '../../src/agent/providers/AiProviderFactory';
 
 describe('AiProviderFactory', () => {
     const mockGetToken = () => 'test-token';
@@ -22,21 +23,26 @@ describe('AiProviderFactory', () => {
         expect(provider).toBeInstanceOf(ProxyAiProvider);
     });
 
-    it('should return LocalOllamaProvider when preference is "local"', async () => {
+    it('should return LocalOllamaProvider when preference is "local" AND enableLocalAi is true', async () => {
         const provider = await AiProviderFactory.createProvider({
             providerPreference: 'local',
+            enableLocalAi: true,
             baseUrl: 'http://ollama'
         }, mockGetToken);
 
         expect(provider).toBeInstanceOf(LocalOllamaProvider);
     });
 
-    it('should return WindowAiProvider when preference is "byok" (mocking window.ai)', async () => {
-        // Even if windows.ai is not there, if user selects byok it might still pick something else if encrypted key is missing.
-        // Wait, the logic for byok in factory is:
-        // if (providerPreference === 'byok' && encryptedApiKey) return Proxy
-        // else fallback to local
+    it('should return DisabledAiProvider when preference is "local" but enableLocalAi is false/omitted', async () => {
+        const provider = await AiProviderFactory.createProvider({
+            providerPreference: 'local',
+            baseUrl: 'http://ollama'
+        }, mockGetToken);
 
+        expect(provider).toBeInstanceOf(DisabledAiProvider);
+    });
+
+    it('should return WindowAiProvider when preference is "byok" (mocking window.ai)', async () => {
         const provider = await AiProviderFactory.createProvider({
             providerPreference: 'byok',
             encryptedApiKey: 'test-key',
@@ -46,7 +52,7 @@ describe('AiProviderFactory', () => {
         expect(provider).toBeInstanceOf(ProxyAiProvider);
     });
 
-    it('should waterfall in "auto" mode: Proxy (BYOK) -> Window -> Local Ollama -> Proxy (Team)', async () => {
+    it('should waterfall in "auto" mode: Proxy (BYOK) -> Window -> Local Ollama (only if enabled) -> Proxy (Team)', async () => {
         // 1. BYOK Case
         const p1 = await AiProviderFactory.createProvider({
             providerPreference: 'auto',
@@ -69,24 +75,27 @@ describe('AiProviderFactory', () => {
         }, mockGetToken);
         expect(p2).toBeInstanceOf(WindowAiProvider);
 
-        // 3. Local Ollama Case (No BYOK, No Window, Ollama available)
+        // 3. Local Ollama Case: ONLY when enableLocalAi: true!
         (global as any).window = {};
         const mockFetch = vi.fn().mockResolvedValue({ ok: true });
         vi.stubGlobal('fetch', mockFetch);
-        
+
         const p3 = await AiProviderFactory.createProvider({
             providerPreference: 'auto',
+            enableLocalAi: true,
             proxyUrl: 'http://proxy'
         }, mockGetToken);
         expect(p3).toBeInstanceOf(LocalOllamaProvider);
 
-        // 4. Fallback to Team Key (No BYOK, No Window, No Ollama)
-        mockFetch.mockResolvedValue({ ok: false });
+        // 4. In "auto" mode with enableLocalAi: false (DEFAULT): MUST skip Local Ollama and fall back to Proxy (Zero localhost probe!)
+        mockFetch.mockClear();
         const p4 = await AiProviderFactory.createProvider({
             providerPreference: 'auto',
+            enableLocalAi: false,
             proxyUrl: 'http://proxy'
         }, mockGetToken);
         expect(p4).toBeInstanceOf(ProxyAiProvider);
+        expect(mockFetch).not.toHaveBeenCalledWith(expect.stringContaining('11434'), expect.anything());
 
         vi.unstubAllGlobals();
     });

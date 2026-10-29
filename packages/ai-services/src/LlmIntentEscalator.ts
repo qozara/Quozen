@@ -1,21 +1,22 @@
 import {
-  AiProviderFactory,
-  type AuthTokenGetter,
-  type AiFactoryConfig
+  type AuthTokenGetter
 } from '@qozara/ai-client';
-import type {
-  IIntentEscalator,
-  ParsedRawCommand,
-  ExpenseCategory,
-  SplitStrategyKind
+import {
+  AiProviderFactory,
+  type QuozenAiFactoryConfig,
+  type IIntentEscalator,
+  type ParsedRawCommand,
+  type ExpenseCategory,
+  type SplitStrategyKind
 } from '@quozen/core';
 import { LruMemoryCache } from './cache/LruMemoryCache';
 import { classifyAiError } from './errors';
 
 export interface LlmIntentEscalatorConfig {
   proxyUrl: string;
-  provider?: 'qozara-intelligence' | 'byok' | 'ollama' | 'window.ai';
+  provider?: 'qozara-intelligence' | 'byok' | 'ollama' | 'window.ai' | 'auto';
   ciphertext?: string;
+  enableLocalAi?: boolean;
   ollamaBaseUrl?: string;
   ollamaModel?: string;
   getAuthToken?: AuthTokenGetter;
@@ -90,15 +91,20 @@ export class LlmIntentEscalator implements IIntentEscalator {
     this.cache?.clear();
   }
 
-  private mapPreference(provider?: string): AiFactoryConfig['providerPreference'] {
+  private mapPreference(provider?: string): QuozenAiFactoryConfig['providerPreference'] {
     switch (provider) {
       case 'byok':
         return 'byok';
       case 'ollama':
+      case 'local':
         return 'local';
       case 'window.ai':
+      case 'local-browser':
         return 'local-browser';
+      case 'auto':
+        return 'auto';
       case 'qozara-intelligence':
+      case 'cloud':
       default:
         return 'cloud';
     }
@@ -121,11 +127,19 @@ export class LlmIntentEscalator implements IIntentEscalator {
       if (cached) return cached;
     }
 
-    const factoryConfig: AiFactoryConfig = {
-      providerPreference: this.mapPreference(this.config.provider),
+    const isLocalAllowed = Boolean(this.config.enableLocalAi);
+    let pref = this.mapPreference(this.config.provider);
+    // If local was requested but not explicitly enabled, fall back to cloud to avoid probing localhost
+    if (pref === 'local' && !isLocalAllowed) {
+      pref = 'cloud';
+    }
+
+    const factoryConfig: QuozenAiFactoryConfig = {
+      providerPreference: pref,
+      enableLocalAi: isLocalAllowed,
       proxyUrl: this.config.proxyUrl,
       encryptedApiKey: this.config.ciphertext,
-      baseUrl: this.config.ollamaBaseUrl,
+      baseUrl: isLocalAllowed ? this.config.ollamaBaseUrl : undefined,
       ollamaModel: this.config.ollamaModel
     };
 
