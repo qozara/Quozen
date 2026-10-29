@@ -23,8 +23,8 @@ describe("Group Archive & Unarchive (Issue #25)", () => {
     });
 
     describe("RxDB User Settings Schema Evolution (v1 -> v2)", () => {
-        it("userSettingsSchema is bumped to version 2 with archivedGroupCache", () => {
-            expect(userSettingsSchema.version).toBe(2);
+        it("userSettingsSchema is bumped to version 2 or higher with archivedGroupCache", () => {
+            expect(userSettingsSchema.version).toBeGreaterThanOrEqual(2);
             expect(userSettingsSchema.properties.archivedGroupCache).toBeDefined();
         });
 

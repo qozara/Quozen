@@ -8,6 +8,7 @@ export interface LedgerData {
     members: Member[];
     categories?: ExpenseCategory[];
     isHydrated?: boolean;
+    icon?: string;
 }
 
 export type LedgerProps = LedgerData;
@@ -20,6 +21,7 @@ export class Ledger {
         this.isHydrated = data.isHydrated ?? true;
     }
 
+    get icon(): string | undefined { return this.data.icon; }
     get members(): Member[] { return this.data.members; }
     get expenses(): Expense[] { return this.data.expenses; }
     get settlements(): Settlement[] { return this.data.settlements; }

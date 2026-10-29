@@ -52,7 +52,10 @@ describe("SyncTrigger & SyncInspectorPopover", () => {
     // Open popover
     fireEvent.click(triggerBtn);
 
-    expect(screen.getByTestId("sync-inspector-popover")).toBeInTheDocument();
+    const popover = screen.getByTestId("sync-inspector-popover");
+    expect(popover).toBeInTheDocument();
+    expect(popover.className).toContain("bg-popover");
+    expect(popover.className).not.toContain("bg-popover/95");
     const forceSyncBtn = screen.getByTestId("button-force-sync");
     expect(forceSyncBtn).not.toBeDisabled();
 

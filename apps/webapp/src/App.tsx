@@ -25,6 +25,7 @@ import PullToRefresh from "@/components/pull-to-refresh";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import AddExpenseDrawer from "@/components/add-expense-drawer";
 import SchemaRemediationModal from "@/components/schema-remediation-modal";
+import GroupUnavailableModal from "@/components/group-unavailable-modal";
 import { AiFeatureProvider } from "@/features/agent/AiFeatureProvider";
 import { PwaUpdateProvider } from "@/hooks/use-pwa-update";
 import { quozen } from "@/lib/storage";
@@ -83,6 +84,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
       <BottomNavigation />
       <AddExpenseDrawer />
       <SchemaRemediationModal />
+      <GroupUnavailableModal />
     </div>
   );
 };
@@ -125,13 +127,22 @@ export function AuthenticatedApp() {
 
   useEffect(() => {
     const handleSchemaError = (e: any) => {
-      setSchemaErrorStatus(e.detail);
+      const detail = e.detail;
+      if (typeof detail === "object" && detail !== null) {
+        if (detail.groupId && activeGroupId && detail.groupId !== activeGroupId) {
+          return;
+        }
+        setSchemaErrorStatus(detail.status);
+      } else {
+        setSchemaErrorStatus(detail);
+      }
     };
     window.addEventListener('schema-error', handleSchemaError);
     return () => window.removeEventListener('schema-error', handleSchemaError);
-  }, []);
+  }, [activeGroupId]);
 
   const handleSetActiveGroupId = (groupId: string) => {
+    if (groupId && groupId === activeGroupId) return;
     setActiveGroupIdState(groupId);
     if (typeof sessionStorage !== "undefined") {
       if (groupId) {

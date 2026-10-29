@@ -167,4 +167,44 @@ describe("usePwaUpdate & PwaUpdateProvider", () => {
       expect(screen.getByTestId("need-refresh")).toHaveTextContent("true");
     });
   });
+
+  it("applyUpdate posts SKIP_WAITING to waiting worker and reloads the window", async () => {
+    const postMessageMock = vi.fn();
+    mockRegistration.waiting = {
+      postMessage: postMessageMock,
+    } as any;
+
+    const originalLocation = window.location;
+    const reloadMock = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, reload: reloadMock },
+    });
+
+    render(
+      <PwaUpdateProvider>
+        <TestConsumer />
+      </PwaUpdateProvider>
+    );
+
+    act(() => {
+      capturedSwOptions.onRegisteredSW?.("/sw.js", mockRegistration);
+      capturedSwOptions.onNeedRefresh?.();
+    });
+
+    // Click apply update button
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("btn-apply"));
+    });
+
+    // Should post SKIP_WAITING to waiting worker
+    expect(postMessageMock).toHaveBeenCalledWith({ type: "SKIP_WAITING" });
+
+    // Should trigger reload via controllerchange or fallback
+    await waitFor(() => {
+      expect(reloadMock).toHaveBeenCalled();
+    }, { timeout: 2000 });
+
+    Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+  });
 });

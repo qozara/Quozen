@@ -50,4 +50,20 @@ describe("QuozenSchema Validation Definitions", () => {
         const emailColumn = membersTab!.columns.find(c => c.name === "email");
         expect(emailColumn!.required).toBeFalsy();
     });
+
+    it("should define QuozenSchema version as 3", () => {
+        expect(QuozenSchema.version).toBe(3);
+    });
+
+    it("should define _meta tab with required columns", () => {
+        const metaTab = QuozenSchema.tabs.find(t => t.name === "_meta");
+        expect(metaTab).toBeDefined();
+
+        const requiredColumns = ["key", "value", "updatedAt"];
+        requiredColumns.forEach(colName => {
+            const column = metaTab!.columns.find(c => c.name === colName);
+            expect(column).toBeDefined();
+            expect(column!.required, `Column ${colName} should be required in _meta tab`).toBe(true);
+        });
+    });
 });

@@ -7,6 +7,7 @@
     },
     "header": {
         "selectGroup": "Seleccionar Grupo",
+        "activeGroup": "Activo",
         "people_one": "{{count}} persona",
         "people_other": "{{count}} personas",
         "synced": "Cambios sincronizados."
@@ -128,6 +129,21 @@
         "import": "Importar Grupo Compartido",
         "switchModalTitle": "Cambiar Grupo",
         "switchModalDesc": "Selecciona un grupo para ver.",
+        "iconLabel": "Icono y Banner del Grupo",
+        "selectPreset": "Elige un icono o sube una foto personalizada para el banner.",
+        "uploadPhoto": "Subir Foto",
+        "removeIcon": "Quitar Icono",
+        "uploadError": "Error al subir la imagen. Inténtalo de nuevo.",
+        "presets": {
+            "home": "Hogar y Casa",
+            "plane": "Viajes y Vacaciones",
+            "food": "Comida y Restaurantes",
+            "shopping": "Compras y Supermercado",
+            "party": "Fiesta y Celebración",
+            "car": "Viajes en Auto y Transporte",
+            "work": "Trabajo y Proyectos",
+            "heart": "Familia y Amigos"
+        },
         "nameLabel": "Nombre del Grupo",
         "membersLabel": "Miembros y Cuentas (Opcional)",
         "membersHint": "Ingresa correos o nombres de cuenta, separados por comas (ej. ana@example.com, Familia García)",

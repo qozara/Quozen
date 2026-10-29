@@ -9,6 +9,9 @@ import {
     categoryToDoc,
     docToCategory,
     CategoryIntegrityReconciler,
+    userSettingsSchema,
+    userSettingsMigrationStrategies,
+    userSettingsToDoc,
     type QuozenDatabase
 } from "../../src/db";
 import { DEFAULT_CATEGORIES, ExpenseCategory } from "../../src/domain/categories";
@@ -599,5 +602,151 @@ describe("WP3: RxDB Schema, Categories Collection, v0->v1 Migration & Self-Heali
 
         const dupDoc = await db.collections.categories.findOne(`${groupId}_Food & Dining`).exec();
         expect(dupDoc?.deletedAt).not.toBeNull();
+    });
+
+    describe("RxDB user_settings Schema Evolution (v2 -> v3)", () => {
+        it("userSettingsSchema is at version 3 with icon in groupCache and archivedGroupCache", () => {
+            expect(userSettingsSchema.version).toBe(3);
+            const groupProps = (userSettingsSchema.properties.groupCache as any).items.properties;
+            const archivedProps = (userSettingsSchema.properties.archivedGroupCache as any).items.properties;
+            expect(groupProps.icon).toBeDefined();
+            expect(archivedProps.icon).toBeDefined();
+        });
+
+        it("userSettingsMigrationStrategies[3] migrates a v2 document to v3", () => {
+            const v2Doc = {
+                id: "global_settings",
+                version: 2,
+                activeGroupId: "g-active",
+                groupCache: [
+                    { id: "g-active", name: "Active Group", role: "owner", icon: "beach" },
+                    { id: "g-other", name: "Other Group", role: "member" }
+                ],
+                archivedGroupCache: [
+                    { id: "g-archived", name: "Archived Group", role: "member", isArchived: true, icon: "mountain" }
+                ],
+                preferences: { defaultCurrency: "EUR" },
+                preferencesUpdatedAt: "2026-03-01T00:00:00.000Z",
+                lastUpdated: "2026-03-01T00:00:00.000Z",
+                updatedAt: "2026-03-01T00:00:00.000Z",
+                deletedAt: null
+            };
+
+            const strategy3 = (userSettingsMigrationStrategies as any)[3];
+            expect(typeof strategy3).toBe("function");
+
+            const v3Doc = strategy3(v2Doc);
+            expect(v3Doc.version).toBe(3);
+            expect(v3Doc.activeGroupId).toBe("g-active");
+            expect(v3Doc.groupCache[0].icon).toBe("beach");
+            expect(v3Doc.groupCache[1].icon).toBeUndefined();
+            expect(v3Doc.archivedGroupCache[0].icon).toBe("mountain");
+            expect(v3Doc.preferences.defaultCurrency).toBe("EUR");
+        });
+
+        it("chains v0 -> v1 -> v2 -> v3 migrations without losing data or settings", () => {
+            const v0Doc = {
+                id: "global_settings",
+                version: 0,
+                activeGroupId: "g0",
+                groupCache: [{ id: "g0", name: "Legacy Group", role: "owner" }],
+                preferences: { defaultCurrency: "USD" },
+                lastUpdated: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                deletedAt: null
+            };
+
+            const strategy1 = (userSettingsMigrationStrategies as any)[1];
+            const strategy2 = (userSettingsMigrationStrategies as any)[2];
+            const strategy3 = (userSettingsMigrationStrategies as any)[3];
+
+            const v1Doc = strategy1(v0Doc);
+            expect(v1Doc.version).toBe(1);
+
+            const v2Doc = strategy2(v1Doc);
+            expect(v2Doc.version).toBe(2);
+            expect(v2Doc.archivedGroupCache).toEqual([]);
+
+            const v3Doc = strategy3(v2Doc);
+            expect(v3Doc.version).toBe(3);
+            expect(v3Doc.archivedGroupCache).toEqual([]);
+            expect(v3Doc.groupCache[0].name).toBe("Legacy Group");
+        });
+
+        it("migrates existing v2 user_settings collection to v3 seamlessly when opening QuozenDatabase", async () => {
+            const storage = getRxStorageMemory();
+            const dbName = `test_rxdb_v2_to_v3_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+            // Create v2 database
+            const v2UserSettingsSchema = {
+                title: "user_settings",
+                version: 2,
+                primaryKey: "id",
+                type: "object",
+                properties: {
+                    id: { type: "string", maxLength: 100 },
+                    version: { type: "number", minimum: 1 },
+                    activeGroupId: { type: ["string", "null"] },
+                    groupCache: { type: "array" },
+                    archivedGroupCache: { type: "array" },
+                    preferences: { type: "object", properties: { defaultCurrency: { type: "string" } }, required: ["defaultCurrency"] },
+                    lastUpdated: { type: "string" },
+                    updatedAt: { type: "string" },
+                    deletedAt: { type: ["string", "null"] }
+                },
+                required: ["id", "version", "groupCache", "preferences", "lastUpdated", "updatedAt"]
+            };
+
+            const dbV2 = await createRxDatabase({
+                name: dbName,
+                storage
+            });
+
+            await dbV2.addCollections({
+                user_settings: {
+                    schema: v2UserSettingsSchema
+                }
+            });
+
+            const nowIso = "2026-03-01T00:00:00.000Z";
+            await dbV2.user_settings.insert({
+                id: "global_settings",
+                version: 2,
+                activeGroupId: "g-trip",
+                groupCache: [
+                    { id: "g-trip", name: "Trip Group", role: "owner", icon: "plane" }
+                ],
+                archivedGroupCache: [],
+                preferences: { defaultCurrency: "JPY" },
+                lastUpdated: nowIso,
+                updatedAt: nowIso,
+                deletedAt: null
+            });
+
+            await dbV2.close();
+
+            // Reopen via createQuozenDatabase (runs migrations)
+            db = await createQuozenDatabase({
+                name: dbName,
+                storage
+            });
+
+            const doc = await db.user_settings.findOne("global_settings").exec();
+            expect(doc).not.toBeNull();
+            expect(doc?.version).toBe(3);
+            expect(doc?.groupCache[0].name).toBe("Trip Group");
+            expect(doc?.groupCache[0].icon).toBe("plane");
+            expect(doc?.preferences.defaultCurrency).toBe("JPY");
+        });
+
+        it("userSettingsToDoc defaults version to 3", () => {
+            const doc = userSettingsToDoc({
+                activeGroupId: "g1",
+                groupCache: [],
+                preferences: { defaultCurrency: "USD" },
+                lastUpdated: new Date().toISOString()
+            });
+            expect(doc.version).toBe(3);
+        });
     });
 });

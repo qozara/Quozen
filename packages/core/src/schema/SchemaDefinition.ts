@@ -1,7 +1,7 @@
 import { SchemaDefinition, computeSchemaHash } from "@qozara/gdocs-schema";
 
 export const QuozenSchema: SchemaDefinition = {
-    version: 2,
+    version: 3,
     tabs: [
         {
             name: "Expenses",
@@ -47,6 +47,14 @@ export const QuozenSchema: SchemaDefinition = {
                 { name: "description", type: "string" },
                 { name: "updatedAt", type: "string" },
                 { name: "deletedAt", type: "string" }
+            ]
+        },
+        {
+            name: "_meta",
+            columns: [
+                { name: "key", type: "string", required: true },
+                { name: "value", type: "string", required: true },
+                { name: "updatedAt", type: "string", required: true }
             ]
         }
     ]

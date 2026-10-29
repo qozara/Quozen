@@ -7,6 +7,7 @@
     },
     "header": {
         "selectGroup": "Select Group",
+        "activeGroup": "Active",
         "people_one": "{{count}} person",
         "people_other": "{{count}} people",
         "synced": "Synced latest changes."
@@ -128,6 +129,21 @@
         "import": "Import Shared Group",
         "switchModalTitle": "Switch Group",
         "switchModalDesc": "Select a group to view.",
+        "iconLabel": "Group Icon & Banner",
+        "selectPreset": "Choose an icon or upload a custom photo for the group banner.",
+        "uploadPhoto": "Upload Photo",
+        "removeIcon": "Remove Icon",
+        "uploadError": "Failed to upload image. Please try again.",
+        "presets": {
+            "home": "Home & Household",
+            "plane": "Travel & Trip",
+            "food": "Food & Dining",
+            "shopping": "Shopping & Groceries",
+            "party": "Party & Celebration",
+            "car": "Roadtrip & Transport",
+            "work": "Work & Projects",
+            "heart": "Family & Friends"
+        },
         "nameLabel": "Group Name",
         "membersLabel": "Members & Accounts (Optional)",
         "membersHint": "Enter emails or account names, separated by commas (e.g., alice@example.com, Garcia Family)",

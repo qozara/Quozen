@@ -198,6 +198,28 @@ describe("Groups Page", () => {
     expect(group2Card).toHaveTextContent(en.roles.member);
   });
 
+  it("renders group cards with custom group icons", async () => {
+    (useGroups as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      groups: [
+        {
+          id: "group1",
+          name: "Trip to Paris",
+          description: "Summer vacation",
+          createdBy: "me",
+          participants: ["user1", "user2"],
+          createdAt: new Date().toISOString(),
+          isOwner: true,
+          icon: "preset:plane"
+        }
+      ],
+      isLoading: false
+    });
+
+    const { container } = render(<Groups />);
+    expect(screen.getByText("Trip to Paris")).toBeInTheDocument();
+    expect(container.querySelector("svg.lucide-plane")).toBeInTheDocument();
+  });
+
   it("shows Edit/Delete for owners and Leave for members", async () => {
     render(<Groups />);
     const group1Card = screen.getByText("Trip to Paris").closest('[data-testid="group-card"]');
@@ -231,6 +253,20 @@ describe("Groups Page", () => {
     // Dialog should open with members loaded from local ledger
     await waitFor(() => expect(screen.getByText(en.groups.edit)).toBeInTheDocument());
     expect(screen.getByDisplayValue("Trip to Paris")).toBeInTheDocument();
+  });
+
+  it("does not trigger remote replication.sync when opening edit dialog if members are already cached locally", async () => {
+    (quozen.ledger as any).mockReturnValue({
+      getMembers: vi.fn().mockResolvedValue(mockGroup1Data.members)
+    });
+    ((quozen.replication as any).sync as any).mockClear();
+
+    render(<Groups />);
+    const editBtn = screen.getByText(en.common.edit);
+    fireEvent.click(editBtn);
+
+    await waitFor(() => expect(screen.getByText(en.groups.edit)).toBeInTheDocument());
+    expect((quozen.replication as any).sync).not.toHaveBeenCalled();
   });
 
   it("prevents removing a member with existing expenses during edit", async () => {

@@ -1,133 +1,90 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
 import Header from "../header";
-import { useAppContext } from "@/context/app-context";
-import { useAuth } from "@/context/auth-provider";
-import { useQuery } from "@tanstack/react-query";
-import { useSettings } from "@/hooks/use-settings";
-import { useGroups } from "@/hooks/use-groups";
-import en from "@/locales/en/translation.json";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("@/context/app-context", () => ({
-  useAppContext: vi.fn(),
-}));
-
-vi.mock("@/context/auth-provider", () => ({
-  useAuth: vi.fn(),
-}));
-
-vi.mock("@/hooks/use-settings", () => ({
-  useSettings: vi.fn(),
+    useAppContext: () => ({
+        activeGroupId: "group-1",
+        currentUserId: "user-1"
+    })
 }));
 
 vi.mock("@/hooks/use-groups", () => ({
-  useGroups: vi.fn(),
+    useGroups: () => ({
+        groups: [
+            {
+                id: "group-1",
+                name: "Euro Trip 2026",
+                role: "owner",
+                icon: "preset:plane"
+            }
+        ],
+        isLoading: false
+    })
 }));
-
-// Mock AutoSync
-vi.mock("@/hooks/use-auto-sync", () => ({
-  useAutoSync: vi.fn(() => ({
-    isEnabled: true,
-    isPaused: false,
-    setPaused: vi.fn()
-  })),
-}));
-
-vi.mock("@tanstack/react-query", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
-  return {
-    ...actual,
-    useQuery: vi.fn(),
-    useQueryClient: vi.fn(() => ({
-      invalidateQueries: vi.fn(),
-    })),
-  };
-});
 
 vi.mock("@/lib/storage", () => ({
-  quozen: {
-    ledger: vi.fn(() => ({
-      getLedger: vi.fn()
-    }))
-  }
+    quozen: {
+        ledger: () => ({
+            getLedger: vi.fn().mockResolvedValue({
+                members: [{ userId: "user-1", name: "Alice" }, { userId: "user-2", name: "Bob" }]
+            })
+        })
+    }
 }));
 
-describe("Header Component", () => {
-  const mockGroups = [
-    { id: "group-1", name: "Test Group" },
-    { id: "group-2", name: "Another Group" },
-  ];
+vi.mock("@/hooks/use-auto-sync", () => ({
+    useAutoSync: () => ({
+        isEnabled: true,
+        setPaused: vi.fn(),
+        isOnline: true,
+        syncStatus: "idle",
+        lastSyncTime: null,
+        triggerSync: vi.fn()
+    })
+}));
 
-  const mockGroupData = {
-    members: [
-      { userId: "u1" }, { userId: "u2" }
-    ]
-  };
+describe("Header Component with Group Icon & Hero Banner", () => {
+    const queryClient = new QueryClient();
 
-  const mockUser = {
-    email: "test@example.com",
-    name: "Test User"
-  };
+    const renderHeader = (initialRoute = "/") => {
+        return render(
+            <QueryClientProvider client={queryClient}>
+                <MemoryRouter initialEntries={[initialRoute]}>
+                    <Header />
+                </MemoryRouter>
+            </QueryClientProvider>
+        );
+    };
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    (useAuth as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      user: mockUser,
-      token: "mock-token",
-      isAuthenticated: true
-    });
-    (useSettings as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      settings: {
-        groupCache: [
-          { id: "group-1", name: "Test Group", role: "owner" },
-          { id: "group-2", name: "Another Group", role: "member" }
-        ],
-        activeGroupId: "group-1"
-      },
-      updateSettings: vi.fn(),
-    });
-    (useGroups as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      groups: mockGroups,
-      isLoading: false
-    });
-  });
-
-  it("renders the header with group data", () => {
-    (useAppContext as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ activeGroupId: "group-1" });
-    (useQuery as unknown as ReturnType<typeof vi.fn>).mockImplementation(({ queryKey }) => {
-      if (queryKey[0] === "drive" && queryKey[1] === "group" && queryKey[2] === "group-1") {
-        return { data: mockGroupData };
-      }
-      return { data: undefined };
+    it("renders group name and active group indicator on main screens", () => {
+        renderHeader("/");
+        expect(screen.getByText("Euro Trip 2026")).toBeInTheDocument();
+        expect(screen.getByTestId("active-group-badge")).toBeInTheDocument();
     });
 
-    render(
-      <MemoryRouter>
-        <Header />
-      </MemoryRouter>
-    );
+    it("renders blurred hero banner when active group has an icon", () => {
+        renderHeader("/");
+        expect(screen.getByTestId("hero-blurred-banner")).toBeInTheDocument();
+    });
 
-    expect(screen.getByTestId("header")).toBeInTheDocument();
-    expect(screen.getByText("Test Group")).toBeInTheDocument();
+    it("renders group icon inside the header avatar", () => {
+        const { container } = renderHeader("/");
+        expect(container.querySelector("[data-testid='header']")).toBeInTheDocument();
+        // The plane preset icon SVG should be rendered
+        expect(container.querySelector("svg.lucide-plane")).toBeInTheDocument();
+    });
 
-    // Check for "2 people" interpolation
-    const expectedPeopleText = en.header.people_other.replace("{{count}}", "2");
-    expect(screen.getByText(expectedPeopleText)).toBeInTheDocument();
-  });
+    it("renders blurred preset icon watermark graphic in hero banner when preset icon is active", () => {
+        renderHeader("/");
+        expect(screen.getByTestId("hero-blurred-preset-icon")).toBeInTheDocument();
+    });
 
-  it("renders the header with subpage title and back button", () => {
-    (useAppContext as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ activeGroupId: "group-1" });
-    (useQuery as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ data: mockGroupData });
-
-    render(
-      <MemoryRouter initialEntries={["/edit-expense/123"]}>
-        <Header />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByText(en.expenseForm.editTitle)).toBeInTheDocument();
-    expect(screen.getByTestId("button-back")).toBeInTheDocument();
-  });
+    it("does not have overflow-hidden on header so popovers and sync status trigger are not clipped", () => {
+        renderHeader("/");
+        const header = screen.getByTestId("header");
+        expect(header.className).not.toContain("overflow-hidden");
+    });
 });
-

@@ -9,6 +9,7 @@ export interface Group {
     participants: string[];
     createdAt: Date;
     isOwner: boolean;
+    icon?: string;
 }
 
 export interface User {
@@ -76,6 +77,7 @@ export interface CachedGroup {
     pendingRename?: boolean;
     updatedAt?: string;
     isArchived?: boolean;
+    icon?: string;
 }
 
 export interface UserSettings {

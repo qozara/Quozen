@@ -129,6 +129,13 @@ export class InMemoryAdapter implements IStorageLayer {
 
     async getLastModified(fileId: string): Promise<string> {
         const sheet = this.sheets.get(fileId);
+        if (!sheet) throw new Error("File not found");
+        if (sheet.trashed) {
+            const err: any = new Error(`File ${fileId} is trashed`);
+            err.name = "GroupFileUnavailableError";
+            err.trashed = true;
+            throw err;
+        }
         return sheet?.modifiedTime || new Date().toISOString();
     }
 

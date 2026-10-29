@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, Users, RefreshCw, ChevronLeft } from "lucide-react";
+import { ChevronDown, RefreshCw, ChevronLeft } from "lucide-react";
 import GroupSwitcherModal from "./group-switcher-modal";
 import { useState } from "react";
 import { quozen } from "@/lib/storage";
@@ -11,6 +11,7 @@ import { Button } from "./ui/button";
 import { useAppContext } from "@/context/app-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SyncTrigger } from "./sync/SyncTrigger";
+import { GroupIcon, getGroupPresetBackground, GROUP_ICON_PRESETS } from "./group-icon";
 
 export default function Header() {
   const { activeGroupId, currentUserId } = useAppContext();
@@ -41,7 +42,13 @@ export default function Header() {
   });
 
   const activeGroup = groups.find((g) => g.id === activeGroupId);
+  const activeIcon = activeGroup?.icon || ledger?.icon;
   const memberCount = ledger?.members?.length || 0;
+  const activePreset = activeIcon?.startsWith("preset:")
+    ? GROUP_ICON_PRESETS.find((p) => p.id === activeIcon)
+    : null;
+  const bgStyle = getGroupPresetBackground(activeIcon);
+  const hasCustomBanner = !isSubPage && Boolean(bgStyle);
 
   const isSyncing = isGroupsLoading || isDataFetching;
 
@@ -54,9 +61,53 @@ export default function Header() {
 
   return (
     <>
-      <header className="bg-card border-b border-border px-4 py-3 sticky top-0 z-40" data-testid="header">
+      <header
+        className={cn(
+          "relative border-b border-border sticky top-0 z-40 transition-all",
+          hasCustomBanner ? "backdrop-blur-md px-4 py-4" : "bg-card px-4 py-3"
+        )}
+        style={{
+          backgroundColor: hasCustomBanner
+            ? "color-mix(in srgb, var(--card) 80%, transparent)"
+            : undefined
+        }}
+        data-testid="header"
+      >
+        {/* Taller Hero Blurred Banner */}
+        {hasCustomBanner && (
+          <div
+            data-testid="hero-blurred-banner"
+            aria-hidden="true"
+            className="absolute inset-0 -z-10 pointer-events-none overflow-hidden"
+          >
+            {activePreset ? (
+              <div className="absolute inset-0 overflow-hidden">
+                <div
+                  className="absolute -inset-4 blur-2xl opacity-60 dark:opacity-45 transform scale-125"
+                  style={{ background: activePreset.cssGradient }}
+                />
+                <div
+                  data-testid="hero-blurred-preset-icon"
+                  className="absolute right-6 -top-6 opacity-35 dark:opacity-25 blur-[1.5px] pointer-events-none transform rotate-12"
+                >
+                  <activePreset.icon className="w-32 h-32 text-foreground" />
+                </div>
+              </div>
+            ) : (
+              <div
+                className="absolute -inset-4 bg-cover bg-center blur-2xl opacity-40 dark:opacity-30 transform scale-125"
+                style={{
+                  background: bgStyle?.startsWith("url") ? undefined : bgStyle || undefined,
+                  backgroundImage: bgStyle?.startsWith("url") ? bgStyle : undefined
+                }}
+              />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-b from-card/30 via-card/60 to-card/90" />
+          </div>
+        )}
+
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 min-w-0">
             {isSubPage ? (
               <>
                 <Button
@@ -74,18 +125,31 @@ export default function Header() {
               </>
             ) : (
               <>
-                <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-                  <Users className="text-primary-foreground w-4 h-4" />
-                </div>
-                <div>
+                <GroupIcon
+                  icon={activeIcon}
+                  name={activeGroup?.name}
+                  className="w-10 h-10 shadow-sm"
+                  iconClassName="w-5 h-5"
+                />
+                <div className="min-w-0">
                   <button
                     onClick={() => setShowGroupSwitcher(true)}
-                    className="text-left"
+                    className="text-left block max-w-full"
                     data-testid="button-switch-group"
                   >
-                    <h1 className="text-lg font-semibold text-foreground">
-                      {activeGroup?.name || t("header.selectGroup")}
-                    </h1>
+                    <div className="flex items-center gap-1.5">
+                      <h1 className="text-lg font-semibold text-foreground truncate max-w-[200px]">
+                        {activeGroup?.name || t("header.selectGroup")}
+                      </h1>
+                      {activeGroup && (
+                        <span
+                          data-testid="active-group-badge"
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary shrink-0"
+                        >
+                          {t("header.activeGroup", "Active")}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center text-sm text-muted-foreground">
                       <span data-testid="text-participant-count">
                         {t("header.people", { count: memberCount })}

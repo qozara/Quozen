@@ -13,6 +13,7 @@ export function useGroups() {
         participants: [], // Cache doesn't store participants details for performance
         createdAt: cg.lastAccessed ? new Date(cg.lastAccessed) : new Date(),
         isOwner: cg.role === "owner",
+        ...(cg.icon !== undefined ? { icon: cg.icon } : {})
     })) || [];
 
     const archivedGroups: Group[] = settings?.archivedGroupCache?.map((cg) => ({
@@ -23,6 +24,7 @@ export function useGroups() {
         participants: [],
         createdAt: cg.lastAccessed ? new Date(cg.lastAccessed) : new Date(),
         isOwner: cg.role === "owner",
+        ...(cg.icon !== undefined ? { icon: cg.icon } : {})
     })) || [];
 
     return {

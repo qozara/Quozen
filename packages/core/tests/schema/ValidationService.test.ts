@@ -132,6 +132,22 @@ describe("ValidationService", () => {
         }));
     });
 
+    it("deduplicates concurrent in-flight migrateFile calls for the same spreadsheet ID", async () => {
+        let resolveMigration: () => void;
+        const migrationPromise = new Promise<{ success: boolean; applied: number[] }>((resolve) => {
+            resolveMigration = () => resolve({ success: true, applied: [2] });
+        });
+        mockEngine.migrate.mockReturnValue(migrationPromise);
+
+        const call1 = service.migrateFile("concurrent-sheet-123");
+        const call2 = service.migrateFile("concurrent-sheet-123");
+
+        resolveMigration!();
+        await Promise.all([call1, call2]);
+
+        expect(mockEngine.migrate).toHaveBeenCalledTimes(1);
+    });
+
     it("delegates initializeFile to engine.initializeFile and updates metadata", async () => {
         mockEngine.initializeFile.mockResolvedValue(undefined);
 

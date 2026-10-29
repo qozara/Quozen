@@ -6,7 +6,7 @@ import { useAppContext } from "./app-context";
 import { useOptionalAuth } from "./auth-provider";
 import { useToast } from "@/hooks/use-toast";
 import { useTranslation } from "react-i18next";
-import { resolveUXStatus, type SyncStatus, type UXSyncState } from "@quozen/core";
+import { resolveUXStatus, GroupFileUnavailableError, type SyncStatus, type UXSyncState } from "@quozen/core";
 
 export function isGoogle401Error(err: any): boolean {
     if (!err) return false;
@@ -212,12 +212,15 @@ export function AutoSyncProvider({
                     void queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
                 }
             } else if (newStatus !== prev) {
-                if (newStatus === "corrupted") {
-                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "CORRUPTED" }));
-                } else if (newStatus === "upgrade_required") {
-                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "UPGRADE_REQUIRED" }));
-                } else if (newStatus === "incompatible") {
-                    window.dispatchEvent(new CustomEvent("schema-error", { detail: "INCOMPATIBLE" }));
+                const targetGroupId = provider?.getActiveGroupId?.() || activeGroupId;
+                const isForActiveGroup = !targetGroupId || targetGroupId === activeGroupId;
+
+                if (newStatus === "corrupted" && isForActiveGroup) {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "CORRUPTED", groupId: targetGroupId } }));
+                } else if (newStatus === "upgrade_required" && isForActiveGroup) {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "UPGRADE_REQUIRED", groupId: targetGroupId } }));
+                } else if (newStatus === "incompatible" && isForActiveGroup) {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "INCOMPATIBLE", groupId: targetGroupId } }));
                 } else if (newStatus === "auth_failed") {
                     const err = (statusError !== undefined ? statusError : null)
                         || replication?.getLastError?.()
@@ -286,6 +289,24 @@ export function AutoSyncProvider({
             await queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
         } catch (e: any) {
             lastSyncErrorRef.current = e;
+            const errMsg = String(e?.message || e).toLowerCase();
+            const isUnavailable = e?.name === "GroupFileUnavailableError" ||
+                e instanceof GroupFileUnavailableError ||
+                e?.trashed === true ||
+                (isOnline && Boolean(activeGroupId) && (e?.status === 404 || errMsg.includes("404") || errMsg.includes("not found")));
+
+            if (isUnavailable && activeGroupId) {
+                console.warn(`[AutoSync] Active group ${activeGroupId} spreadsheet unavailable (trashed/deleted). Purging...`);
+                try {
+                    await quozen.groups.purgeUnavailableGroup(activeGroupId, undefined, (e?.trashed || errMsg.includes("trash")) ? "trashed" : "deleted");
+                    await queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+                    queryClient.removeQueries({ queryKey: ["drive", "group", activeGroupId] });
+                } catch (purgeErr) {
+                    console.error("[AutoSync] Error purging unavailable active group:", purgeErr);
+                }
+                return;
+            }
+
             // Use debug to prevent console flooding on network loss
             console.debug("[AutoSync] Polling failed (silent):", e);
             if (isOnline && isGoogle401Error(e)) {

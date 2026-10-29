@@ -171,7 +171,13 @@ export class GoogleDriveStorageLayer implements IStorageLayer {
     }
 
     async getLastModified(fileId: string): Promise<string> {
-        const meta = await this.getFile(fileId, { fields: 'modifiedTime' });
+        const meta = await this.getFile(fileId, { fields: 'modifiedTime,trashed' });
+        if (meta?.trashed) {
+            const err: any = new Error(`File ${fileId} is trashed`);
+            err.name = "GroupFileUnavailableError";
+            err.trashed = true;
+            throw err;
+        }
         return meta?.modifiedTime || '';
     }
 }

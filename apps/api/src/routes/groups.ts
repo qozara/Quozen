@@ -44,7 +44,8 @@ groupsRouter.openapi(listGroupsRoute, async (c) => {
         createdBy: 'Unknown',
         participants: [],
         createdAt: g.lastAccessed || new Date().toISOString(),
-        isOwner: g.role === 'owner'
+        isOwner: g.role === 'owner',
+        ...(g.icon ? { icon: g.icon } : {})
     }));
     return c.json(mappedGroups, 200);
 });
@@ -72,7 +73,7 @@ const createGroupRoute = createRoute({
 groupsRouter.openapi(createGroupRoute, async (c) => {
     const body = c.req.valid('json');
     const quozen = c.get('quozen');
-    const newGroup = await quozen.groups.create(body.name, body.members);
+    const newGroup = await quozen.groups.create(body.name, body.members, { icon: body.icon });
     return c.json(newGroup, 201);
 });
 
@@ -163,7 +164,7 @@ groupsRouter.openapi(updateGroupRoute, async (c) => {
         nameToSet = group.name;
     }
 
-    await quozen.groups.updateGroup(id, nameToSet, body.members || []);
+    await quozen.groups.updateGroup(id, nameToSet, body.members || [], { icon: body.icon });
     return c.json({ success: true }, 200);
 });
 

@@ -8,11 +8,13 @@ export const MemberInputSchema = z.object({
 export const CreateGroupDTOSchema = z.object({
     name: z.string().min(1).max(255).describe('The name of the group').openapi({ example: 'Trip to Paris' }),
     members: z.array(MemberInputSchema).optional().describe('Initial members to invite to the group'),
+    icon: z.string().optional().describe('Preset key or base64 data URL icon').openapi({ example: 'preset:utensils' }),
 }).openapi('CreateGroupRequest');
 
 export const UpdateGroupDTOSchema = z.object({
     name: z.string().min(1).max(255).optional().describe('New name for the group').openapi({ example: 'Trip to Paris 2024' }),
     members: z.array(MemberInputSchema).optional().describe('Full list of members. This replaces the entire member list. CAUTION: Omitting this field will remove all members from the group.'),
+    icon: z.string().optional().describe('Preset key or base64 data URL icon').openapi({ example: 'preset:utensils' }),
 }).openapi('UpdateGroupRequest');
 
 export const GroupSchema = z.object({
@@ -23,6 +25,7 @@ export const GroupSchema = z.object({
     participants: z.array(z.string()).openapi({ example: ['user1', 'user2'] }),
     createdAt: z.union([z.string(), z.date()]).openapi({ example: '2023-10-15T18:00:00Z' }),
     isOwner: z.boolean().openapi({ example: true }),
+    icon: z.string().optional().openapi({ example: 'preset:utensils' }),
 }).openapi('Group');
 
 export const ExpenseSplitSchema = z.object({

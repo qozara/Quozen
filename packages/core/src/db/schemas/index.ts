@@ -69,7 +69,7 @@ export interface CategoryDocType {
 
 export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
     title: "user_settings",
-    version: 2,
+    version: 3,
     description: "Global user preferences and cached group metadata stored locally and in Drive appDataFolder",
     primaryKey: "id",
     type: "object",
@@ -91,7 +91,8 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     isHydrated: { type: "boolean" },
                     pendingRename: { type: "boolean" },
                     updatedAt: { type: "string" },
-                    isArchived: { type: "boolean" }
+                    isArchived: { type: "boolean" },
+                    icon: { type: "string" }
                 },
                 required: ["id", "name", "role"]
             }
@@ -110,7 +111,8 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     isHydrated: { type: "boolean" },
                     pendingRename: { type: "boolean" },
                     updatedAt: { type: "string" },
-                    isArchived: { type: "boolean" }
+                    isArchived: { type: "boolean" },
+                    icon: { type: "string" }
                 },
                 required: ["id", "name", "role"]
             }
@@ -165,6 +167,13 @@ export const userSettingsMigrationStrategies = {
             ...oldDoc,
             version: 2,
             archivedGroupCache: Array.isArray(oldDoc.archivedGroupCache) ? oldDoc.archivedGroupCache : [],
+            updatedAt: oldDoc.updatedAt || new Date().toISOString()
+        };
+    },
+    3: (oldDoc: any) => {
+        return {
+            ...oldDoc,
+            version: 3,
             updatedAt: oldDoc.updatedAt || new Date().toISOString()
         };
     }
@@ -413,7 +422,7 @@ export function userSettingsToDoc(settings: UserSettings, id = "global_settings"
     const nowIso = settings.lastUpdated || new Date().toISOString();
     return {
         id,
-        version: settings.version || 2,
+        version: settings.version || 3,
         activeGroupId: settings.activeGroupId ?? null,
         groupCache: (settings.groupCache || []).map(g => ({ ...g })),
         archivedGroupCache: (settings.archivedGroupCache || []).map(g => ({ ...g })),

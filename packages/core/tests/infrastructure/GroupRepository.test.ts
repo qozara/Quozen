@@ -21,20 +21,21 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
         repo = new GroupRepository(adapter as any, user);
     });
 
-    it('creates new group conforming to latest QuozenSchema v2 without corruption during cloud sync', async () => {
-        const group = await repo.create("New v2 Group");
+    it('creates new group conforming to latest QuozenSchema v3 without corruption during cloud sync', async () => {
+        const group = await repo.create("New v3 Group");
 
         // 1. Verify sheets created
         const sheetMeta = await adapter.getSpreadsheet(group.id);
         const titles = sheetMeta.sheets.map((s: any) => s.properties.title);
         expect(titles).toContain("_migrations");
         expect(titles).toContain("Categories");
+        expect(titles).toContain("_meta");
 
-        // 2. Verify _migrations tab contains version 2
+        // 2. Verify _migrations tab contains latest version
         const migRes = await adapter.batchGetValues(group.id, ["_migrations!A1:B2"]);
         const migRows = migRes[0]?.values || [];
         expect(migRows[0]).toEqual(["version", "migrated_at"]);
-        expect(Number(migRows[1]?.[0])).toBe(2);
+        expect(Number(migRows[1]?.[0])).toBe(QuozenSchema.version);
 
         // 3. Verify Categories header contains all QuozenSchema columns including deletedAt
         const catRes = await adapter.batchGetValues(group.id, ["Categories!1:1"]);
@@ -60,14 +61,15 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
     });
 
     it('demonstrates that missing deletedAt in Categories causes SchemaEngine to detect CORRUPTED', async () => {
-        // Create corrupted sheet mimicking old group format with v2 migration but old categories header
-        const fileId = await adapter.createSpreadsheet("Corrupted Group", ["Expenses", "Settlements", "Members", "Categories", "_migrations"]);
+        // Create corrupted sheet mimicking latest group format with v3 migration but old categories header
+        const fileId = await adapter.createSpreadsheet("Corrupted Group", ["Expenses", "Settlements", "Members", "Categories", "_migrations", "_meta"]);
         await adapter.batchUpdateValues(fileId, [
             { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
             { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
             { range: "Members!A1", values: [["userId", "email", "name", "role", "joinedAt"]] },
             { range: "Categories!A1", values: [["id", "name", "icon", "description", "updatedAt"]] }, // missing deletedAt!
-            { range: "_migrations!A1:B2", values: [["version", "migrated_at"], [2, new Date().toISOString()]] }
+            { range: "_migrations!A1:B2", values: [["version", "migrated_at"], [QuozenSchema.version, new Date().toISOString()]] },
+            { range: "_meta!A1", values: [["key", "value", "updatedAt"]] }
         ]);
 
         const bridgeClient = {

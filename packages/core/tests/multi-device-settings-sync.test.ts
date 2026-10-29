@@ -228,6 +228,148 @@ describe("Phase 1, 2, 3: Multi-Device Settings Sync & Isolation Test Suite", () 
         expect(mergeResultA.shouldUpdateLocal).toBe(true);
     });
 
+    it("3b. mergeUserSettingsDocs preserves and merges archivedGroupCache across devices", () => {
+        const t1 = new Date(Date.now() - 20000).toISOString();
+        const t2 = new Date(Date.now() - 10000).toISOString();
+
+        const localDocA = {
+            id: "global_settings",
+            version: 3,
+            activeGroupId: "g1",
+            groupCache: [{ id: "g1", name: "Active Group", role: "owner", updatedAt: t1, lastAccessed: t1 }],
+            archivedGroupCache: [
+                { id: "g-archived-1", name: "Trip 2024", role: "owner", updatedAt: t1, lastAccessed: t1, icon: "preset:plane" }
+            ],
+            preferences: { defaultCurrency: "USD" },
+            updatedAt: t1
+        };
+
+        const remoteDocB = {
+            id: "global_settings",
+            version: 3,
+            activeGroupId: "g1",
+            groupCache: [{ id: "g1", name: "Active Group", role: "owner", updatedAt: t2, lastAccessed: t2 }],
+            archivedGroupCache: [
+                { id: "g-archived-2", name: "House 2025", role: "owner", updatedAt: t2, lastAccessed: t2, icon: "preset:home" }
+            ],
+            preferences: { defaultCurrency: "USD" },
+            updatedAt: t2
+        };
+
+        const result = mergeUserSettingsDocs(localDocA, remoteDocB);
+        expect(result.mergedDoc.archivedGroupCache).toBeDefined();
+        expect(result.mergedDoc.archivedGroupCache.length).toBe(2);
+        const ids = result.mergedDoc.archivedGroupCache.map((g: any) => g.id);
+        expect(ids).toContain("g-archived-1");
+        expect(ids).toContain("g-archived-2");
+    });
+
+    it("3c. mergeUserSettingsDocs preserves group icon when one doc has icon and the other has newer updatedAt", () => {
+        const t1 = new Date(Date.now() - 20000).toISOString();
+        const t2 = new Date(Date.now() - 10000).toISOString();
+
+        // Local has icon set at t1
+        const localDocA = {
+            id: "global_settings",
+            version: 3,
+            activeGroupId: "g1",
+            groupCache: [{ id: "g1", name: "Active Group", role: "owner", icon: "preset:utensils", updatedAt: t1, lastAccessed: t1 }],
+            preferences: { defaultCurrency: "USD" },
+            updatedAt: t1
+        };
+
+        // Remote doc was updated at t2 by an older client that didn't know about icons
+        const remoteDocB = {
+            id: "global_settings",
+            version: 2,
+            activeGroupId: "g1",
+            groupCache: [{ id: "g1", name: "Active Group Renamed", role: "owner", updatedAt: t2, lastAccessed: t2 }],
+            preferences: { defaultCurrency: "USD" },
+            updatedAt: t2
+        };
+
+        const result = mergeUserSettingsDocs(localDocA, remoteDocB);
+        const mergedG1 = result.mergedDoc.groupCache.find((g: any) => g.id === "g1");
+        expect(mergedG1).toBeDefined();
+        // Should keep the newer name from remote AND retain the icon from local
+        expect(mergedG1.name).toBe("Active Group Renamed");
+        expect(mergedG1.icon).toBe("preset:utensils");
+    });
+
+    it("3d. mergeUserSettingsDocs preserves local unarchive when remote doc still has group in archivedGroupCache", () => {
+        const tCreated = new Date(Date.now() - 30000).toISOString();
+        const tArchivedRemote = new Date(Date.now() - 20000).toISOString();
+        const tUnarchivedLocal = new Date(Date.now() - 5000).toISOString();
+
+        // Local unarchived group g1 at tUnarchivedLocal
+        const localDoc = {
+            id: "global_settings",
+            version: 3,
+            activeGroupId: "g1",
+            groupCache: [
+                { id: "g1", name: "Trip", role: "owner" as const, updatedAt: tUnarchivedLocal, lastAccessed: tUnarchivedLocal, isArchived: false }
+            ],
+            archivedGroupCache: [],
+            preferences: { defaultCurrency: "USD" },
+            updatedAt: tUnarchivedLocal
+        };
+
+        // Remote doc still has g1 in archivedGroupCache from tArchivedRemote
+        const remoteDoc = {
+            id: "global_settings",
+            version: 3,
+            activeGroupId: null,
+            groupCache: [],
+            archivedGroupCache: [
+                { id: "g1", name: "Trip", role: "owner" as const, updatedAt: tArchivedRemote, lastAccessed: tArchivedRemote, isArchived: true }
+            ],
+            preferences: { defaultCurrency: "USD" },
+            updatedAt: tArchivedRemote
+        };
+
+        const result = mergeUserSettingsDocs(localDoc, remoteDoc);
+        expect(result.mergedDoc.groupCache.some((g: any) => g.id === "g1")).toBe(true);
+        expect(result.mergedDoc.archivedGroupCache.some((g: any) => g.id === "g1")).toBe(false);
+        expect(result.shouldPushRemote).toBe(true);
+    });
+
+    it("3e. mergeUserSettingsDocs preserves local archive when remote doc still has group in groupCache", () => {
+        const tCreated = new Date(Date.now() - 30000).toISOString();
+        const tActiveRemote = new Date(Date.now() - 20000).toISOString();
+        const tArchivedLocal = new Date(Date.now() - 5000).toISOString();
+
+        // Local archived group g1 at tArchivedLocal
+        const localDoc = {
+            id: "global_settings",
+            version: 3,
+            activeGroupId: null,
+            groupCache: [],
+            archivedGroupCache: [
+                { id: "g1", name: "Trip", role: "owner" as const, updatedAt: tArchivedLocal, lastAccessed: tArchivedLocal, isArchived: true }
+            ],
+            preferences: { defaultCurrency: "USD" },
+            updatedAt: tArchivedLocal
+        };
+
+        // Remote doc still has g1 active from tActiveRemote
+        const remoteDoc = {
+            id: "global_settings",
+            version: 3,
+            activeGroupId: "g1",
+            groupCache: [
+                { id: "g1", name: "Trip", role: "owner" as const, updatedAt: tActiveRemote, lastAccessed: tActiveRemote, isArchived: false }
+            ],
+            archivedGroupCache: [],
+            preferences: { defaultCurrency: "USD" },
+            updatedAt: tActiveRemote
+        };
+
+        const result = mergeUserSettingsDocs(localDoc, remoteDoc);
+        expect(result.mergedDoc.archivedGroupCache.some((g: any) => g.id === "g1")).toBe(true);
+        expect(result.mergedDoc.groupCache.some((g: any) => g.id === "g1")).toBe(false);
+        expect(result.shouldPushRemote).toBe(true);
+    });
+
     it("4. Concurrent group cache additions and deletions", async () => {
         const { blobDriverA, providerA, blobDriverB, providerB } = createProviders(sharedCloudStorage);
         await providerA.initialize();

@@ -30,6 +30,7 @@ export class LedgerRepository {
     private categoryHeaderMap: HeaderMap = DEFAULT_CATEGORY_MAP;
 
     private static hydrationPromises = new WeakMap<object, Map<string, Promise<void>>>();
+    private static iconMemoryCache = new Map<string, string>();
 
     constructor(
         private storage?: IStorageLayer,
@@ -40,6 +41,61 @@ export class LedgerRepository {
 
     public hasLocalDb(): boolean {
         return Boolean(this.db);
+    }
+
+    public async getGroupIcon(): Promise<string | undefined> {
+        if (this.groupId && LedgerRepository.iconMemoryCache.has(this.groupId)) {
+            const cachedMem = LedgerRepository.iconMemoryCache.get(this.groupId);
+            return cachedMem || undefined;
+        }
+
+        if (this.db) {
+            try {
+                const doc = await this.db.user_settings.findOne("global_settings").exec();
+                if (doc && !doc.deletedAt) {
+                    const cached = doc.groupCache?.find((g: any) => g.id === this.groupId);
+                    if (cached && cached.icon !== undefined) {
+                        LedgerRepository.iconMemoryCache.set(this.groupId, cached.icon || "");
+                        return cached.icon || undefined;
+                    }
+                }
+            } catch {}
+        }
+
+        if (this.storage && this.groupId) {
+            const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+            if (!isOffline) {
+                let resolvedIcon = "";
+                try {
+                    const metaRes = await this.storage.batchGetValues(this.groupId, ["_meta!A1:C10"]);
+                    const metaRows = metaRes[0]?.values || [];
+                    const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                    if (iconRow && iconRow[1]) {
+                        resolvedIcon = iconRow[1];
+                    }
+                } catch {
+                    resolvedIcon = "";
+                }
+
+                LedgerRepository.iconMemoryCache.set(this.groupId, resolvedIcon);
+
+                if (this.db) {
+                    void this.db.user_settings.findOne("global_settings").exec().then(async (doc) => {
+                        if (doc && !doc.deletedAt) {
+                            const json = JSON.parse(JSON.stringify(doc.toJSON()));
+                            const cached = json.groupCache?.find((g: any) => g.id === this.groupId);
+                            if (cached && cached.icon === undefined) {
+                                cached.icon = resolvedIcon;
+                                await this.db!.user_settings.upsert(json);
+                            }
+                        }
+                    }).catch(() => {});
+                }
+
+                return resolvedIcon || undefined;
+            }
+        }
+        return undefined;
     }
 
     private notifyMutation(): void {

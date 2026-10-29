@@ -319,7 +319,8 @@ export class GroupRepository {
                 ...(existing?.isHydrated !== undefined ? { isHydrated: existing.isHydrated } : {}),
                 ...(existing?.pendingRename !== undefined ? { pendingRename: existing.pendingRename } : {}),
                 ...(existing?.validationStatus !== undefined ? { validationStatus: existing.validationStatus } : {}),
-                ...(existing?.updatedAt ? { updatedAt: existing.updatedAt } : {})
+                ...(existing?.updatedAt ? { updatedAt: existing.updatedAt } : {}),
+                ...(existing?.icon !== undefined ? { icon: existing.icon } : {})
             };
         }).sort((a, b) => new Date(b.lastAccessed || 0).getTime() - new Date(a.lastAccessed || 0).getTime());
 
@@ -329,7 +330,7 @@ export class GroupRepository {
 
         const nowIso = new Date().toISOString();
         const settings: UserSettings = {
-            version: existingSettings?.version || 2,
+            version: existingSettings?.version || 3,
             activeGroupId,
             groupCache: visibleGroups,
             archivedGroupCache: existingSettings?.archivedGroupCache || [],
@@ -365,23 +366,83 @@ export class GroupRepository {
         }
     }
 
+    async purgeUnavailableGroup(groupId: string, groupName?: string, reason: "trashed" | "deleted" = "deleted"): Promise<void> {
+        this.accountIdCache.delete(groupId);
+        const settings = await this.getSettings();
+        const cached = settings.groupCache.find(g => g.id === groupId) || settings.archivedGroupCache?.find(g => g.id === groupId);
+        const resolvedName = groupName || cached?.name || "Group";
+
+        settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
+        if (settings.archivedGroupCache) {
+            settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
+        }
+
+        const wasActive = settings.activeGroupId === groupId;
+        if (wasActive) {
+            settings.activeGroupId = settings.groupCache[0]?.id || null;
+        }
+        const nowIso = new Date().toISOString();
+        settings.lastUpdated = nowIso;
+
+        await this.saveSettings(settings);
+
+        if (this.db) {
+            try {
+                ReplicationCoordinator.unmarkGroupHydrated(this.db.name, groupId);
+                await Promise.all([
+                    (this.db as any).expenses?.find({ selector: { groupId } }).remove(),
+                    (this.db as any).settlements?.find({ selector: { groupId } }).remove(),
+                    (this.db as any).members?.find({ selector: { groupId } }).remove(),
+                    (this.db as any).categories?.find({ selector: { groupId } }).remove(),
+                ]);
+            } catch (err) {
+                console.warn("[GroupRepository] Failed to purge RxDB collections for group", groupId, err);
+            }
+        }
+
+        const win = typeof globalThis !== "undefined" ? (globalThis as any).window : undefined;
+        if (win && typeof win.dispatchEvent === "function") {
+            const CustomEventImpl = (globalThis as any).CustomEvent;
+            if (typeof CustomEventImpl === "function") {
+                win.dispatchEvent(new CustomEventImpl("group-file-unavailable", {
+                    detail: {
+                        groupId,
+                        groupName: resolvedName,
+                        reason,
+                        fallbackGroupId: settings.activeGroupId,
+                        hasRemainingGroups: settings.groupCache.length > 0
+                    }
+                }));
+            }
+        }
+    }
+
     async updateActiveGroup(groupId: string): Promise<void> {
         const settings = await this.getSettings();
-        if (settings.activeGroupId === groupId) return;
-
         const cached = settings.groupCache.find(g => g.id === groupId);
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+
+        if (settings.activeGroupId === groupId) {
+            if (cached?.icon !== undefined) {
+                return;
+            }
+            if (cached && !isOffline && this.storage) {
+                try {
+                    const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
+                    const metaRows = metaRes[0]?.values || [];
+                    const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                    cached.icon = (iconRow && iconRow[1]) ? iconRow[1] : "";
+                } catch {
+                    cached.icon = "";
+                }
+                await this.saveSettings(settings);
+            }
+            return;
+        }
 
         const health = await this.checkFileHealth(groupId);
         if (!health.available) {
-            this.accountIdCache.delete(groupId);
-            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-            if (settings.archivedGroupCache) {
-                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
-            }
-            if (settings.activeGroupId === groupId) {
-                settings.activeGroupId = settings.groupCache[0]?.id || null;
-            }
-            await this.saveSettings(settings);
+            await this.purgeUnavailableGroup(groupId, cached?.name, health.reason);
             throw new GroupFileUnavailableError(groupId, cached?.name, health.reason);
         }
 
@@ -392,12 +453,21 @@ export class GroupRepository {
             settings.activeGroupId = groupId;
             if (cached) {
                 cached.lastAccessed = new Date().toISOString();
+                if (cached.icon === undefined && !isOffline) {
+                    try {
+                        const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
+                        const metaRows = metaRes[0]?.values || [];
+                        const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                        cached.icon = (iconRow && iconRow[1]) ? iconRow[1] : "";
+                    } catch {
+                        cached.icon = "";
+                    }
+                }
             }
             await this.saveSettings(settings);
             return;
         }
 
-        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
         if (!isOffline) {
             const validation = await this.validateQuozenSpreadsheet(groupId);
             if (validation.status === ValidationStatus.CORRUPTED || validation.status === ValidationStatus.INCOMPATIBLE) {
@@ -411,6 +481,16 @@ export class GroupRepository {
         settings.activeGroupId = groupId;
         if (cached) {
             cached.lastAccessed = new Date().toISOString();
+            if (cached.icon === undefined && !isOffline) {
+                try {
+                    const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
+                    const metaRows = metaRes[0]?.values || [];
+                    const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                    cached.icon = (iconRow && iconRow[1]) ? iconRow[1] : "";
+                } catch {
+                    cached.icon = "";
+                }
+            }
         }
         await this.saveSettings(settings);
     }
@@ -422,15 +502,7 @@ export class GroupRepository {
 
         const health = await this.checkFileHealth(groupId);
         if (!health.available) {
-            this.accountIdCache.delete(groupId);
-            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-            if (settings.archivedGroupCache) {
-                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
-            }
-            if (settings.activeGroupId === groupId) {
-                settings.activeGroupId = settings.groupCache[0]?.id || null;
-            }
-            await this.saveSettings(settings);
+            await this.purgeUnavailableGroup(groupId, groupName, health.reason);
             throw new GroupFileUnavailableError(groupId, groupName, health.reason);
         }
 
@@ -438,15 +510,18 @@ export class GroupRepository {
             settings.archivedGroupCache = [];
         }
 
+        const nowIso = new Date().toISOString();
+        const base = cached || (settings.archivedGroupCache || []).find(g => g.id === groupId);
         settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-
-        if (!settings.archivedGroupCache.some(g => g.id === groupId)) {
-            settings.archivedGroupCache.unshift({
-                ...(cached || { id: groupId, name: groupName || "Archived Group", role: "member" as const }),
+        settings.archivedGroupCache = [
+            {
+                ...(base || { id: groupId, name: groupName || "Archived Group", role: "member" as const }),
                 isArchived: true,
-                lastAccessed: new Date().toISOString()
-            });
-        }
+                lastAccessed: nowIso,
+                updatedAt: nowIso
+            },
+            ...settings.archivedGroupCache.filter(g => g.id !== groupId)
+        ];
 
         if (settings.activeGroupId === groupId) {
             settings.activeGroupId = settings.groupCache[0]?.id || null;
@@ -463,15 +538,7 @@ export class GroupRepository {
 
         const health = await this.checkFileHealth(groupId);
         if (!health.available) {
-            this.accountIdCache.delete(groupId);
-            if (settings.archivedGroupCache) {
-                settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
-            }
-            settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-            if (settings.activeGroupId === groupId) {
-                settings.activeGroupId = settings.groupCache[0]?.id || null;
-            }
-            await this.saveSettings(settings);
+            await this.purgeUnavailableGroup(groupId, groupName, health.reason);
             throw new GroupFileUnavailableError(groupId, groupName, health.reason);
         }
 
@@ -479,19 +546,36 @@ export class GroupRepository {
             settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
         }
 
-        if (!settings.groupCache.some(g => g.id === groupId)) {
-            settings.groupCache.unshift({
-                ...(archived || { id: groupId, name: groupName || "Group", role: "member" as const }),
+        const nowIso = new Date().toISOString();
+        const base = archived || settings.groupCache.find(g => g.id === groupId);
+        settings.groupCache = [
+            {
+                ...(base || { id: groupId, name: groupName || "Group", role: "member" as const }),
                 isArchived: false,
-                lastAccessed: new Date().toISOString()
-            });
+                lastAccessed: nowIso,
+                updatedAt: nowIso
+            },
+            ...settings.groupCache.filter(g => g.id !== groupId)
+        ];
+
+        const targetGroup = settings.groupCache.find(g => g.id === groupId);
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (targetGroup && !targetGroup.icon && !isOffline) {
+            try {
+                const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C10"]);
+                const metaRows = metaRes[0]?.values || [];
+                const iconRow = metaRows.find((r: any[]) => r[0] === "icon");
+                if (iconRow && iconRow[1]) {
+                    targetGroup.icon = iconRow[1];
+                }
+            } catch {}
         }
 
         settings.activeGroupId = groupId;
         await this.saveSettings(settings);
     }
 
-    async create(name: string, members: MemberInput[] = []): Promise<Group> {
+    async create(name: string, members: MemberInput[] = [], options?: { icon?: string }): Promise<Group> {
         if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
             throw new OfflineOperationError("Creating a group requires an internet connection.", "createGroup");
         }
@@ -528,6 +612,17 @@ export class GroupRepository {
             ""
         ]);
 
+        const metaRows: string[][] = [
+            ["key", "value", "updatedAt"]
+        ];
+        if (options?.icon) {
+            if (options.icon.length <= 49000) {
+                metaRows.push(["icon", options.icon, nowIso]);
+            } else {
+                console.warn("[GroupRepository] Icon exceeds Google Sheets single cell limit (50000 chars), skipping _meta write");
+            }
+        }
+
         const dataToUpdate = [
             { range: "Expenses!A1", values: [[...SCHEMAS.Expenses]] },
             { range: "Settlements!A1", values: [[...SCHEMAS.Settlements]] },
@@ -536,7 +631,8 @@ export class GroupRepository {
             { range: "Categories!A1", values: [[...SCHEMAS.Categories]] },
             { range: "Categories!A2", values: initialCategories },
             { range: "_migrations!A1", values: [["version", "migrated_at"]] },
-            { range: "_migrations!A2", values: [[QuozenSchema.version, nowIso]] }
+            { range: "_migrations!A2", values: [[QuozenSchema.version, nowIso]] },
+            { range: "_meta!A1", values: metaRows }
         ];
 
         await this.storage.batchUpdateValues(fileId, dataToUpdate);
@@ -574,7 +670,16 @@ export class GroupRepository {
         }
 
         const settings = await this.getSettings();
-        if (!settings.groupCache.some(g => g.id === fileId)) {
+        const existingCached = settings.groupCache.find(g => g.id === fileId);
+        if (existingCached) {
+            existingCached.name = name;
+            existingCached.role = "owner";
+            existingCached.lastAccessed = nowIso;
+            existingCached.updatedAt = nowIso;
+            existingCached.validationStatus = ValidationStatus.READY;
+            existingCached.isHydrated = true;
+            existingCached.icon = options?.icon || "";
+        } else {
             settings.groupCache.unshift({
                 id: fileId,
                 name,
@@ -582,7 +687,8 @@ export class GroupRepository {
                 lastAccessed: nowIso,
                 updatedAt: nowIso,
                 validationStatus: ValidationStatus.READY,
-                isHydrated: true
+                isHydrated: true,
+                icon: options?.icon || ""
             });
         }
         settings.activeGroupId = fileId;
@@ -593,7 +699,8 @@ export class GroupRepository {
             createdBy: "me",
             participants: initialMembers.map(m => m[0]),
             createdAt: new Date(),
-            isOwner: true
+            isOwner: true,
+            ...(options?.icon ? { icon: options.icon } : {})
         };
     }
 
@@ -742,6 +849,18 @@ export class GroupRepository {
 
         const nowIso = new Date().toISOString();
         const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
+        let groupIcon = cachedGroup?.icon || existingCachedGroup?.icon;
+        try {
+            const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C10"]);
+            const metaRows = metaRes[0]?.values || [];
+            const iconRow = metaRows.find((r: string[]) => r[0] === "icon");
+            if (iconRow && iconRow[1]) {
+                groupIcon = iconRow[1];
+            }
+        } catch {
+            // Older sheets might not have _meta tab
+        }
+
         if (!cachedGroup) {
             settings.groupCache.unshift({
                 id: spreadsheetId,
@@ -751,12 +870,16 @@ export class GroupRepository {
                 lastAccessed: nowIso,
                 updatedAt: nowIso,
                 validationStatus: validation.status,
-                isArchived: false
+                isArchived: false,
+                ...(groupIcon ? { icon: groupIcon } : {})
             });
         } else {
             cachedGroup.role = role;
             if (linkedAccountId) {
                 cachedGroup.accountId = linkedAccountId;
+            }
+            if (groupIcon) {
+                cachedGroup.icon = groupIcon;
             }
             cachedGroup.isArchived = false;
             cachedGroup.lastAccessed = nowIso;
@@ -776,7 +899,8 @@ export class GroupRepository {
             createdBy: "Unknown",
             participants: [],
             createdAt: new Date(),
-            isOwner: role === "owner"
+            isOwner: role === "owner",
+            ...(groupIcon ? { icon: groupIcon } : {})
         };
     }
 
@@ -842,14 +966,7 @@ export class GroupRepository {
             throw new OfflineOperationError("This operation requires an internet connection.", "deleteGroup");
         }
         await this.storage.deleteFile(groupId);
-        this.accountIdCache.delete(groupId);
-        const settings = await this.getSettings();
-        settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
-        if (settings.archivedGroupCache) {
-            settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== groupId);
-        }
-        if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
-        await this.saveSettings(settings);
+        await this.purgeUnavailableGroup(groupId, undefined, "deleted");
     }
 
     async checkMemberHasExpenses(groupId: string, userId: string): Promise<boolean> {
@@ -858,7 +975,15 @@ export class GroupRepository {
         return expenses.some(e => e.paidByUserId === userId || e.splits.some(s => s.userId === userId && s.amount > 0));
     }
 
-    async updateGroup(groupId: string, name: string, members: MemberInput[]): Promise<void> {
+    async updateGroup(groupId: string, name: string, members: MemberInput[], options?: { icon?: string }): Promise<void> {
+        const health = await this.checkFileHealth(groupId);
+        if (!health.available) {
+            const settings = await this.getSettings();
+            const cached = settings.groupCache.find(g => g.id === groupId) || settings.archivedGroupCache?.find(g => g.id === groupId);
+            await this.purgeUnavailableGroup(groupId, cached?.name || name, health.reason);
+            throw new GroupFileUnavailableError(groupId, cached?.name || name, health.reason);
+        }
+
         const newTitle = `${QUOZEN_PREFIX}${name}`;
         const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
 
@@ -917,6 +1042,48 @@ export class GroupRepository {
             await ledgerRepo.deleteMember(m.userId);
         }
 
+        if (!isOffline && options?.icon !== undefined) {
+            if (options.icon.length > 49000) {
+                console.warn("[GroupRepository] Icon exceeds Google Sheets single cell limit (50000 chars), skipping _meta write");
+            } else {
+                try {
+                    let metaRows: any[][] = [];
+                    try {
+                        const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C20"]);
+                        metaRows = metaRes[0]?.values || [];
+                    } catch {
+                        // _meta tab might not exist in older spreadsheets
+                    }
+
+                    const nowIso = new Date().toISOString();
+                    if (metaRows.length === 0) {
+                        metaRows = [
+                            ["key", "value", "updatedAt"],
+                            ["icon", options.icon, nowIso]
+                        ];
+                        await this.storage.batchUpdateValues(groupId, [
+                            { range: "_meta!A1", values: metaRows }
+                        ]);
+                    } else {
+                        const iconIndex = metaRows.findIndex(r => r[0] === "icon");
+                        if (iconIndex >= 0) {
+                            metaRows[iconIndex] = ["icon", options.icon, nowIso];
+                            await this.storage.batchUpdateValues(groupId, [
+                                { range: `_meta!A${iconIndex + 1}:C${iconIndex + 1}`, values: [["icon", options.icon, nowIso]] }
+                            ]);
+                        } else {
+                            const nextRow = metaRows.length + 1;
+                            await this.storage.batchUpdateValues(groupId, [
+                                { range: `_meta!A${nextRow}:C${nextRow}`, values: [["icon", options.icon, nowIso]] }
+                            ]);
+                        }
+                    }
+                } catch (metaErr) {
+                    console.warn("Could not sync _meta tab:", metaErr);
+                }
+            }
+        }
+
         const settings = await this.getSettings();
         const cachedGroup = settings.groupCache.find(g => g.id === groupId);
         const nameChanged = !cachedGroup || cachedGroup.name !== name;
@@ -941,9 +1108,13 @@ export class GroupRepository {
 
         if (cachedGroup) {
             const renameChanged = cachedGroup.pendingRename !== pendingRename;
+            const iconChanged = options?.icon !== undefined && cachedGroup.icon !== options.icon;
             cachedGroup.name = name;
             cachedGroup.pendingRename = pendingRename;
-            if (nameChanged || renameChanged) {
+            if (options?.icon !== undefined) {
+                cachedGroup.icon = options.icon;
+            }
+            if (nameChanged || renameChanged || iconChanged) {
                 cachedGroup.updatedAt = new Date().toISOString();
                 await this.saveSettings(settings);
             }

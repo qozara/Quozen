@@ -142,11 +142,12 @@ export function useSettings() {
 
       queryClient.setQueryData<UserSettings | undefined>(queryKey, (old) => {
         if (!old) return old;
+        const nowIso = new Date().toISOString();
         const target = old.groupCache.find(g => g.id === groupId);
         const remaining = old.groupCache.filter(g => g.id !== groupId);
         const archived = [
           ...(old.archivedGroupCache || []).filter(g => g.id !== groupId),
-          ...(target ? [{ ...target, isArchived: true, lastAccessed: new Date().toISOString() }] : [])
+          ...(target ? [{ ...target, isArchived: true, lastAccessed: nowIso, updatedAt: nowIso }] : [])
         ];
         return {
           ...old,
@@ -181,10 +182,11 @@ export function useSettings() {
 
       queryClient.setQueryData<UserSettings | undefined>(queryKey, (old) => {
         if (!old) return old;
+        const nowIso = new Date().toISOString();
         const target = old.archivedGroupCache?.find(g => g.id === groupId);
         const remainingArchived = (old.archivedGroupCache || []).filter(g => g.id !== groupId);
         const restored = [
-          ...(target ? [{ ...target, isArchived: false, lastAccessed: new Date().toISOString() }] : []),
+          ...(target ? [{ ...target, isArchived: false, lastAccessed: nowIso, updatedAt: nowIso }] : []),
           ...old.groupCache.filter(g => g.id !== groupId)
         ];
         return {
