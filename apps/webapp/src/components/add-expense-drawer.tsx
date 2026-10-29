@@ -8,14 +8,29 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } f
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import { useGroups } from "@/hooks/use-groups";
 import { WifiOff } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useAiFeature } from "@/features/agent/AiFeatureContext";
+import { CommandDraftService } from "@quozen/core";
+import { LlmIntentEscalator } from "@quozen/ai-services";
+import { useSettings } from "@/hooks/use-settings";
 
 export default function AddExpenseDrawer() {
-    const { activeGroupId, currentUserId, isAddExpenseOpen, setIsAddExpenseOpen } = useAppContext();
+    const {
+        activeGroupId,
+        currentUserId,
+        isAddExpenseOpen,
+        setIsAddExpenseOpen,
+        expenseDraft,
+        setExpenseDraft,
+        expenseDraftMeta
+    } = useAppContext();
     const { toast } = useToast();
     const queryClient = useQueryClient();
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const { groups } = useGroups();
+    const { settings } = useSettings();
+    const { status: aiStatus } = useAiFeature();
+    const [isRefining, setIsRefining] = useState(false);
 
     let autoSync: any;
     try {
@@ -47,6 +62,51 @@ export default function AddExpenseDrawer() {
         (ledger.members.length === 0 && ledger.expenses.length === 0 && ledger.settlements.length === 0)
     );
 
+    const handleClose = () => {
+        setIsAddExpenseOpen(false);
+        setExpenseDraft(null);
+    };
+
+    const handleRefineWithAi = async () => {
+        if (!expenseDraftMeta?.rawInput || !ledger || isRefining) return;
+        setIsRefining(true);
+        try {
+            const escalator = new LlmIntentEscalator({
+                proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
+                provider: settings?.preferences?.aiProvider as any,
+                ciphertext: settings?.encryptedApiKey,
+                ollamaBaseUrl: settings?.preferences?.ollamaBaseUrl,
+                ollamaModel: settings?.preferences?.ollamaModel
+            });
+            const draftService = new CommandDraftService({ escalator });
+            const locale = settings?.preferences?.locale === 'system' ? i18n.language : (settings?.preferences?.locale || 'en');
+            const result = await draftService.createDraft({
+                input: expenseDraftMeta.rawInput,
+                ledger,
+                activeAccountId: currentUserId,
+                locale,
+                forceAi: true
+            });
+
+            if (result.expenseDraft) {
+                setExpenseDraft(result.expenseDraft);
+                toast({
+                    title: t("common.success"),
+                    description: t("agent.refinedSuccess", "Draft updated with AI")
+                });
+            }
+        } catch (err: any) {
+            console.error("AI refinement error:", err);
+            toast({
+                title: t("common.error"),
+                description: err.message || t("agent.errorGeneric"),
+                variant: "destructive"
+            });
+        } finally {
+            setIsRefining(false);
+        }
+    };
+
     const expenseMutation = useMutation({
         mutationFn: async (data: any) => {
             if (!activeGroupId) throw new Error("No active group");
@@ -62,7 +122,7 @@ export default function AddExpenseDrawer() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
             navigator.vibrate?.(50);
-            setIsAddExpenseOpen(false);
+            handleClose();
         },
         onError: (error) => {
             console.error(error);
@@ -75,16 +135,23 @@ export default function AddExpenseDrawer() {
     });
 
     return (
-        <Drawer open={isAddExpenseOpen} onOpenChange={setIsAddExpenseOpen}>
+        <Drawer open={isAddExpenseOpen} onOpenChange={(open) => {
+            if (!open) handleClose();
+            else setIsAddExpenseOpen(true);
+        }}>
             <DrawerContent
                 onCloseAutoFocus={(event) => {
                     if (event.defaultPrevented) return;
                 }}
             >
                 <DrawerHeader>
-                    <DrawerTitle data-testid="drawer-title-add-expense">{t("expenseForm.addTitle")}</DrawerTitle>
+                    <DrawerTitle data-testid="drawer-title-add-expense">
+                        {expenseDraft ? t("expenseForm.reviewDraftTitle", "Review Expense") : t("expenseForm.addTitle")}
+                    </DrawerTitle>
                     <DrawerDescription>
-                        {t("expenseForm.missingInfoDesc")}
+                        {expenseDraft
+                            ? t("expenseForm.reviewDraftDesc", "Confirm or adjust details before saving.")
+                            : t("expenseForm.missingInfoDesc")}
                     </DrawerDescription>
                 </DrawerHeader>
 
@@ -106,11 +173,15 @@ export default function AddExpenseDrawer() {
                     ) : (
                         <ExpenseForm
                             users={users}
+                            draft={expenseDraft || undefined}
+                            draftMeta={expenseDraftMeta}
+                            onRefineWithAi={aiStatus === 'available' && isOnline ? handleRefineWithAi : undefined}
+                            isRefiningWithAi={isRefining}
                             categories={ledger?.categories}
                             currentUserId={currentUserId}
                             isPending={expenseMutation.isPending}
                             onSubmit={(data) => expenseMutation.mutate(data)}
-                            onCancel={() => setIsAddExpenseOpen(false)}
+                            onCancel={handleClose}
                             isDrawer
                         />
                     )}

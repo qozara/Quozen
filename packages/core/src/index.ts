@@ -33,3 +33,5 @@ export * from "./schema/ValidationService";
 // 7. Local RxDB & Composite Cloud Sync
 export * from "./db";
 export * from "./sync";
+export * from "./parser";
+export * from "./services/CommandDraftService";

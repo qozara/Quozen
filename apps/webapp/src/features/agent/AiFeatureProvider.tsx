@@ -126,13 +126,11 @@ export const AiFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return (
         <AiFeatureContext.Provider value={contextValue}>
             {children}
-            {state.status === 'available' && (
-                <AiErrorBoundary onCatch={handleModuleError}>
-                    <Suspense fallback={null}>
-                        <AgentModule />
-                    </Suspense>
-                </AiErrorBoundary>
-            )}
+            <AiErrorBoundary onCatch={handleModuleError}>
+                <Suspense fallback={null}>
+                    <AgentModule />
+                </Suspense>
+            </AiErrorBoundary>
         </AiFeatureContext.Provider>
     );
 };

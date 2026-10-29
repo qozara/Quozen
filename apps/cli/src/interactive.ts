@@ -1,7 +1,7 @@
 import prompts from 'prompts';
 import chalk from 'chalk';
-import { formatCurrency, AiProviderFactory, QuozenAI } from '@quozen/core';
-import { getQuozenCliClient, getAuthToken } from './quozen.js';
+import { formatCurrency, CommandDraftService } from '@quozen/core';
+import { getQuozenCliClient } from './quozen.js';
 
 export async function startInteractive() {
     console.log(chalk.cyan("Initializing Quozen CLI..."));
@@ -76,28 +76,78 @@ export async function startInteractive() {
                 });
 
                 if (aiPrompt) {
-                    console.log(chalk.cyan("🤖 Processing with AI..."));
+                    console.log(chalk.cyan("Processing command..."));
 
-                    const config = {
-                        providerPreference: (settings?.preferences?.aiProvider || 'auto') as any,
-                        encryptedApiKey: settings?.encryptedApiKey,
-                        proxyUrl: process.env.VITE_AI_PROXY_URL || 'http://localhost:8788',
-                        baseUrl: settings?.preferences?.ollamaBaseUrl || process.env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
-                        ollamaModel: settings?.preferences?.ollamaModel || process.env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
-                        byokProvider: settings?.preferences?.byokProvider || 'google'
-                    };
+                    const ledgerSvc = quozen.ledger(activeGroupId, activeAccountId);
+                    const ledger = await ledgerSvc.getLedger();
 
-                    const provider = await AiProviderFactory.createProvider(config, getAuthToken);
+                    const draftService = new CommandDraftService();
+                    const locale = settings?.preferences?.locale === 'system'
+                        ? Intl.DateTimeFormat().resolvedOptions().locale
+                        : (settings?.preferences?.locale || 'en');
 
-                    const ai = new QuozenAI(quozen, provider);
+                    const result = await draftService.createDraft({
+                        input: aiPrompt,
+                        ledger,
+                        activeAccountId,
+                        locale,
+                        aiEnabled: false
+                    });
 
-                    const locale = settings?.preferences?.locale === 'system' ? Intl.DateTimeFormat().resolvedOptions().locale : (settings?.preferences?.locale || 'en');
-                    const result = await ai.executeCommand(aiPrompt, activeGroupId, locale, activeAccountId);
+                    if (result.kind === 'settlement' && result.settlementDraft) {
+                        const draft = result.settlementDraft;
+                        const fromMember = ledger.members.find(m => m.userId === draft.fromUserId)?.name || draft.fromUserId;
+                        const toMember = ledger.members.find(m => m.userId === draft.toUserId)?.name || draft.toUserId;
 
-                    if (result.success) {
-                        console.log(chalk.green(`✨ ${result.message}`));
+                        console.log(chalk.bold("\n--- Settlement Draft ---"));
+                        console.log(`From:   ${chalk.yellow(fromMember)}`);
+                        console.log(`To:     ${chalk.green(toMember)}`);
+                        console.log(`Amount: ${chalk.cyan(formatCurrency(draft.amount, settings.preferences.defaultCurrency))}`);
+                        console.log(`Method: ${draft.method}`);
+
+                        const { confirm } = await prompts({
+                            type: 'confirm',
+                            name: 'confirm',
+                            message: 'Record this settlement to the ledger?',
+                            initial: true
+                        });
+
+                        if (confirm) {
+                            await ledgerSvc.addSettlement(draft);
+                            console.log(chalk.green("✨ Settlement recorded successfully!"));
+                        } else {
+                            console.log(chalk.yellow("Draft cancelled."));
+                        }
+                    } else if (result.expenseDraft) {
+                        const draft = result.expenseDraft;
+                        const payer = ledger.members.find(m => m.userId === draft.paidByUserId)?.name || draft.paidByUserId;
+
+                        console.log(chalk.bold("\n--- Expense Draft ---"));
+                        console.log(`Description: ${chalk.bold(draft.description)}`);
+                        console.log(`Amount:      ${chalk.cyan(formatCurrency(draft.amount, settings.preferences.defaultCurrency))}`);
+                        console.log(`Category:    ${draft.category}`);
+                        console.log(`Paid by:     ${chalk.yellow(payer)}`);
+                        console.log(`Splits:`);
+                        draft.splits.filter(s => s.amount > 0).forEach(s => {
+                            const name = ledger.members.find(m => m.userId === s.userId)?.name || s.userId;
+                            console.log(`  - ${name}: ${formatCurrency(s.amount, settings.preferences.defaultCurrency)}`);
+                        });
+
+                        const { confirm } = await prompts({
+                            type: 'confirm',
+                            name: 'confirm',
+                            message: 'Add this expense to the ledger?',
+                            initial: true
+                        });
+
+                        if (confirm) {
+                            await ledgerSvc.addExpense(draft);
+                            console.log(chalk.green("✨ Expense added successfully!"));
+                        } else {
+                            console.log(chalk.yellow("Draft cancelled."));
+                        }
                     } else {
-                        console.log(chalk.red(`❌ AI Error: ${result.message}`));
+                        console.log(chalk.red("Could not parse action from input."));
                     }
                 }
             } else if (action === 'switch_group') {

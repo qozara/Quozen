@@ -15,9 +15,17 @@ export const AgentCommandDrawer: React.FC = () => {
     const [isThinking, setIsThinking] = useState(false);
     const { t } = useTranslation();
     const { executeCommand } = useAgent();
-    const { provider } = useAiFeature();
+    const { provider, status } = useAiFeature();
 
     const getBadgeInfo = () => {
+        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+        if (status !== 'available' || !isOnline) {
+            return {
+                icon: <Zap className="w-3 h-3 text-emerald-500" />,
+                label: t('agent.offlineSmartParser', 'Offline Smart Parser')
+            };
+        }
+
         const mode = provider?.mode || 'cloud';
         if (mode === 'local-browser') return { icon: <Cpu className="w-3 h-3" />, label: t('agent.onDevice') };
         if (mode === 'local-ollama') return { icon: <Cpu className="w-3 h-3" />, label: 'Local Ollama' };

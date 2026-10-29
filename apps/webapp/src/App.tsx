@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useState, useEffect } from "react";
@@ -15,7 +15,7 @@ import JoinPage from "@/pages/join";
 import BottomNavigation from "@/components/bottom-navigation";
 import Header from "@/components/header";
 import SiteFooter from "@/components/site-footer";
-import { AppContext, useAppContext } from "@/context/app-context";
+import { AppContext, useAppContext, SettlementDraftState } from "@/context/app-context";
 import { AuthProvider, useAuth } from "@/context/auth-provider";
 import { useSettings } from "@/hooks/use-settings";
 import { useGroups } from "@/hooks/use-groups";
@@ -24,12 +24,14 @@ import { useTranslation } from "react-i18next";
 import PullToRefresh from "@/components/pull-to-refresh";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import AddExpenseDrawer from "@/components/add-expense-drawer";
+import SettlementModal from "@/components/settlement-modal";
 import SchemaRemediationModal from "@/components/schema-remediation-modal";
 import GroupUnavailableModal from "@/components/group-unavailable-modal";
 import { AiFeatureProvider } from "@/features/agent/AiFeatureProvider";
 import { PwaUpdateProvider } from "@/hooks/use-pwa-update";
 import { quozen } from "@/lib/storage";
 import { AlertCircle } from "lucide-react";
+import type { ExpenseDraft, SettlementDraft } from "@quozen/core";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -53,15 +55,20 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
   const autoSync = useAutoSync();
-  const { activeGroupId } = useAppContext();
+  const { activeGroupId, currentUserId, settlementDraftState, setSettlementDraftState } = useAppContext();
   const { settings } = useSettings();
   const { t } = useTranslation();
-  // Safe destructuring in case context is missing (though provider wraps this)
   const triggerSync = autoSync?.triggerSync || (async () => { });
   const isEnabled = autoSync?.isEnabled || false;
   const isPaused = autoSync?.isPaused || false;
 
   const isArchived = Boolean(activeGroupId && settings?.archivedGroupCache?.some(g => g.id === activeGroupId));
+
+  const { data: ledger } = useQuery({
+    queryKey: ["drive", "group", activeGroupId],
+    queryFn: () => quozen.ledger(activeGroupId, currentUserId).getLedger(),
+    enabled: !!activeGroupId && settlementDraftState.isOpen,
+  });
 
   return (
     <div className="max-w-md mx-auto bg-background shadow-2xl min-h-screen relative border-x border-border">
@@ -83,6 +90,17 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
       <SiteFooter />
       <BottomNavigation />
       <AddExpenseDrawer />
+      <SettlementModal
+        isOpen={settlementDraftState.isOpen}
+        onClose={() => setSettlementDraftState(prev => ({ ...prev, isOpen: false, draft: undefined, initialData: undefined }))}
+        fromUser={settlementDraftState.fromUser}
+        toUser={settlementDraftState.toUser}
+        suggestedAmount={settlementDraftState.suggestedAmount}
+        initialData={settlementDraftState.initialData}
+        draft={settlementDraftState.draft}
+        draftMeta={settlementDraftState.meta}
+        users={ledger?.members || []}
+      />
       <SchemaRemediationModal />
       <GroupUnavailableModal />
     </div>
@@ -94,6 +112,11 @@ export function AuthenticatedApp() {
     () => (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("quozen_active_group_id") : null) || (typeof localStorage !== "undefined" ? localStorage.getItem("quozen_active_group_id") : null) || ""
   );
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [expenseDraft, setExpenseDraft] = useState<ExpenseDraft | null>(null);
+  const [expenseDraftMeta, setExpenseDraftMeta] = useState<{ rawInput?: string; isAiEscalated?: boolean; ambiguities?: string[] } | null>(null);
+
+  const [settlementDraftState, setSettlementDraftState] = useState<SettlementDraftState>({ isOpen: false });
+
   const [schemaErrorStatus, setSchemaErrorStatus] = useState<'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | null>(null);
 
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
@@ -104,8 +127,6 @@ export function AuthenticatedApp() {
   const { settings, updateActiveGroup, updateGroupAccount, isLoading: settingsLoading, error: settingsError } = useSettings();
   const { groups } = useGroups();
 
-  // FIX: Only consider app loading if we DON'T have settings yet. 
-  // If we have settings (even stale), we should render the app to prevent tree unmounting.
   const appLoading = authLoading || (isAuthenticated && !settings && settingsLoading);
 
   useEffect(() => {
@@ -184,6 +205,26 @@ export function AuthenticatedApp() {
     }
   };
 
+  const openExpenseWithDraft = (
+    draft: ExpenseDraft,
+    meta?: { rawInput?: string; isAiEscalated?: boolean; ambiguities?: string[] }
+  ) => {
+    setExpenseDraft(draft);
+    setExpenseDraftMeta(meta || null);
+    setIsAddExpenseOpen(true);
+  };
+
+  const openSettlementWithDraft = (
+    draft: SettlementDraft,
+    meta?: { rawInput?: string; isAiEscalated?: boolean; ambiguities?: string[] }
+  ) => {
+    setSettlementDraftState({
+      isOpen: true,
+      draft,
+      meta
+    });
+  };
+
   useEffect(() => {
     if (appLoading) return;
 
@@ -191,7 +232,6 @@ export function AuthenticatedApp() {
       const isCurrentValid = Boolean(activeGroupId && groups.some(g => g.id === activeGroupId));
 
       if (isCurrentValid) {
-        // Keep current activeGroupId (do NOT override with settings?.activeGroupId)
         if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("quozen_active_group_id") !== activeGroupId) {
           sessionStorage.setItem("quozen_active_group_id", activeGroupId);
         }
@@ -202,7 +242,6 @@ export function AuthenticatedApp() {
       }
 
       if (!activeGroupId) {
-        // Current activeGroupId is empty/unset: resolve candidate in order
         const sessionCandidate = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("quozen_active_group_id") : null;
         const localCandidate = typeof localStorage !== "undefined" ? localStorage.getItem("quozen_active_group_id") : null;
         const cloudCandidate = settings?.activeGroupId ?? null;
@@ -231,7 +270,6 @@ export function AuthenticatedApp() {
           }
         }
       } else {
-        // Current activeGroupId is set, but no longer valid in groups (e.g. deleted or left)
         const fallbackId = groups[0]?.id || "";
         setActiveGroupIdState(fallbackId);
         if (typeof sessionStorage !== "undefined") {
@@ -291,6 +329,13 @@ export function AuthenticatedApp() {
       setActiveAccountId: handleSetActiveAccountId,
       isAddExpenseOpen,
       setIsAddExpenseOpen,
+      expenseDraft,
+      setExpenseDraft,
+      expenseDraftMeta,
+      openExpenseWithDraft,
+      settlementDraftState,
+      setSettlementDraftState,
+      openSettlementWithDraft,
       schemaErrorStatus,
       setSchemaErrorStatus
     }}>

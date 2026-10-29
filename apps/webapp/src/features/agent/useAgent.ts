@@ -1,19 +1,20 @@
 import { useSettings } from "@/hooks/use-settings";
 import { useRagContext } from "./useRagContext";
-import { QuozenAI } from "@quozen/core";
+import { CommandDraftService } from "@quozen/core";
+import { LlmIntentEscalator } from "@quozen/ai-services";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { quozen } from "@/lib/storage";
 import { useAiFeature } from "./AiFeatureContext";
+import { useAppContext } from "@/context/app-context";
 
 export const useAgent = () => {
     const { settings } = useSettings();
     const { activeGroupId, currentUserId } = useRagContext();
     const { toast } = useToast();
     const { t, i18n } = useTranslation();
-    const queryClient = useQueryClient();
-    const { provider, getOrResolveProvider } = useAiFeature();
+    const { status: aiStatus } = useAiFeature();
+    const { openExpenseWithDraft, openSettlementWithDraft } = useAppContext();
 
     const executeCommand = async (prompt: string) => {
         if (!activeGroupId) {
@@ -25,49 +26,56 @@ export const useAgent = () => {
             return { success: false };
         }
 
-        const activeProvider = provider || (await getOrResolveProvider?.());
-        if (!activeProvider) {
+        try {
+            const locale = settings?.preferences?.locale === 'system' ? i18n.language : (settings?.preferences?.locale || 'en');
+            const ledger = await quozen.ledger(activeGroupId, currentUserId).getLedger();
+
+            // Set up optional AI escalator if available
+            let escalator: LlmIntentEscalator | undefined;
+            const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+            if (aiStatus === 'available' && isOnline) {
+                escalator = new LlmIntentEscalator({
+                    proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL,
+                    provider: settings?.preferences?.aiProvider as any,
+                    ciphertext: settings?.encryptedApiKey,
+                    ollamaBaseUrl: settings?.preferences?.ollamaBaseUrl,
+                    ollamaModel: settings?.preferences?.ollamaModel
+                });
+            }
+
+            const draftService = new CommandDraftService({ escalator });
+            const result = await draftService.createDraft({
+                input: prompt,
+                ledger,
+                activeAccountId: currentUserId,
+                locale,
+                aiEnabled: Boolean(escalator)
+            });
+
+            if (result.kind === 'settlement' && result.settlementDraft) {
+                openSettlementWithDraft(result.settlementDraft, {
+                    rawInput: prompt,
+                    isAiEscalated: result.isAiEscalated,
+                    ambiguities: result.ambiguities
+                });
+                return { success: true, message: 'Settlement draft created' };
+            }
+
+            if (result.expenseDraft) {
+                openExpenseWithDraft(result.expenseDraft, {
+                    rawInput: prompt,
+                    isAiEscalated: result.isAiEscalated,
+                    ambiguities: result.ambiguities
+                });
+                return { success: true, message: 'Expense draft created' };
+            }
+
             toast({
                 title: t('agent.errorTitle'),
                 description: t('agent.errorGeneric'),
                 variant: "destructive"
             });
-            return { success: false, message: 'Provider not initialized' };
-        }
-
-        try {
-            const locale = settings?.preferences?.locale === 'system' ? i18n.language : (settings?.preferences?.locale || 'en');
-
-            const ai = new QuozenAI(quozen, activeProvider);
-            const result = currentUserId
-                ? await ai.executeCommand(prompt, activeGroupId, locale, currentUserId)
-                : await ai.executeCommand(prompt, activeGroupId, locale);
-
-            if (result.success) {
-                toast({
-                    title: t('common.success'),
-                    description: result.message
-                });
-
-                // Refresh UI
-                await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
-                await queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId, "analytics"] });
-            } else {
-                let errorDescription = result.message;
-                if (result.message === 'QUOTA_EXCEEDED') {
-                    errorDescription = t('agent.quotaExceeded');
-                } else if (result.message === 'RATE_LIMIT_EXCEEDED') {
-                    errorDescription = t('agent.rateLimitExceeded');
-                }
-
-                toast({
-                    title: t('agent.errorTitle'),
-                    description: errorDescription,
-                    variant: "destructive"
-                });
-            }
-
-            return result;
+            return { success: false };
         } catch (error: any) {
             console.error('Agent execution error:', error.stack || error);
             toast({

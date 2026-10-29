@@ -9,8 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Member, Settlement } from "@quozen/core";
-import { ArrowRightLeft, Trash2 } from "lucide-react";
+import { Member, Settlement, SettlementDraft } from "@quozen/core";
+import { ArrowRightLeft, Trash2, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +37,14 @@ interface SettlementModalProps {
   suggestedAmount?: number;
   users?: Member[];
   initialData?: Settlement;
+  draft?: SettlementDraft;
+  draftMeta?: {
+    rawInput?: string;
+    isAiEscalated?: boolean;
+    ambiguities?: string[];
+  } | null;
+  onRefineWithAi?: () => Promise<void>;
+  isRefiningWithAi?: boolean;
 }
 
 export default function SettlementModal({
@@ -46,13 +54,23 @@ export default function SettlementModal({
   toUser,
   suggestedAmount = 0,
   users = [],
-  initialData
+  initialData,
+  draft,
+  draftMeta,
+  onRefineWithAi,
+  isRefiningWithAi = false
 }: SettlementModalProps) {
   const { activeGroupId, currentUserId } = useAppContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
-  const { setPaused } = useAutoSync();
+  let autoSync: any;
+  try {
+    autoSync = useAutoSync();
+  } catch {
+    // Fallback for tests without AutoSyncProvider
+  }
+  const setPaused = autoSync?.setPaused || (() => {});
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("cash");
@@ -76,15 +94,21 @@ export default function SettlementModal({
         setNotes(initialData.notes || "");
         setSelectedFromId(initialData.fromUserId);
         setSelectedToId(initialData.toUserId);
+      } else if (draft) {
+        setAmount(draft.amount > 0 ? draft.amount.toFixed(2) : "");
+        setMethod(draft.method || "cash");
+        setNotes(draft.notes || "");
+        setSelectedFromId(draft.fromUserId || fromUser?.userId || currentUserId || "");
+        setSelectedToId(draft.toUserId || toUser?.userId || "");
       } else {
         setAmount(suggestedAmount > 0 ? suggestedAmount.toFixed(2) : "");
         setMethod("cash");
         setNotes("");
-        setSelectedFromId(fromUser?.userId || "");
+        setSelectedFromId(fromUser?.userId || currentUserId || "");
         setSelectedToId(toUser?.userId || "");
       }
     }
-  }, [isOpen, initialData, suggestedAmount, fromUser, toUser]);
+  }, [isOpen, initialData, draft, suggestedAmount, fromUser, toUser, currentUserId]);
 
   const handleSwap = () => {
     setSelectedFromId(selectedToId);
@@ -153,7 +177,7 @@ export default function SettlementModal({
       amount: parseFloat(String(amount).replace(',', '.')),
       method,
       notes: notes.trim() || undefined,
-      date: initialData ? initialData.date : new Date().toISOString(),
+      date: initialData ? initialData.date : (draft?.date ? draft.date.toISOString() : new Date().toISOString()),
     });
   };
 
@@ -167,16 +191,37 @@ export default function SettlementModal({
           }}
         >
           <DrawerHeader>
-            <DrawerTitle className="text-center">{initialData ? t("settlement.editTitle") : t("settlement.title")}</DrawerTitle>
+            <DrawerTitle className="text-center">
+              {initialData ? t("settlement.editTitle") : (draft ? t("settlement.reviewDraftTitle", "Review Settlement") : t("settlement.title"))}
+            </DrawerTitle>
             <DrawerDescription className="text-center">
-              {initialData ? t("settlement.editDesc") : t("settlement.desc")}
+              {initialData ? t("settlement.editDesc") : (draft ? t("settlement.reviewDraftDesc", "Confirm or adjust transfer details.") : t("settlement.desc"))}
             </DrawerDescription>
           </DrawerHeader>
 
           {/* Scrollable Content */}
           <div className="flex-1 overflow-y-auto px-4 pb-4">
-            <form id="settlement-form" onSubmit={handleSubmit} className="space-y-4" data-testid="form-settlement">
+            {draft && (
+              <div className="mb-4 p-3 rounded-xl bg-primary/5 border border-primary/20 space-y-1 text-left" data-testid="settlement-draft-banner">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="font-semibold text-primary flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-primary" />
+                    {t("agent.draftReviewTitle", "Draft Review")}
+                  </span>
+                  {draftMeta?.rawInput && (
+                    <span className="truncate max-w-[180px] italic">"{draftMeta.rawInput}"</span>
+                  )}
+                </div>
+                {draftMeta?.ambiguities && draftMeta.ambiguities.length > 0 && (
+                  <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{t("agent.draftAmbiguityWarning", "Some details were unclear. Please review the prefilled values below.")}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
+            <form id="settlement-form" onSubmit={handleSubmit} className="space-y-4" data-testid="form-settlement">
               <div className="flex items-center justify-between gap-2 py-6 px-2 bg-muted/20 rounded-2xl relative border border-border/50">
                 <div className="flex-1">
                   <Select value={selectedFromId} onValueChange={setSelectedFromId}>
@@ -287,7 +332,26 @@ export default function SettlementModal({
           </div>
 
           {/* Sticky Footer */}
-          <DrawerFooter className="border-t bg-background">
+          <DrawerFooter className="border-t bg-background space-y-2">
+            {draft && onRefineWithAi && !draftMeta?.isAiEscalated && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full text-xs gap-1.5 h-8 border-dashed"
+                onClick={onRefineWithAi}
+                disabled={isRefiningWithAi || saveMutation.isPending}
+                data-testid="button-refine-settlement-ai"
+              >
+                {isRefiningWithAi ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-primary" />
+                )}
+                {t("agent.refineWithAi", "Not quite right? Refine with AI")}
+              </Button>
+            )}
+
             <div className="flex gap-3">
               {initialData && (
                 <Button

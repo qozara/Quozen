@@ -32,6 +32,13 @@ describe("GroupUnavailableModal", () => {
             currentUserId: "u1",
             isAddExpenseOpen: false,
             setIsAddExpenseOpen: vi.fn(),
+            expenseDraft: null,
+            setExpenseDraft: vi.fn(),
+            expenseDraftMeta: null,
+            openExpenseWithDraft: vi.fn(),
+            settlementDraftState: { isOpen: false },
+            setSettlementDraftState: vi.fn(),
+            openSettlementWithDraft: vi.fn(),
             schemaErrorStatus: null,
             setSchemaErrorStatus: vi.fn()
           }}
