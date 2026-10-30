@@ -90,6 +90,7 @@ export interface UserSettings {
         theme?: "light" | "dark" | "system";
         locale?: "en" | "es" | "system";
         aiProvider?: "auto" | "byok" | "local" | "local-browser" | "cloud" | "disabled";
+        enableLocalAi?: boolean;
         ollamaBaseUrl?: string;
         ollamaModel?: string;
         byokProvider?: string;

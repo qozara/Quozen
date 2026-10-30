@@ -1,0 +1,29 @@
+{
+  "name": "@quozen/ai-services",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "dev": "tsup src/index.ts --format esm --watch --dts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@qozara/ai-client": "^1.0.0",
+    "@quozen/core": "*"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.12"
+  }
+}

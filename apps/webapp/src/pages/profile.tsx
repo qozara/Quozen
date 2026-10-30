@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/auth-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { User as UserIcon, Settings, HelpCircle, LogOut, Mail, RefreshCw, AlertCircle, Coins, Globe, Sparkles, Key, Bot } from "lucide-react";
+import { User as UserIcon, Settings, HelpCircle, LogOut, Mail, RefreshCw, AlertCircle, Coins, Globe, Zap, Key, Bot } from "lucide-react";
 import { quozen } from "@/lib/storage";
 import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/hooks/use-settings";
@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useTranslation } from "react-i18next";
 import React from "react";
 import { useAiFeature } from "@/features/agent/AiFeatureContext";
@@ -72,6 +73,7 @@ export default function Profile() {
   const [draftOllamaUrl, setDraftOllamaUrl] = React.useState(settings?.preferences?.ollamaBaseUrl || "");
   const [draftOllamaModel, setDraftOllamaModel] = React.useState(settings?.preferences?.ollamaModel || "");
   const [draftByokProvider, setDraftByokProvider] = React.useState(settings?.preferences?.byokProvider || "google");
+  const [draftEnableLocalAi, setDraftEnableLocalAi] = React.useState(settings?.preferences?.enableLocalAi ?? false);
   const [isAiDirty, setIsAiDirty] = React.useState(false);
   const [isVerifying, setIsVerifying] = React.useState(false);
   const [isOnlineRequiredOpen, setIsOnlineRequiredOpen] = React.useState(false);
@@ -90,13 +92,15 @@ export default function Profile() {
       setDraftOllamaUrl(settings.preferences.ollamaBaseUrl || "");
       setDraftOllamaModel(settings.preferences.ollamaModel || "");
       setDraftByokProvider(settings.preferences.byokProvider || "google");
+      setDraftEnableLocalAi(settings.preferences.enableLocalAi ?? false);
     }
   }, [
     isAiDirty,
     settings?.preferences?.aiProvider,
     settings?.preferences?.ollamaBaseUrl,
     settings?.preferences?.ollamaModel,
-    settings?.preferences?.byokProvider
+    settings?.preferences?.byokProvider,
+    settings?.preferences?.enableLocalAi
   ]);
 
   const reconcileMutation = useMutation({
@@ -165,10 +169,11 @@ export default function Profile() {
       const config = {
         providerPreference: draftProvider as any,
         encryptedApiKey: finalEncryptedKey,
-        baseUrl: draftOllamaUrl || import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
+        baseUrl: draftEnableLocalAi ? (draftOllamaUrl || import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434/api') : undefined,
         proxyUrl: import.meta.env.VITE_AI_PROXY_URL,
         ollamaModel: draftOllamaModel || import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
-        byokProvider: draftByokProvider || 'google'
+        byokProvider: draftByokProvider || 'google',
+        enableLocalAi: draftEnableLocalAi
       };
 
       const tempProvider = await AiProviderFactory.createProvider(config, getAuthToken as any);
@@ -182,7 +187,8 @@ export default function Profile() {
           aiProvider: draftProvider as any,
           ollamaBaseUrl: draftOllamaUrl,
           ollamaModel: draftOllamaModel,
-          byokProvider: draftByokProvider
+          byokProvider: draftByokProvider,
+          enableLocalAi: draftEnableLocalAi
         }
       };
 
@@ -376,11 +382,11 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      {/* AI Assistant */}
+      {/* Assistant */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center">
-            <Sparkles className="w-5 h-5 mr-2 text-primary" />
+            <Zap className="w-5 h-5 mr-2 text-primary" />
             {t("profile.aiAssistant")}
           </CardTitle>
         </CardHeader>
@@ -418,6 +424,12 @@ export default function Profile() {
                 </p>
               )}
             </div>
+
+            {draftProvider === 'local' && !draftEnableLocalAi && (
+              <p className="text-xs font-medium text-amber-700 bg-amber-50 p-2 rounded border border-amber-200" data-testid="warning-local-ai-disabled">
+                {t("profile.localAiDisabledWarning")}
+              </p>
+            )}
 
             {draftProvider === 'byok' && (
               <div className="space-y-4 animate-in fade-in slide-in-from-top-1">
@@ -491,6 +503,26 @@ export default function Profile() {
                 </div>
               </div>
             )}
+
+            <div className="flex items-center justify-between rounded-lg border p-3 shadow-xs">
+              <div className="space-y-0.5 pr-2">
+                <Label htmlFor="enable-local-ai" className="text-sm font-medium">
+                  {t("profile.enableLocalAi")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("profile.enableLocalAiDesc")}
+                </p>
+              </div>
+              <Switch
+                id="enable-local-ai"
+                data-testid="switch-enable-local-ai"
+                checked={draftEnableLocalAi}
+                onCheckedChange={(checked) => {
+                  setDraftEnableLocalAi(checked);
+                  setIsAiDirty(true);
+                }}
+              />
+            </div>
 
             <Button className="w-full" onClick={handleSaveAiSettings} disabled={isVerifying}>
               {isVerifying ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : null}

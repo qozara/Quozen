@@ -605,12 +605,36 @@ describe("WP3: RxDB Schema, Categories Collection, v0->v1 Migration & Self-Heali
     });
 
     describe("RxDB user_settings Schema Evolution (v2 -> v3)", () => {
-        it("userSettingsSchema is at version 3 with icon in groupCache and archivedGroupCache", () => {
-            expect(userSettingsSchema.version).toBe(3);
+        it("userSettingsSchema is at version 4 with icon in groupCache and enableLocalAi in preferences", () => {
+            expect(userSettingsSchema.version).toBe(4);
             const groupProps = (userSettingsSchema.properties.groupCache as any).items.properties;
             const archivedProps = (userSettingsSchema.properties.archivedGroupCache as any).items.properties;
+            const prefProps = (userSettingsSchema.properties.preferences as any).properties;
             expect(groupProps.icon).toBeDefined();
             expect(archivedProps.icon).toBeDefined();
+            expect(prefProps.enableLocalAi).toBeDefined();
+        });
+
+        it("userSettingsMigrationStrategies[4] migrates a v3 document to v4", () => {
+            const v3Doc = {
+                id: "global_settings",
+                version: 3,
+                activeGroupId: "g-active",
+                groupCache: [],
+                archivedGroupCache: [],
+                preferences: { defaultCurrency: "EUR" },
+                preferencesUpdatedAt: "2026-03-01T00:00:00.000Z",
+                lastUpdated: "2026-03-01T00:00:00.000Z",
+                updatedAt: "2026-03-01T00:00:00.000Z",
+                deletedAt: null
+            };
+
+            const strategy4 = (userSettingsMigrationStrategies as any)[4];
+            expect(typeof strategy4).toBe("function");
+
+            const v4Doc = strategy4(v3Doc);
+            expect(v4Doc.version).toBe(4);
+            expect(v4Doc.preferences.enableLocalAi).toBe(false);
         });
 
         it("userSettingsMigrationStrategies[3] migrates a v2 document to v3", () => {
@@ -733,20 +757,21 @@ describe("WP3: RxDB Schema, Categories Collection, v0->v1 Migration & Self-Heali
 
             const doc = await db.user_settings.findOne("global_settings").exec();
             expect(doc).not.toBeNull();
-            expect(doc?.version).toBe(3);
+            expect(doc?.version).toBe(4);
             expect(doc?.groupCache[0].name).toBe("Trip Group");
             expect(doc?.groupCache[0].icon).toBe("plane");
             expect(doc?.preferences.defaultCurrency).toBe("JPY");
+            expect(doc?.preferences.enableLocalAi).toBe(false);
         });
 
-        it("userSettingsToDoc defaults version to 3", () => {
+        it("userSettingsToDoc defaults version to 4", () => {
             const doc = userSettingsToDoc({
                 activeGroupId: "g1",
                 groupCache: [],
                 preferences: { defaultCurrency: "USD" },
                 lastUpdated: new Date().toISOString()
             });
-            expect(doc.version).toBe(3);
+            expect(doc.version).toBe(4);
         });
     });
 });

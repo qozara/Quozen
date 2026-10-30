@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, Send, Zap, Bot, Cpu } from 'lucide-react';
+import { Zap, Send, Bot, Cpu } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -15,9 +15,17 @@ export const AgentCommandDrawer: React.FC = () => {
     const [isThinking, setIsThinking] = useState(false);
     const { t } = useTranslation();
     const { executeCommand } = useAgent();
-    const { provider } = useAiFeature();
+    const { provider, status } = useAiFeature();
 
     const getBadgeInfo = () => {
+        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+        if (status !== 'available' || !isOnline) {
+            return {
+                icon: <Zap className="w-3 h-3 text-emerald-500" />,
+                label: t('agent.offlineSmartParser', 'Offline Support')
+            };
+        }
+
         const mode = provider?.mode || 'cloud';
         if (mode === 'local-browser') return { icon: <Cpu className="w-3 h-3" />, label: t('agent.onDevice') };
         if (mode === 'local-ollama') return { icon: <Cpu className="w-3 h-3" />, label: 'Local Ollama' };
@@ -47,7 +55,7 @@ export const AgentCommandDrawer: React.FC = () => {
             title={t('agent.title')}
             data-testid="button-ai-assistant"
         >
-            <Sparkles className="w-4 h-4 text-primary" />
+            <Zap className="w-4 h-4 text-primary" />
         </button>
     );
 
@@ -61,7 +69,7 @@ export const AgentCommandDrawer: React.FC = () => {
                 <DrawerContent>
                     <DrawerHeader>
                         <DrawerTitle className="flex items-center gap-2" data-testid="drawer-title-ai">
-                            <Sparkles className="w-5 h-5 text-primary" />
+                            <Zap className="w-5 h-5 text-primary" />
                             {t('agent.title')}
                         </DrawerTitle>
                         <DrawerDescription>

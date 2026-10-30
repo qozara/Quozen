@@ -118,7 +118,8 @@ describe("AuthenticatedApp Integration", () => {
     (useAutoSync as any).mockReturnValue({
       triggerSync: vi.fn(),
       isEnabled: true,
-      isPaused: false
+      isPaused: false,
+      setPaused: vi.fn()
     });
 
     (useQuery as any).mockReturnValue({

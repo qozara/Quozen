@@ -60,6 +60,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
+      "@quozen/core": path.resolve(__dirname, "../../packages/core/src"),
+      "@quozen/ai-services": path.resolve(__dirname, "../../packages/ai-services/src"),
     },
   },
   root: "./",
