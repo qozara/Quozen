@@ -399,7 +399,7 @@ export default function ExpenseForm({
                 key={split.userId}
                 className={cn(
                   "flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer",
-                  split.selected ? "bg-primary/10 border-primary" : "bg-secondary border-transparent"
+                  split.selected ? "bg-primary/10 border-primary shadow-xs" : "bg-muted/40 hover:bg-muted/60 border-border/60 shadow-xs"
                 )}
                 onClick={() => handleSplitSelection(split.userId, !split.selected)}
                 data-testid={`split-item-${split.userId}`}
@@ -443,7 +443,7 @@ export default function ExpenseForm({
 
         {/* Action Footer */}
         <div className={cn(
-          "w-full bg-background border-t shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-40 p-4 space-y-2",
+          "w-full bg-card border-t border-border shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-40 p-4 space-y-2",
           isDrawer ? "sticky bottom-0 -mx-4 px-8" : "fixed bottom-0 left-1/2 transform -translate-x-1/2 max-w-md"
         )}>
           {draft && onRefineWithAi && !draftMeta?.isAiEscalated && (
