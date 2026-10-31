@@ -25,7 +25,7 @@ export default function Login() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
+      <div className="flex flex-col items-center justify-center h-screen bg-background">
         <img src="/logo.svg" alt="Quozen" className="w-16 h-16 animate-pulse mb-4" />
         <div className="text-muted-foreground font-medium">{t("common.loading")}</div>
       </div>

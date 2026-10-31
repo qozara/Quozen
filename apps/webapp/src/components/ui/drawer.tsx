@@ -28,7 +28,7 @@ const DrawerOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DrawerPrimitive.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-50 bg-black/80", className)}
+    className={cn("fixed inset-0 z-50 bg-black/40 backdrop-blur-sm dark:bg-black/70", className)}
     {...props}
   />
 ))
@@ -43,12 +43,12 @@ const DrawerContent = React.forwardRef<
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto max-h-[96vh] flex-col rounded-t-[10px] border bg-background outline-none",
+        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto max-h-[96vh] flex-col rounded-t-2xl border-t border-x border-border bg-card text-card-foreground shadow-2xl outline-none",
         className
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted shrink-0" />
+      <div className="mx-auto mt-3.5 h-1.5 w-12 rounded-full bg-foreground/30 dark:bg-foreground/40 hover:bg-foreground/45 dark:hover:bg-foreground/60 transition-colors shrink-0 cursor-grab" data-testid="drawer-handle" />
       {/* We wrap children in a flex-1 container to manage internal scrolling if structured correctly by the consumer */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden w-full max-w-md mx-auto">
         {children}

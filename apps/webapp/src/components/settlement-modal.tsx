@@ -222,7 +222,7 @@ export default function SettlementModal({
             )}
 
             <form id="settlement-form" onSubmit={handleSubmit} className="space-y-4" data-testid="form-settlement">
-              <div className="flex items-center justify-between gap-2 py-6 px-2 bg-muted/20 rounded-2xl relative border border-border/50">
+              <div className="flex items-center justify-between gap-2 py-6 px-2 bg-muted/40 rounded-2xl relative border border-border/60 shadow-xs">
                 <div className="flex-1">
                   <Select value={selectedFromId} onValueChange={setSelectedFromId}>
                     <SelectTrigger className="h-auto p-0 border-none bg-transparent hover:bg-transparent shadow-none focus:ring-0 flex flex-col items-center gap-2">
@@ -249,7 +249,7 @@ export default function SettlementModal({
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="h-8 w-8 rounded-full bg-background shadow-sm border-border hover:bg-muted"
+                    className="h-8 w-8 rounded-full bg-card shadow-sm border-border hover:bg-accent text-primary transition-transform active:scale-95"
                     onClick={handleSwap}
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5 text-primary" />
