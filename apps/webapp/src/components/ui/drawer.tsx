@@ -48,7 +48,7 @@ const DrawerContent = React.forwardRef<
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-1.5 w-12 rounded-full bg-muted-foreground/25 hover:bg-muted-foreground/35 transition-colors shrink-0" />
+      <div className="mx-auto mt-3.5 h-1.5 w-12 rounded-full bg-foreground/30 dark:bg-foreground/40 hover:bg-foreground/45 dark:hover:bg-foreground/60 transition-colors shrink-0 cursor-grab" data-testid="drawer-handle" />
       {/* We wrap children in a flex-1 container to manage internal scrolling if structured correctly by the consumer */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden w-full max-w-md mx-auto">
         {children}
