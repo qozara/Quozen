@@ -226,7 +226,7 @@ describe("ThemeContext & ThemeProvider", () => {
     const themeColorMeta = document.querySelector('meta[name="theme-color"]');
 
     expect(colorSchemeMeta?.getAttribute("content")).toBe("dark");
-    expect(themeColorMeta?.getAttribute("content")).toBe("#020817");
+    expect(themeColorMeta?.getAttribute("content")).toBe("#0F141C");
 
     await user.click(screen.getByTestId("btn-light"));
 

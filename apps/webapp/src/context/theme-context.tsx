@@ -63,8 +63,8 @@ export function applyThemeToDom(resolved: ResolvedTheme) {
     themeColorMeta.setAttribute("name", "theme-color");
     document.head.appendChild(themeColorMeta);
   }
-  // Dark mode uses dark surface (#020817), Light mode uses brand primary (#0F766E)
-  themeColorMeta.setAttribute("content", resolved === "dark" ? "#020817" : "#0F766E");
+  // Dark mode uses dark surface (#0F141C), Light mode uses brand primary (#0F766E)
+  themeColorMeta.setAttribute("content", resolved === "dark" ? "#0F141C" : "#0F766E");
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
