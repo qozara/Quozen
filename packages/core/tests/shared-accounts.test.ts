@@ -152,6 +152,14 @@ describe('Account-User Separation (Shared, Personal, and Offline Accounts)', () 
         expect(ledger.members).toHaveLength(2);
         expect(ledger.members.some(m => m.userId === userB.id)).toBe(false);
         expect(await clientB.groups.getGroupAccountId(group.id)).toBe(userA.id);
+
+        // US-COLLAB: Participants overview reflects User B co-managing User A's account
+        const participants = await clientA.groups.getGroupParticipants(group.id);
+        const managedAccount = participants.accounts.find(a => a.member.userId === userA.id);
+        expect(managedAccount).toBeDefined();
+        expect(managedAccount?.kind).toBe('shared');
+        expect(managedAccount?.managers.some(m => m.email === userB.email)).toBe(true);
+        expect(participants.collaborators.some(c => c.email === userB.email)).toBe(true);
     });
 
     it('refuses to remove an account in removeUnusedMember if it is owner or has transactions', async () => {

@@ -339,10 +339,20 @@ export default function Groups() {
         open={dialogState.open}
         onOpenChange={(open) => setDialogState(prev => ({ ...prev, open }))}
         mode={dialogState.mode}
+        groupId={dialogState.groupId}
         initialName={dialogState.initialName}
         initialMembers={dialogState.initialMembers}
         initialIcon={dialogState.initialIcon}
         isPending={createGroupMutation.isPending || updateGroupMutation.isPending}
+        onOpenShare={() => {
+          if (dialogState.groupId) {
+            setShareDialog({
+              open: true,
+              groupId: dialogState.groupId,
+              groupName: dialogState.initialName || ""
+            });
+          }
+        }}
         onSubmit={(data) => {
           if (dialogState.mode === 'create') {
             createGroupMutation.mutate(data);

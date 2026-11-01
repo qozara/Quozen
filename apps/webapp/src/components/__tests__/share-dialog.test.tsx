@@ -13,7 +13,7 @@ vi.mock("@/hooks/use-toast", () => ({
 
 // Mock auth provider to avoid context error
 vi.mock("@/context/auth-provider", () => ({
-    useAuth: vi.fn(() => ({ user: { name: "Test User" } })),
+    useAuth: vi.fn(() => ({ user: { name: "Alice", email: "alice@example.com" } })),
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -48,7 +48,10 @@ vi.mock("@/lib/storage", () => ({
     quozen: {
         groups: {
             setGroupPermissions: vi.fn(),
-            getGroupPermissions: vi.fn()
+            getGroupPermissions: vi.fn(),
+            getGroupParticipants: vi.fn(),
+            removeGroupCollaborator: vi.fn(),
+            updateGroup: vi.fn()
         }
     }
 }));
@@ -187,5 +190,74 @@ describe("ShareDialog Component", () => {
         expect(screen.getByText(en.share.publicLink)).toBeInTheDocument();
         expect(screen.getByText(en.share.publicNote)).toBeInTheDocument();
         expect(screen.queryByTestId("button-enable-public-sharing")).not.toBeInTheDocument();
+    });
+
+    it("renders collaborators with avatars, names, roles, and managed accounts", () => {
+        const mockParticipants = {
+            accessMode: "restricted",
+            collaborators: [
+                { id: "perm-1", email: "alice@example.com", displayName: "Alice Owner", role: "owner" },
+                { id: "perm-2", email: "charlie@example.com", displayName: "Charlie Member", role: "editor" }
+            ],
+            accounts: [
+                {
+                    member: { userId: "user-1", email: "alice@example.com", name: "Alice", role: "owner", joinedAt: new Date() },
+                    kind: "personal",
+                    managers: [{ id: "perm-1", email: "alice@example.com", displayName: "Alice Owner", role: "owner" }]
+                },
+                {
+                    member: { userId: "user-shared", email: "", name: "Garcia Family", role: "member", joinedAt: new Date() },
+                    kind: "shared",
+                    managers: [{ id: "perm-2", email: "charlie@example.com", displayName: "Charlie Member", role: "editor" }]
+                }
+            ],
+            unassignedCollaborators: []
+        };
+
+        (useQuery as any).mockImplementation(({ queryKey }: any) => {
+            if (queryKey[0] === "group-participants") {
+                return { data: mockParticipants, isLoading: false };
+            }
+            return { data: "restricted", isLoading: false };
+        });
+
+        render(<ShareDialog {...defaultProps} />);
+
+        expect(screen.getByText("Alice Owner")).toBeInTheDocument();
+        expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+        expect(screen.getByText("Charlie Member")).toBeInTheDocument();
+        expect(screen.getByText("charlie@example.com")).toBeInTheDocument();
+        expect(screen.getByText(/Managing: Garcia Family/i)).toBeInTheDocument();
+        expect(screen.getByTestId("button-revoke-charlie@example.com")).toBeInTheDocument();
+    });
+
+    it("prompts confirmation and calls removeGroupCollaborator when owner revokes access", async () => {
+        const mockParticipants = {
+            accessMode: "restricted",
+            collaborators: [
+                { id: "perm-1", email: "alice@example.com", displayName: "Alice Owner", role: "owner" },
+                { id: "perm-2", email: "charlie@example.com", displayName: "Charlie Member", role: "editor" }
+            ],
+            accounts: [],
+            unassignedCollaborators: []
+        };
+
+        (useQuery as any).mockImplementation(({ queryKey }: any) => {
+            if (queryKey[0] === "group-participants") {
+                return { data: mockParticipants, isLoading: false };
+            }
+            return { data: "restricted", isLoading: false };
+        });
+
+        const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+        render(<ShareDialog {...defaultProps} />);
+
+        const revokeBtn = screen.getByTestId("button-revoke-charlie@example.com");
+        fireEvent.click(revokeBtn);
+
+        expect(confirmSpy).toHaveBeenCalled();
+        expect(mockMutate).toHaveBeenCalledWith(mockParticipants.collaborators[1]);
+        confirmSpy.mockRestore();
     });
 });

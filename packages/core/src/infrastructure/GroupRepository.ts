@@ -12,6 +12,13 @@ import type { BlobStorageDriver } from "../sync/types";
 import { isNetworkError } from "../sync/CompositeCloudSyncProvider";
 import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
 import { OfflineOperationError, GroupFileUnavailableError } from "../errors";
+import {
+    GroupCollaborator,
+    GroupParticipantsOverview,
+    AccountManagersMap,
+    CollaboratorRole
+} from "../domain/collaborator";
+import { GroupMembershipResolver } from "../domain/GroupMembershipResolver";
 
 export class GroupRepository {
     private accountIdCache = new Map<string, string | undefined>();
@@ -79,6 +86,7 @@ export class GroupRepository {
             cached.updatedAt = nowIso;
             await this.saveSettings(settings);
         }
+        await this.updateAccountManagerBinding(groupId, this.user.email, accountId);
     }
 
     async getSettings(): Promise<UserSettings> {
@@ -603,6 +611,17 @@ export class GroupRepository {
             initialMembers.push([memberId, member.email || "", memberName, "member", nowIso, nowIso]);
         }
 
+        if (this.user.email) {
+            try {
+                const perms = await this.storage.listPermissions(fileId);
+                if (!perms.some((p: any) => p.role === "owner")) {
+                    await this.storage.createPermission(fileId, "owner", "user", this.user.email);
+                }
+            } catch {
+                // Ignore if storage layer handles owner permissions automatically
+            }
+        }
+
         const initialCategories = DEFAULT_CATEGORIES.map(c => [
             c.id,
             c.name,
@@ -757,6 +776,161 @@ export class GroupRepository {
             console.error("Failed to get permissions", e);
             return 'restricted';
         }
+    }
+
+    // --- Group Metadata (_meta tab) Encapsulation ---
+
+    async readGroupMetadata(groupId: string): Promise<Record<string, string>> {
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (isOffline) return {};
+
+        try {
+            const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C50"]);
+            const rows = metaRes[0]?.values || [];
+            const result: Record<string, string> = {};
+            const startIdx = rows[0]?.[0] === "key" ? 1 : 0;
+            for (let i = startIdx; i < rows.length; i++) {
+                const row = rows[i];
+                if (row && row[0]) {
+                    result[row[0]] = row[1] || "";
+                }
+            }
+            return result;
+        } catch (err) {
+            return {};
+        }
+    }
+
+    async writeGroupMetadata(groupId: string, entries: Record<string, string | undefined>): Promise<void> {
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (isOffline) return;
+
+        try {
+            let metaRows: any[][] = [];
+            try {
+                const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C50"]);
+                metaRows = metaRes[0]?.values || [];
+            } catch {
+                // _meta might not exist in unmigrated sheets
+            }
+
+            const nowIso = new Date().toISOString();
+            if (metaRows.length === 0 || metaRows[0]?.[0] !== "key") {
+                metaRows = [["key", "value", "updatedAt"]];
+            }
+
+            for (const [key, value] of Object.entries(entries)) {
+                if (value === undefined) continue;
+                if (value.length > 49000) {
+                    console.warn(`[GroupRepository] Value for key "${key}" exceeds Google Sheets cell limit (50000 chars), skipping`);
+                    continue;
+                }
+                const existingIdx = metaRows.findIndex(r => r[0] === key);
+                if (existingIdx >= 0) {
+                    metaRows[existingIdx] = [key, value, nowIso];
+                } else {
+                    metaRows.push([key, value, nowIso]);
+                }
+            }
+
+            await this.storage.batchUpdateValues(groupId, [
+                { range: "_meta!A1", values: metaRows }
+            ]);
+        } catch (metaErr) {
+            console.warn("[GroupRepository] Failed to sync _meta entries:", metaErr);
+        }
+    }
+
+    async getAccountManagers(groupId: string): Promise<AccountManagersMap> {
+        const meta = await this.readGroupMetadata(groupId);
+        const rawJson = meta["account_managers"];
+        if (!rawJson) return {};
+        try {
+            const parsed = JSON.parse(rawJson);
+            return typeof parsed === "object" && parsed !== null ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+
+    async setAccountManagers(groupId: string, map: AccountManagersMap): Promise<void> {
+        await this.writeGroupMetadata(groupId, {
+            account_managers: JSON.stringify(map)
+        });
+    }
+
+    async updateAccountManagerBinding(groupId: string, userEmail: string | undefined, targetAccountId: string | null): Promise<void> {
+        if (!userEmail) return;
+        const normEmail = userEmail.trim().toLowerCase();
+        const map = await this.getAccountManagers(groupId);
+        let changed = false;
+
+        for (const [accId, emails] of Object.entries(map)) {
+            if (Array.isArray(emails) && emails.some(e => e.toLowerCase() === normEmail)) {
+                map[accId] = emails.filter(e => e.toLowerCase() !== normEmail);
+                changed = true;
+            }
+        }
+
+        if (targetAccountId) {
+            const existing = map[targetAccountId] || [];
+            if (!existing.some(e => e.toLowerCase() === normEmail)) {
+                map[targetAccountId] = [...existing, userEmail.trim()];
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            await this.setAccountManagers(groupId, map);
+        }
+    }
+
+    async getGroupCollaborators(groupId: string): Promise<GroupCollaborator[]> {
+        try {
+            const raw = await this.storage.listPermissions(groupId);
+            return (raw || [])
+                .filter((p: any) => p.type === "user" || p.role === "owner" || (p.emailAddress && p.type !== "anyone"))
+                .map((p: any) => {
+                    const email = p.emailAddress || "";
+                    let role: CollaboratorRole = "editor";
+                    if (p.role === "owner") role = "owner";
+                    else if (p.role === "reader" || p.role === "viewer") role = "viewer";
+
+                    return {
+                        id: p.id || `perm-${email}`,
+                        email,
+                        displayName: p.displayName || (email ? email.split("@")[0] : "User"),
+                        avatarUrl: p.photoLink,
+                        role
+                    };
+                });
+        } catch (err) {
+            console.warn("[GroupRepository] Failed to list group collaborators:", err);
+            return [];
+        }
+    }
+
+    async getGroupParticipants(groupId: string): Promise<GroupParticipantsOverview> {
+        const [ledgerMembers, collaborators, accountManagers, accessMode] = await Promise.all([
+            new LedgerRepository(this.storage, groupId, this.db).getMembers(),
+            this.getGroupCollaborators(groupId),
+            this.getAccountManagers(groupId),
+            this.getGroupPermissions(groupId)
+        ]);
+
+        return GroupMembershipResolver.resolveParticipants({
+            members: ledgerMembers,
+            collaborators,
+            accountManagers,
+            accessMode
+        });
+    }
+
+    async removeGroupCollaborator(groupId: string, permissionId: string): Promise<void> {
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("Revoking group access requires an internet connection.", "changePermissions");
+        }
+        await this.storage.deletePermission(groupId, permissionId);
     }
 
     async validateQuozenSpreadsheet(spreadsheetId: string): Promise<{ valid: boolean; status?: ValidationStatus; error?: string; name?: string; members?: Member[] }> {
@@ -936,6 +1110,7 @@ export class GroupRepository {
                 throw new Error("Selected account not found in this group.");
             }
             this.accountIdCache.set(spreadsheetId, options.accountId);
+            await this.updateAccountManagerBinding(spreadsheetId, this.user.email, options.accountId);
             return await this.importGroup(spreadsheetId, { accountId: options.accountId });
         }
 
@@ -1042,46 +1217,26 @@ export class GroupRepository {
             await ledgerRepo.deleteMember(m.userId);
         }
 
-        if (!isOffline && options?.icon !== undefined) {
-            if (options.icon.length > 49000) {
-                console.warn("[GroupRepository] Icon exceeds Google Sheets single cell limit (50000 chars), skipping _meta write");
-            } else {
-                try {
-                    let metaRows: any[][] = [];
-                    try {
-                        const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C20"]);
-                        metaRows = metaRes[0]?.values || [];
-                    } catch {
-                        // _meta tab might not exist in older spreadsheets
+        if (membersToDelete.length > 0) {
+            try {
+                const map = await this.getAccountManagers(groupId);
+                let changed = false;
+                for (const m of membersToDelete) {
+                    if (map[m.userId]) {
+                        delete map[m.userId];
+                        changed = true;
                     }
-
-                    const nowIso = new Date().toISOString();
-                    if (metaRows.length === 0) {
-                        metaRows = [
-                            ["key", "value", "updatedAt"],
-                            ["icon", options.icon, nowIso]
-                        ];
-                        await this.storage.batchUpdateValues(groupId, [
-                            { range: "_meta!A1", values: metaRows }
-                        ]);
-                    } else {
-                        const iconIndex = metaRows.findIndex(r => r[0] === "icon");
-                        if (iconIndex >= 0) {
-                            metaRows[iconIndex] = ["icon", options.icon, nowIso];
-                            await this.storage.batchUpdateValues(groupId, [
-                                { range: `_meta!A${iconIndex + 1}:C${iconIndex + 1}`, values: [["icon", options.icon, nowIso]] }
-                            ]);
-                        } else {
-                            const nextRow = metaRows.length + 1;
-                            await this.storage.batchUpdateValues(groupId, [
-                                { range: `_meta!A${nextRow}:C${nextRow}`, values: [["icon", options.icon, nowIso]] }
-                            ]);
-                        }
-                    }
-                } catch (metaErr) {
-                    console.warn("Could not sync _meta tab:", metaErr);
                 }
+                if (changed) {
+                    await this.setAccountManagers(groupId, map);
+                }
+            } catch {
+                // Ignore
             }
+        }
+
+        if (!isOffline && options?.icon !== undefined) {
+            await this.writeGroupMetadata(groupId, { icon: options.icon });
         }
 
         const settings = await this.getSettings();
@@ -1141,6 +1296,7 @@ export class GroupRepository {
             settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
             if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
             await this.saveSettings(settings);
+            await this.updateAccountManagerBinding(groupId, this.user.email, null);
             return;
         }
 
@@ -1153,6 +1309,7 @@ export class GroupRepository {
         settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
         if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
         await this.saveSettings(settings);
+        await this.updateAccountManagerBinding(groupId, this.user.email, null);
     }
 
     async repairGroup(groupId: string): Promise<void> {

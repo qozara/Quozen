@@ -143,6 +143,21 @@ export interface IStorageProvider {
     getGroupPermissions(groupId: string): Promise<'public' | 'restricted'>;
 
     /**
+     * Lists cloud collaborators who have direct access to the group.
+     */
+    getGroupCollaborators(groupId: string): Promise<import("../domain/collaborator").GroupCollaborator[]>;
+
+    /**
+     * Returns a unified overview of ledger accounts, their active managers, and cloud collaborators.
+     */
+    getGroupParticipants(groupId: string): Promise<import("../domain/collaborator").GroupParticipantsOverview>;
+
+    /**
+     * Revokes a collaborator's access to the group.
+     */
+    removeGroupCollaborator(groupId: string, permissionId: string): Promise<void>;
+
+    /**
      * Check if a member has any associated expenses (paidBy or in splits)
      */
     checkMemberHasExpenses(groupId: string, userId: string): Promise<boolean>;
