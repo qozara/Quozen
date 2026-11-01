@@ -172,4 +172,30 @@ describe("GroupDialog Component", () => {
         fireEvent.click(shareLink);
         expect(onOpenShare).toHaveBeenCalled();
     });
+
+    it("displays 'You' badge for active account and allows switching via 'Use' button", () => {
+        const onSelectAccount = vi.fn();
+        render(
+            <GroupDialog
+                open={true}
+                onOpenChange={vi.fn()}
+                mode="edit"
+                groupId="group-rich"
+                initialName="Road Trip"
+                currentAccountId="user-1"
+                onSelectAccount={onSelectAccount}
+                isPending={false}
+                onSubmit={vi.fn()}
+            />
+        );
+
+        // user-1 has You badge
+        expect(screen.getByTestId("badge-current-account-user-1")).toBeInTheDocument();
+
+        // user-shared has Use button
+        const useBtn = screen.getByTestId("button-use-account-user-shared");
+        expect(useBtn).toBeInTheDocument();
+        fireEvent.click(useBtn);
+        expect(onSelectAccount).toHaveBeenCalledWith("user-shared");
+    });
 });

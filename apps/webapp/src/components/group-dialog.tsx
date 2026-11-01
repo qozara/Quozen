@@ -24,6 +24,8 @@ interface GroupDialogProps {
   initialMembers?: string;
   initialIcon?: string;
   isPending: boolean;
+  currentAccountId?: string;
+  onSelectAccount?: (accountId: string) => void;
   onOpenShare?: () => void;
   onSubmit: (data: { name: string; members: MemberInput[]; icon?: string }) => void;
 }
@@ -37,6 +39,8 @@ export default function GroupDialog({
   initialMembers = "",
   initialIcon = "",
   isPending,
+  currentAccountId,
+  onSelectAccount,
   onOpenShare,
   onSubmit
 }: GroupDialogProps) {
@@ -277,7 +281,8 @@ export default function GroupDialog({
               {showRichUnifiedList ? (
                 <div className="space-y-2 mt-3" data-testid="unified-participants-list">
                   {participantsData.accounts.map((account: ResolvedGroupAccount) => {
-                    const isOwner = account.member.role === "owner";
+                    const isOwner = account.member.role === "owner" || account.managers.some(m => m.role === "owner");
+                    const isCurrent = Boolean(currentAccountId && account.member.userId === currentAccountId);
                     let subtitle = "";
                     if (account.kind === "shared") {
                       subtitle = GroupMembershipResolver.formatManagers(account.managers);
@@ -292,6 +297,7 @@ export default function GroupDialog({
                       (m.email && account.member.email && m.email.toLowerCase() === account.member.email.toLowerCase()) ||
                       (m.username && (m.username === account.member.name || m.username === account.member.userId))
                     );
+                    const canDelete = memberIdx >= 0 && (members.length > 1 || participantsData.accounts.length > 1);
 
                     return (
                       <div
@@ -320,6 +326,23 @@ export default function GroupDialog({
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
+                          {isCurrent && (
+                            <Badge variant="outline" className="text-[9px] h-4 border-primary text-primary font-medium px-1.5" data-testid={`badge-current-account-${account.member.userId}`}>
+                              {t("groups.youBadge")}
+                            </Badge>
+                          )}
+                          {!isCurrent && onSelectAccount && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onSelectAccount(account.member.userId)}
+                              className="h-5 text-[10px] px-1.5 text-primary hover:bg-primary/10 font-normal"
+                              data-testid={`button-use-account-${account.member.userId}`}
+                            >
+                              {t("groups.useAccount")}
+                            </Button>
+                          )}
                           {account.kind === "shared" && (
                             <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary px-1.5">
                               {t("groups.sharedAccount")}
@@ -335,7 +358,7 @@ export default function GroupDialog({
                               {t("roles.owner")}
                             </Badge>
                           )}
-                          {!isOwner && memberIdx >= 0 && (
+                          {canDelete && (
                             <button
                               type="button"
                               onClick={() => handleRemoveMember(memberIdx)}

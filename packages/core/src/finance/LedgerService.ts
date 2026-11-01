@@ -320,7 +320,11 @@ export class LedgerService {
             this.repo.getSettlements()
         ]);
         const member = members.find(m => m.userId === userId);
-        if (!member || member.role === "owner") {
+        if (!member) {
+            return false;
+        }
+        // Cannot delete the only remaining account in a group
+        if (members.length <= 1) {
             return false;
         }
         const hasExpenses = expenses.some(

@@ -634,6 +634,9 @@ export class GroupRepository {
         const metaRows: string[][] = [
             ["key", "value", "updatedAt"]
         ];
+        if (this.user.email) {
+            metaRows.push(["owner_email", this.user.email, nowIso]);
+        }
         if (options?.icon) {
             if (options.icon.length <= 49000) {
                 metaRows.push(["icon", options.icon, nowIso]);
@@ -975,7 +978,7 @@ export class GroupRepository {
             throw new OfflineOperationError("This operation requires an internet connection.", "importGroup");
         }
 
-        const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
+        const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties,owners,capabilities" });
         if (meta.properties?.quozen_type !== 'group') {
             const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
             if (!validation.valid) throw new Error("Invalid Quozen Group. Missing required sheets.");
@@ -991,6 +994,25 @@ export class GroupRepository {
             this.accountIdCache.set(spreadsheetId, linkedAccountId);
         }
 
+        const nowIso = new Date().toISOString();
+        const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
+        let groupIcon = cachedGroup?.icon || existingCachedGroup?.icon;
+        let groupOwnerEmail: string | undefined;
+        try {
+            const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C10"]);
+            const metaRows = metaRes[0]?.values || [];
+            const iconRow = metaRows.find((r: string[]) => r[0] === "icon");
+            if (iconRow && iconRow[1]) {
+                groupIcon = iconRow[1];
+            }
+            const ownerRow = metaRows.find((r: string[]) => r[0] === "owner_email");
+            if (ownerRow && ownerRow[1]) {
+                groupOwnerEmail = ownerRow[1];
+            }
+        } catch {
+            // Older sheets might not have _meta tab
+        }
+
         let role: "owner" | "member" = "member";
         if (validation.members) {
             if (this.db && validation.members.length > 0) {
@@ -1003,14 +1025,28 @@ export class GroupRepository {
                 }
             }
 
-            const member = linkedAccountId
-                ? validation.members.find(m => m.userId === linkedAccountId)
-                : validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
-            if (member?.role === "owner") role = "owner";
+            const isCloudOwner = Boolean(
+                (this.user.email && groupOwnerEmail && groupOwnerEmail.toLowerCase() === this.user.email.toLowerCase()) ||
+                (meta.owners?.some((o: any) => o.emailAddress === this.user.email)) ||
+                meta.capabilities?.canDelete ||
+                validation.members.some(m => ((m.email && m.email.toLowerCase() === this.user.email?.toLowerCase()) || m.userId === this.user.id) && m.role === "owner")
+            );
+
+            if (isCloudOwner) {
+                role = "owner";
+            } else {
+                const member = linkedAccountId
+                    ? validation.members.find(m => m.userId === linkedAccountId)
+                    : validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
+                if (member?.role === "owner" && (!member.email || member.email === this.user.email)) {
+                    role = "owner";
+                }
+            }
             
-            if (!linkedAccountId && member && member.userId !== this.user.id) {
+            const memberToMigrate = validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
+            if (!linkedAccountId && memberToMigrate && memberToMigrate.userId !== this.user.id) {
                 const ledgerRepo = new LedgerRepository(this.storage, spreadsheetId, this.db, () => this.onMutation?.(spreadsheetId));
-                await ledgerRepo.migrateUser(member.userId, this.user.id, this.user.name);
+                await ledgerRepo.migrateUser(memberToMigrate.userId, this.user.id, this.user.name);
             }
         }
 
@@ -1019,20 +1055,6 @@ export class GroupRepository {
 
         if (settings.archivedGroupCache) {
             settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== spreadsheetId);
-        }
-
-        const nowIso = new Date().toISOString();
-        const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
-        let groupIcon = cachedGroup?.icon || existingCachedGroup?.icon;
-        try {
-            const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C10"]);
-            const metaRows = metaRes[0]?.values || [];
-            const iconRow = metaRows.find((r: string[]) => r[0] === "icon");
-            if (iconRow && iconRow[1]) {
-                groupIcon = iconRow[1];
-            }
-        } catch {
-            // Older sheets might not have _meta tab
         }
 
         if (!cachedGroup) {
@@ -1146,8 +1168,13 @@ export class GroupRepository {
 
     async checkMemberHasExpenses(groupId: string, userId: string): Promise<boolean> {
         const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db);
-        const expenses = await ledgerRepo.getExpenses();
-        return expenses.some(e => e.paidByUserId === userId || e.splits.some(s => s.userId === userId && s.amount > 0));
+        const [expenses, settlements] = await Promise.all([
+            ledgerRepo.getExpenses(),
+            ledgerRepo.getSettlements()
+        ]);
+        const hasExpenses = expenses.some(e => e.paidByUserId === userId || e.splits.some(s => s.userId === userId && s.amount > 0));
+        const hasSettlements = settlements.some(s => s.fromUserId === userId || s.toUserId === userId);
+        return hasExpenses || hasSettlements;
     }
 
     async updateGroup(groupId: string, name: string, members: MemberInput[], options?: { icon?: string }): Promise<void> {
@@ -1288,10 +1315,17 @@ export class GroupRepository {
         const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db, () => this.onMutation?.(groupId));
         const currentMembers = await ledgerRepo.getMembers();
         const member = currentMembers.find(m => m.userId === this.user.id || (this.user.email && m.email === this.user.email));
+        const meta = await this.readGroupMetadata(groupId);
+        const ownerEmail = meta["owner_email"];
+        const isOwner = Boolean(
+            (this.user.email && ownerEmail && this.user.email.toLowerCase() === ownerEmail.toLowerCase()) ||
+            (member && member.role === 'owner')
+        );
 
         // If the user is sharing another account and has no personal member row in the sheet,
         // simply remove the group from their personal groupCache without deleting the shared member row.
         if (!member && linkedAccountId) {
+            if (isOwner) throw new Error("Owners cannot leave.");
             this.accountIdCache.delete(groupId);
             settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
             if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
@@ -1301,7 +1335,7 @@ export class GroupRepository {
         }
 
         if (!member) throw new Error("Member not found");
-        if (member.role === 'owner') throw new Error("Owners cannot leave.");
+        if (isOwner) throw new Error("Owners cannot leave.");
         if (await this.checkMemberHasExpenses(groupId, member.userId)) throw new Error("Cannot leave with expenses.");
 
         await ledgerRepo.deleteMember(member.userId);
