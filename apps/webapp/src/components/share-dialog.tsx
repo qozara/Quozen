@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Copy, Check, Globe, Lock, Loader2, Trash2, UserPlus, Users } from "lucide-react";
+import { Copy, Check, Globe, Lock, Loader2, Trash2, UserPlus } from "lucide-react";
 import { useAuth } from "@/context/auth-provider";
 import { useTranslation } from "react-i18next";
 import { useAutoSync } from "@/hooks/use-auto-sync";
@@ -145,7 +145,7 @@ export default function ShareDialog({ isOpen, onClose, groupId, groupName }: Sha
             await quozen.groups.removeGroupCollaborator(groupId, collaborator.id);
             return collaborator;
         },
-        onSuccess: (collaborator) => {
+        onSuccess: () => {
             toast({
                 title: t("common.success"),
                 description: t("share.revokeSuccess")

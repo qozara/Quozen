@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { parseMembers } from "@/lib/utils";
-import { MemberInput, GroupMembershipResolver } from "@quozen/core";
+import { MemberInput, GroupMembershipResolver, ResolvedGroupAccount, GroupCollaborator } from "@quozen/core";
 import { useTranslation } from "react-i18next";
 import { useAutoSync } from "@/hooks/use-auto-sync";
-import { X, Plus, Loader2, Upload, Trash2, Check, Share2, Users, AlertCircle } from "lucide-react";
+import { X, Plus, Loader2, Upload, Trash2, Check, Share2, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GroupIcon, GROUP_ICON_PRESETS } from "./group-icon";
@@ -276,7 +276,7 @@ export default function GroupDialog({
               {/* Mode Edit: Unified Accounts & Members List */}
               {showRichUnifiedList ? (
                 <div className="space-y-2 mt-3" data-testid="unified-participants-list">
-                  {participantsData.accounts.map((account) => {
+                  {participantsData.accounts.map((account: ResolvedGroupAccount) => {
                     const isOwner = account.member.role === "owner";
                     let subtitle = "";
                     if (account.kind === "shared") {
@@ -358,7 +358,7 @@ export default function GroupDialog({
                         <span>{t("groups.unassignedCollaboratorsTitle")}</span>
                       </div>
                       <div className="space-y-1">
-                        {participantsData.unassignedCollaborators.map(c => (
+                        {participantsData.unassignedCollaborators.map((c: GroupCollaborator) => (
                           <div key={c.id || c.email} className="flex items-center justify-between text-[11px] text-muted-foreground">
                             <span>{c.displayName} ({c.email})</span>
                           </div>
@@ -370,7 +370,7 @@ export default function GroupDialog({
                   {/* Newly added pending members */}
                   {members.filter(m => {
                     const norm = (m.email || m.username || "").toLowerCase();
-                    return !participantsData.accounts.some(a =>
+                    return !participantsData.accounts.some((a: ResolvedGroupAccount) =>
                       (a.member.email && a.member.email.toLowerCase() === norm) ||
                       a.member.name.toLowerCase() === norm ||
                       a.member.userId.toLowerCase() === norm
