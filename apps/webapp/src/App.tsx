@@ -17,6 +17,7 @@ import Header from "@/components/header";
 import SiteFooter from "@/components/site-footer";
 import { AppContext, useAppContext, SettlementDraftState } from "@/context/app-context";
 import { AuthProvider, useAuth } from "@/context/auth-provider";
+import { ThemeProvider } from "@/context/theme-context";
 import { useSettings } from "@/hooks/use-settings";
 import { useGroups } from "@/hooks/use-groups";
 import { AutoSyncProvider } from "@/context/auto-sync-context";
@@ -389,7 +390,9 @@ function App() {
         <TooltipProvider>
           <PwaUpdateProvider>
             <AuthProvider>
-              <AuthenticatedApp />
+              <ThemeProvider>
+                <AuthenticatedApp />
+              </ThemeProvider>
             </AuthProvider>
           </PwaUpdateProvider>
         </TooltipProvider>

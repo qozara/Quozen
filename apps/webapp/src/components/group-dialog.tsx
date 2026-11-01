@@ -143,7 +143,7 @@ export default function GroupDialog({
             </div>
 
             {/* Group Icon & Banner Section */}
-            <div className="space-y-2 border rounded-lg p-3 bg-muted/20">
+            <div className="space-y-2 border border-border/70 rounded-xl p-3.5 bg-muted/30 shadow-xs">
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">{t("groups.iconLabel")}</Label>
                 {icon && (

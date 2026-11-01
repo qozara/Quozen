@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(0, 0%, 100%);
+  color-scheme: light dark;
+  --background: hsl(175, 20%, 98%);
   --foreground: hsl(222.2, 84%, 4.9%);
   --card: hsl(0, 0%, 100%);
   --card-foreground: hsl(222.2, 84%, 4.9%);
@@ -14,23 +15,23 @@
   --primary: hsl(175, 77%, 26%);
   --primary-foreground: hsl(210, 40%, 98%);
 
-  /* Secondary: Light Teal Tint */
-  --secondary: hsl(175, 30%, 96%);
-  --secondary-foreground: hsl(222.2, 47.4%, 11.2%);
+  /* Secondary: Light Mint-Teal Tint */
+  --secondary: hsl(175, 25%, 94%);
+  --secondary-foreground: hsl(175, 77%, 18%);
 
-  /* Muted: Teal Gray */
-  --muted: hsl(175, 20%, 96%);
+  /* Muted: Soft Teal Slate */
+  --muted: hsl(175, 18%, 93.5%);
   --muted-foreground: hsl(215.4, 16.3%, 46.9%);
 
   /* Accent: Hover effects */
-  --accent: hsl(175, 30%, 96%);
-  --accent-foreground: hsl(222.2, 47.4%, 11.2%);
+  --accent: hsl(175, 28%, 92.5%);
+  --accent-foreground: hsl(175, 77%, 18%);
 
   --destructive: hsl(0, 84.2%, 60.2%);
   --destructive-foreground: hsl(210, 40%, 98%);
 
-  --border: hsl(214.3, 31.8%, 91.4%);
-  --input: hsl(214.3, 31.8%, 91.4%);
+  --border: hsl(175, 18%, 89%);
+  --input: hsl(175, 18%, 89%);
 
   /* Ring: Bright Teal #2DD4BF */
   --ring: hsl(173, 66%, 50%);
@@ -43,13 +44,13 @@
   --chart-5: hsl(341.5, 75.2%, 51.0%);
 
   /* Sidebar colors */
-  --sidebar: hsl(180, 6.7%, 97.1%);
+  --sidebar: hsl(175, 22%, 96.5%);
   --sidebar-foreground: hsl(210, 25%, 7.8%);
   --sidebar-primary: hsl(175, 77%, 26%);
   --sidebar-primary-foreground: hsl(0, 0%, 100%);
-  --sidebar-accent: hsl(175, 20%, 96%);
+  --sidebar-accent: hsl(175, 25%, 92%);
   --sidebar-accent-foreground: hsl(175, 77%, 26%);
-  --sidebar-border: hsl(205.0, 25.0%, 90.6%);
+  --sidebar-border: hsl(175, 18%, 88%);
   --sidebar-ring: hsl(173, 66%, 50%);
 
   /* Preserved Fonts & Radius */
@@ -72,37 +73,37 @@
 }
 
 .dark {
-  --background: hsl(222.2, 84%, 4.9%);
+  --background: hsl(220, 26%, 8%);
   --foreground: hsl(210, 40%, 98%);
-  --card: hsl(222.2, 84%, 4.9%);
+  --card: hsl(218, 22%, 13%);
   --card-foreground: hsl(210, 40%, 98%);
-  --popover: hsl(222.2, 84%, 4.9%);
+  --popover: hsl(218, 20%, 16%);
   --popover-foreground: hsl(210, 40%, 98%);
 
-  /* Primary Dark: Bright Teal */
+  /* Primary Dark: Bright Teal #2DD4BF */
   --primary: hsl(173, 66%, 50%);
-  --primary-foreground: hsl(175, 77%, 26%);
+  --primary-foreground: hsl(175, 77%, 12%);
 
-  --secondary: hsl(217.2, 32.6%, 17.5%);
+  --secondary: hsl(218, 20%, 18%);
   --secondary-foreground: hsl(210, 40%, 98%);
-  --muted: hsl(217.2, 32.6%, 17.5%);
-  --muted-foreground: hsl(215, 20.2%, 65.1%);
-  --accent: hsl(217.2, 32.6%, 17.5%);
-  --accent-foreground: hsl(210, 40%, 98%);
+  --muted: hsl(218, 18%, 16.5%);
+  --muted-foreground: hsl(215, 20%, 68%);
+  --accent: hsl(175, 45%, 16%);
+  --accent-foreground: hsl(173, 66%, 85%);
   --destructive: hsl(0, 62.8%, 30.6%);
   --destructive-foreground: hsl(210, 40%, 98%);
-  --border: hsl(217.2, 32.6%, 17.5%);
-  --input: hsl(217.2, 32.6%, 17.5%);
+  --border: hsl(218, 18%, 20%);
+  --input: hsl(218, 18%, 20%);
 
   --ring: hsl(173, 66%, 50%);
 
-  --sidebar: hsl(240, 5.9%, 10%);
+  --sidebar: hsl(220, 24%, 10%);
   --sidebar-foreground: hsl(240, 4.8%, 95.9%);
   --sidebar-primary: hsl(173, 66%, 50%);
   --sidebar-primary-foreground: hsl(0, 0%, 100%);
-  --sidebar-accent: hsl(240, 3.7%, 15.9%);
+  --sidebar-accent: hsl(218, 20%, 16%);
   --sidebar-accent-foreground: hsl(240, 4.8%, 95.9%);
-  --sidebar-border: hsl(240, 3.7%, 15.9%);
+  --sidebar-border: hsl(218, 18%, 16%);
   --sidebar-ring: hsl(173, 66%, 50%);
   --font-sans: "Inter", system-ui, sans-serif;
   --font-serif: Georgia, serif;

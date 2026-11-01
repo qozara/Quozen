@@ -2,7 +2,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/auth-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { User as UserIcon, Settings, HelpCircle, LogOut, Mail, RefreshCw, AlertCircle, Coins, Globe, Zap, Key, Bot } from "lucide-react";
+import { User as UserIcon, Settings, HelpCircle, LogOut, Mail, RefreshCw, AlertCircle, Coins, Globe, Zap, Key, Bot, Sun, Moon, Laptop } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useTheme, ThemeMode } from "@/context/theme-context";
 import { quozen } from "@/lib/storage";
 import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/hooks/use-settings";
@@ -66,6 +68,7 @@ export default function Profile() {
   const { settings, updateSettings, updateSettingsAsync } = useSettings();
   const { groups } = useGroups();
   const { t } = useTranslation();
+  const { theme, systemTheme, setTheme } = useTheme();
   const { needRefresh, isChecking: isCheckingUpdate, checkForUpdates, applyUpdate } = usePwaUpdate();
   const { } = useAiFeature();
   const [apiKey, setApiKey] = React.useState("");
@@ -149,6 +152,10 @@ export default function Profile() {
       });
       // Side effect handled by useSettings hook
     }
+  };
+
+  const handleThemeChange = (newTheme: ThemeMode) => {
+    setTheme(newTheme);
   };
 
   const handleLogout = () => {
@@ -334,6 +341,75 @@ export default function Profile() {
                 <SelectItem value="es">Español (LatAm)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Theme */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Sun className="w-4 h-4 text-muted-foreground" />
+              {t("profile.theme")}
+            </Label>
+            <div
+              className="grid grid-cols-3 gap-2 p-1 bg-muted/60 rounded-xl border border-border"
+              role="radiogroup"
+              aria-label={t("profile.theme")}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={theme === "system"}
+                aria-pressed={theme === "system"}
+                data-testid="theme-option-system"
+                onClick={() => handleThemeChange("system")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-medium transition-all",
+                  theme === "system"
+                    ? "bg-background text-foreground shadow-sm font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Laptop className="w-4 h-4 shrink-0" />
+                <span className="truncate">
+                  {t("profile.themeSystem", {
+                    resolved: systemTheme === "dark" ? t("profile.themeDark") : t("profile.themeLight")
+                  })}
+                </span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={theme === "light"}
+                aria-pressed={theme === "light"}
+                data-testid="theme-option-light"
+                onClick={() => handleThemeChange("light")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-medium transition-all",
+                  theme === "light"
+                    ? "bg-background text-foreground shadow-sm font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Sun className="w-4 h-4 shrink-0" />
+                <span className="truncate">{t("profile.themeLight")}</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={theme === "dark"}
+                aria-pressed={theme === "dark"}
+                data-testid="theme-option-dark"
+                onClick={() => handleThemeChange("dark")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-medium transition-all",
+                  theme === "dark"
+                    ? "bg-background text-foreground shadow-sm font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Moon className="w-4 h-4 shrink-0" />
+                <span className="truncate">{t("profile.themeDark")}</span>
+              </button>
+            </div>
           </div>
 
           <Separator />

@@ -45,10 +45,10 @@ export default function GroupSwitcherModal({ isOpen, onClose }: { isOpen: boolea
               <button
                 key={group.id}
                 onClick={() => handleSelectGroup(group.id)}
-                className="w-full p-4 bg-secondary/50 rounded-xl text-left hover:bg-accent transition-colors border border-transparent hover:border-border active:scale-[0.98] duration-200"
+                className="w-full p-4 bg-muted/40 rounded-xl text-left hover:bg-muted/70 transition-colors border border-border/50 active:scale-[0.98] duration-200 shadow-xs"
               >
                 <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-background rounded-full flex items-center justify-center border border-border shrink-0">
+                  <div className="w-12 h-12 bg-card rounded-full flex items-center justify-center border border-border shrink-0 shadow-xs">
                     <Users className="w-6 h-6 text-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -69,7 +69,7 @@ export default function GroupSwitcherModal({ isOpen, onClose }: { isOpen: boolea
         </div>
 
         {/* Sticky Footer */}
-        <DrawerFooter className="border-t bg-background">
+        <DrawerFooter className="border-t border-border bg-card">
           <Button onClick={handleManageClick} variant="outline" className="w-full h-12 text-muted-foreground hover:text-foreground">
             <Settings className="w-4 h-4 mr-2" />
             {t("groups.manage")}
