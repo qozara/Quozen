@@ -12,6 +12,7 @@ import { useAppContext } from "@/context/app-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SyncTrigger } from "./sync/SyncTrigger";
 import { GroupIcon, getGroupPresetBackground, GROUP_ICON_PRESETS } from "./group-icon";
+import { useGroupParticipants } from "@/hooks/use-group-participants";
 
 export default function Header() {
   const { activeGroupId, currentUserId } = useAppContext();
@@ -41,9 +42,14 @@ export default function Header() {
     enabled: !!activeGroupId,
   });
 
+  // 3. Optional: Read participants overview from cache if already available (no Google API calls)
+  const { data: participantsData } = useGroupParticipants(activeGroupId, false);
+
   const activeGroup = groups.find((g) => g.id === activeGroupId);
   const activeIcon = activeGroup?.icon || ledger?.icon;
   const memberCount = ledger?.members?.length || 0;
+  const collaboratorCount = participantsData?.collaborators?.length;
+  const participantCount = typeof collaboratorCount === "number" ? collaboratorCount : memberCount;
   const activePreset = activeIcon?.startsWith("preset:")
     ? GROUP_ICON_PRESETS.find((p) => p.id === activeIcon)
     : null;
@@ -152,7 +158,7 @@ export default function Header() {
                     </div>
                     <div className="flex items-center text-sm text-muted-foreground">
                       <span data-testid="text-participant-count">
-                        {t("header.people", { count: memberCount })}
+                        {t("header.people", { count: participantCount })}
                       </span>
                       <ChevronDown className="ml-1 w-3 h-3" />
                     </div>

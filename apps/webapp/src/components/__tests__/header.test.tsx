@@ -87,4 +87,36 @@ describe("Header Component with Group Icon & Hero Banner", () => {
         const header = screen.getByTestId("header");
         expect(header.className).not.toContain("overflow-hidden");
     });
+
+    it("renders member count fallback when participantsData is not in cache", async () => {
+        renderHeader("/");
+        const countEl = await screen.findByTestId("text-participant-count");
+        expect(countEl).toHaveTextContent("2 people");
+    });
+
+    it("renders collaborator count when participantsData is available in cache without making Google API calls", async () => {
+        const clientWithCache = new QueryClient();
+        clientWithCache.setQueryData(["group-participants", "group-1"], {
+            collaborators: [
+                { id: "c1", email: "alice@example.com", displayName: "Alice", role: "owner" },
+                { id: "c2", email: "bob@example.com", displayName: "Bob", role: "editor" },
+                { id: "c3", email: "charlie@example.com", displayName: "Charlie", role: "editor" },
+                { id: "c4", email: "david@example.com", displayName: "David", role: "viewer" },
+                { id: "c5", email: "elena@example.com", displayName: "Elena", role: "editor" }
+            ],
+            accounts: [],
+            unassignedCollaborators: []
+        });
+
+        render(
+            <QueryClientProvider client={clientWithCache}>
+                <MemoryRouter initialEntries={["/"]}>
+                    <Header />
+                </MemoryRouter>
+            </QueryClientProvider>
+        );
+
+        const countEl = await screen.findByTestId("text-participant-count");
+        expect(countEl).toHaveTextContent("5 people");
+    });
 });
