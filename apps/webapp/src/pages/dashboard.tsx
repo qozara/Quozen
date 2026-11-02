@@ -150,7 +150,7 @@ export default function Dashboard() {
           (authUser.email && u.email === authUser.email))
     );
 
-    if (personalMember && personalMember.role !== "owner" && personalMember.userId !== targetUserId) {
+    if (personalMember && personalMember.userId !== targetUserId) {
       const hasExpenses = expenses.some(
         e =>
           e.paidByUserId === personalMember.userId ||

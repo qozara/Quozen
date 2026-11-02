@@ -12,6 +12,13 @@ import type { BlobStorageDriver } from "../sync/types";
 import { isNetworkError } from "../sync/CompositeCloudSyncProvider";
 import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
 import { OfflineOperationError, GroupFileUnavailableError } from "../errors";
+import {
+    GroupCollaborator,
+    GroupParticipantsOverview,
+    AccountManagersMap,
+    CollaboratorRole
+} from "../domain/collaborator";
+import { GroupMembershipResolver } from "../domain/GroupMembershipResolver";
 
 export class GroupRepository {
     private accountIdCache = new Map<string, string | undefined>();
@@ -79,6 +86,7 @@ export class GroupRepository {
             cached.updatedAt = nowIso;
             await this.saveSettings(settings);
         }
+        await this.updateAccountManagerBinding(groupId, this.user.email, accountId);
     }
 
     async getSettings(): Promise<UserSettings> {
@@ -603,6 +611,17 @@ export class GroupRepository {
             initialMembers.push([memberId, member.email || "", memberName, "member", nowIso, nowIso]);
         }
 
+        if (this.user.email) {
+            try {
+                const perms = await this.storage.listPermissions(fileId);
+                if (!perms.some((p: any) => p.role === "owner")) {
+                    await this.storage.createPermission(fileId, "owner", "user", this.user.email);
+                }
+            } catch {
+                // Ignore if storage layer handles owner permissions automatically
+            }
+        }
+
         const initialCategories = DEFAULT_CATEGORIES.map(c => [
             c.id,
             c.name,
@@ -615,6 +634,9 @@ export class GroupRepository {
         const metaRows: string[][] = [
             ["key", "value", "updatedAt"]
         ];
+        if (this.user.email) {
+            metaRows.push(["owner_email", this.user.email, nowIso]);
+        }
         if (options?.icon) {
             if (options.icon.length <= 49000) {
                 metaRows.push(["icon", options.icon, nowIso]);
@@ -759,6 +781,161 @@ export class GroupRepository {
         }
     }
 
+    // --- Group Metadata (_meta tab) Encapsulation ---
+
+    async readGroupMetadata(groupId: string): Promise<Record<string, string>> {
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (isOffline) return {};
+
+        try {
+            const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C50"]);
+            const rows = metaRes[0]?.values || [];
+            const result: Record<string, string> = {};
+            const startIdx = rows[0]?.[0] === "key" ? 1 : 0;
+            for (let i = startIdx; i < rows.length; i++) {
+                const row = rows[i];
+                if (row && row[0]) {
+                    result[row[0]] = row[1] || "";
+                }
+            }
+            return result;
+        } catch (err) {
+            return {};
+        }
+    }
+
+    async writeGroupMetadata(groupId: string, entries: Record<string, string | undefined>): Promise<void> {
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (isOffline) return;
+
+        try {
+            let metaRows: any[][] = [];
+            try {
+                const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C50"]);
+                metaRows = metaRes[0]?.values || [];
+            } catch {
+                // _meta might not exist in unmigrated sheets
+            }
+
+            const nowIso = new Date().toISOString();
+            if (metaRows.length === 0 || metaRows[0]?.[0] !== "key") {
+                metaRows = [["key", "value", "updatedAt"]];
+            }
+
+            for (const [key, value] of Object.entries(entries)) {
+                if (value === undefined) continue;
+                if (value.length > 49000) {
+                    console.warn(`[GroupRepository] Value for key "${key}" exceeds Google Sheets cell limit (50000 chars), skipping`);
+                    continue;
+                }
+                const existingIdx = metaRows.findIndex(r => r[0] === key);
+                if (existingIdx >= 0) {
+                    metaRows[existingIdx] = [key, value, nowIso];
+                } else {
+                    metaRows.push([key, value, nowIso]);
+                }
+            }
+
+            await this.storage.batchUpdateValues(groupId, [
+                { range: "_meta!A1", values: metaRows }
+            ]);
+        } catch (metaErr) {
+            console.warn("[GroupRepository] Failed to sync _meta entries:", metaErr);
+        }
+    }
+
+    async getAccountManagers(groupId: string): Promise<AccountManagersMap> {
+        const meta = await this.readGroupMetadata(groupId);
+        const rawJson = meta["account_managers"];
+        if (!rawJson) return {};
+        try {
+            const parsed = JSON.parse(rawJson);
+            return typeof parsed === "object" && parsed !== null ? parsed : {};
+        } catch {
+            return {};
+        }
+    }
+
+    async setAccountManagers(groupId: string, map: AccountManagersMap): Promise<void> {
+        await this.writeGroupMetadata(groupId, {
+            account_managers: JSON.stringify(map)
+        });
+    }
+
+    async updateAccountManagerBinding(groupId: string, userEmail: string | undefined, targetAccountId: string | null): Promise<void> {
+        if (!userEmail) return;
+        const normEmail = userEmail.trim().toLowerCase();
+        const map = await this.getAccountManagers(groupId);
+        let changed = false;
+
+        for (const [accId, emails] of Object.entries(map)) {
+            if (Array.isArray(emails) && emails.some(e => e.toLowerCase() === normEmail)) {
+                map[accId] = emails.filter(e => e.toLowerCase() !== normEmail);
+                changed = true;
+            }
+        }
+
+        if (targetAccountId) {
+            const existing = map[targetAccountId] || [];
+            if (!existing.some(e => e.toLowerCase() === normEmail)) {
+                map[targetAccountId] = [...existing, userEmail.trim()];
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            await this.setAccountManagers(groupId, map);
+        }
+    }
+
+    async getGroupCollaborators(groupId: string): Promise<GroupCollaborator[]> {
+        try {
+            const raw = await this.storage.listPermissions(groupId);
+            return (raw || [])
+                .filter((p: any) => p.type === "user" || p.role === "owner" || (p.emailAddress && p.type !== "anyone"))
+                .map((p: any) => {
+                    const email = p.emailAddress || "";
+                    let role: CollaboratorRole = "editor";
+                    if (p.role === "owner") role = "owner";
+                    else if (p.role === "reader" || p.role === "viewer") role = "viewer";
+
+                    return {
+                        id: p.id || `perm-${email}`,
+                        email,
+                        displayName: p.displayName || (email ? email.split("@")[0] : "User"),
+                        avatarUrl: p.photoLink,
+                        role
+                    };
+                });
+        } catch (err) {
+            console.warn("[GroupRepository] Failed to list group collaborators:", err);
+            return [];
+        }
+    }
+
+    async getGroupParticipants(groupId: string): Promise<GroupParticipantsOverview> {
+        const [ledgerMembers, collaborators, accountManagers, accessMode] = await Promise.all([
+            new LedgerRepository(this.storage, groupId, this.db).getMembers(),
+            this.getGroupCollaborators(groupId),
+            this.getAccountManagers(groupId),
+            this.getGroupPermissions(groupId)
+        ]);
+
+        return GroupMembershipResolver.resolveParticipants({
+            members: ledgerMembers,
+            collaborators,
+            accountManagers,
+            accessMode
+        });
+    }
+
+    async removeGroupCollaborator(groupId: string, permissionId: string): Promise<void> {
+        if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
+            throw new OfflineOperationError("Revoking group access requires an internet connection.", "changePermissions");
+        }
+        await this.storage.deletePermission(groupId, permissionId);
+    }
+
     async validateQuozenSpreadsheet(spreadsheetId: string): Promise<{ valid: boolean; status?: ValidationStatus; error?: string; name?: string; members?: Member[] }> {
         try {
             const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
@@ -801,7 +978,7 @@ export class GroupRepository {
             throw new OfflineOperationError("This operation requires an internet connection.", "importGroup");
         }
 
-        const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
+        const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties,owners,capabilities" });
         if (meta.properties?.quozen_type !== 'group') {
             const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
             if (!validation.valid) throw new Error("Invalid Quozen Group. Missing required sheets.");
@@ -817,6 +994,25 @@ export class GroupRepository {
             this.accountIdCache.set(spreadsheetId, linkedAccountId);
         }
 
+        const nowIso = new Date().toISOString();
+        const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
+        let groupIcon = cachedGroup?.icon || existingCachedGroup?.icon;
+        let groupOwnerEmail: string | undefined;
+        try {
+            const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C10"]);
+            const metaRows = metaRes[0]?.values || [];
+            const iconRow = metaRows.find((r: string[]) => r[0] === "icon");
+            if (iconRow && iconRow[1]) {
+                groupIcon = iconRow[1];
+            }
+            const ownerRow = metaRows.find((r: string[]) => r[0] === "owner_email");
+            if (ownerRow && ownerRow[1]) {
+                groupOwnerEmail = ownerRow[1];
+            }
+        } catch {
+            // Older sheets might not have _meta tab
+        }
+
         let role: "owner" | "member" = "member";
         if (validation.members) {
             if (this.db && validation.members.length > 0) {
@@ -829,14 +1025,28 @@ export class GroupRepository {
                 }
             }
 
-            const member = linkedAccountId
-                ? validation.members.find(m => m.userId === linkedAccountId)
-                : validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
-            if (member?.role === "owner") role = "owner";
+            const isCloudOwner = Boolean(
+                (this.user.email && groupOwnerEmail && groupOwnerEmail.toLowerCase() === this.user.email.toLowerCase()) ||
+                (meta.owners?.some((o: any) => o.emailAddress === this.user.email)) ||
+                meta.capabilities?.canDelete ||
+                validation.members.some(m => ((m.email && m.email.toLowerCase() === this.user.email?.toLowerCase()) || m.userId === this.user.id) && m.role === "owner")
+            );
+
+            if (isCloudOwner) {
+                role = "owner";
+            } else {
+                const member = linkedAccountId
+                    ? validation.members.find(m => m.userId === linkedAccountId)
+                    : validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
+                if (member?.role === "owner" && (!member.email || member.email === this.user.email)) {
+                    role = "owner";
+                }
+            }
             
-            if (!linkedAccountId && member && member.userId !== this.user.id) {
+            const memberToMigrate = validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
+            if (!linkedAccountId && memberToMigrate && memberToMigrate.userId !== this.user.id) {
                 const ledgerRepo = new LedgerRepository(this.storage, spreadsheetId, this.db, () => this.onMutation?.(spreadsheetId));
-                await ledgerRepo.migrateUser(member.userId, this.user.id, this.user.name);
+                await ledgerRepo.migrateUser(memberToMigrate.userId, this.user.id, this.user.name);
             }
         }
 
@@ -845,20 +1055,6 @@ export class GroupRepository {
 
         if (settings.archivedGroupCache) {
             settings.archivedGroupCache = settings.archivedGroupCache.filter(g => g.id !== spreadsheetId);
-        }
-
-        const nowIso = new Date().toISOString();
-        const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
-        let groupIcon = cachedGroup?.icon || existingCachedGroup?.icon;
-        try {
-            const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C10"]);
-            const metaRows = metaRes[0]?.values || [];
-            const iconRow = metaRows.find((r: string[]) => r[0] === "icon");
-            if (iconRow && iconRow[1]) {
-                groupIcon = iconRow[1];
-            }
-        } catch {
-            // Older sheets might not have _meta tab
         }
 
         if (!cachedGroup) {
@@ -936,6 +1132,7 @@ export class GroupRepository {
                 throw new Error("Selected account not found in this group.");
             }
             this.accountIdCache.set(spreadsheetId, options.accountId);
+            await this.updateAccountManagerBinding(spreadsheetId, this.user.email, options.accountId);
             return await this.importGroup(spreadsheetId, { accountId: options.accountId });
         }
 
@@ -971,8 +1168,13 @@ export class GroupRepository {
 
     async checkMemberHasExpenses(groupId: string, userId: string): Promise<boolean> {
         const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db);
-        const expenses = await ledgerRepo.getExpenses();
-        return expenses.some(e => e.paidByUserId === userId || e.splits.some(s => s.userId === userId && s.amount > 0));
+        const [expenses, settlements] = await Promise.all([
+            ledgerRepo.getExpenses(),
+            ledgerRepo.getSettlements()
+        ]);
+        const hasExpenses = expenses.some(e => e.paidByUserId === userId || e.splits.some(s => s.userId === userId && s.amount > 0));
+        const hasSettlements = settlements.some(s => s.fromUserId === userId || s.toUserId === userId);
+        return hasExpenses || hasSettlements;
     }
 
     async updateGroup(groupId: string, name: string, members: MemberInput[], options?: { icon?: string }): Promise<void> {
@@ -1042,46 +1244,26 @@ export class GroupRepository {
             await ledgerRepo.deleteMember(m.userId);
         }
 
-        if (!isOffline && options?.icon !== undefined) {
-            if (options.icon.length > 49000) {
-                console.warn("[GroupRepository] Icon exceeds Google Sheets single cell limit (50000 chars), skipping _meta write");
-            } else {
-                try {
-                    let metaRows: any[][] = [];
-                    try {
-                        const metaRes = await this.storage.batchGetValues(groupId, ["_meta!A1:C20"]);
-                        metaRows = metaRes[0]?.values || [];
-                    } catch {
-                        // _meta tab might not exist in older spreadsheets
+        if (membersToDelete.length > 0) {
+            try {
+                const map = await this.getAccountManagers(groupId);
+                let changed = false;
+                for (const m of membersToDelete) {
+                    if (map[m.userId]) {
+                        delete map[m.userId];
+                        changed = true;
                     }
-
-                    const nowIso = new Date().toISOString();
-                    if (metaRows.length === 0) {
-                        metaRows = [
-                            ["key", "value", "updatedAt"],
-                            ["icon", options.icon, nowIso]
-                        ];
-                        await this.storage.batchUpdateValues(groupId, [
-                            { range: "_meta!A1", values: metaRows }
-                        ]);
-                    } else {
-                        const iconIndex = metaRows.findIndex(r => r[0] === "icon");
-                        if (iconIndex >= 0) {
-                            metaRows[iconIndex] = ["icon", options.icon, nowIso];
-                            await this.storage.batchUpdateValues(groupId, [
-                                { range: `_meta!A${iconIndex + 1}:C${iconIndex + 1}`, values: [["icon", options.icon, nowIso]] }
-                            ]);
-                        } else {
-                            const nextRow = metaRows.length + 1;
-                            await this.storage.batchUpdateValues(groupId, [
-                                { range: `_meta!A${nextRow}:C${nextRow}`, values: [["icon", options.icon, nowIso]] }
-                            ]);
-                        }
-                    }
-                } catch (metaErr) {
-                    console.warn("Could not sync _meta tab:", metaErr);
                 }
+                if (changed) {
+                    await this.setAccountManagers(groupId, map);
+                }
+            } catch {
+                // Ignore
             }
+        }
+
+        if (!isOffline && options?.icon !== undefined) {
+            await this.writeGroupMetadata(groupId, { icon: options.icon });
         }
 
         const settings = await this.getSettings();
@@ -1133,19 +1315,27 @@ export class GroupRepository {
         const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db, () => this.onMutation?.(groupId));
         const currentMembers = await ledgerRepo.getMembers();
         const member = currentMembers.find(m => m.userId === this.user.id || (this.user.email && m.email === this.user.email));
+        const meta = await this.readGroupMetadata(groupId);
+        const ownerEmail = meta["owner_email"];
+        const isOwner = Boolean(
+            (this.user.email && ownerEmail && this.user.email.toLowerCase() === ownerEmail.toLowerCase()) ||
+            (member && member.role === 'owner')
+        );
 
         // If the user is sharing another account and has no personal member row in the sheet,
         // simply remove the group from their personal groupCache without deleting the shared member row.
         if (!member && linkedAccountId) {
+            if (isOwner) throw new Error("Owners cannot leave.");
             this.accountIdCache.delete(groupId);
             settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
             if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
             await this.saveSettings(settings);
+            await this.updateAccountManagerBinding(groupId, this.user.email, null);
             return;
         }
 
         if (!member) throw new Error("Member not found");
-        if (member.role === 'owner') throw new Error("Owners cannot leave.");
+        if (isOwner) throw new Error("Owners cannot leave.");
         if (await this.checkMemberHasExpenses(groupId, member.userId)) throw new Error("Cannot leave with expenses.");
 
         await ledgerRepo.deleteMember(member.userId);
@@ -1153,6 +1343,7 @@ export class GroupRepository {
         settings.groupCache = settings.groupCache.filter(g => g.id !== groupId);
         if (settings.activeGroupId === groupId) settings.activeGroupId = settings.groupCache[0]?.id || null;
         await this.saveSettings(settings);
+        await this.updateAccountManagerBinding(groupId, this.user.email, null);
     }
 
     async repairGroup(groupId: string): Promise<void> {

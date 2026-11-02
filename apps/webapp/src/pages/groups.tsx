@@ -35,7 +35,7 @@ export default function Groups() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { groups = [], archivedGroups = [] } = useGroups();
-  const { settings } = useSettings();
+  const { settings, updateGroupAccount } = useSettings();
   const { t } = useTranslation();
 
   const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
@@ -339,10 +339,34 @@ export default function Groups() {
         open={dialogState.open}
         onOpenChange={(open) => setDialogState(prev => ({ ...prev, open }))}
         mode={dialogState.mode}
+        groupId={dialogState.groupId}
         initialName={dialogState.initialName}
         initialMembers={dialogState.initialMembers}
         initialIcon={dialogState.initialIcon}
         isPending={createGroupMutation.isPending || updateGroupMutation.isPending}
+        currentAccountId={
+          dialogState.groupId
+            ? settings?.groupCache?.find(g => g.id === dialogState.groupId)?.accountId
+            : undefined
+        }
+        onSelectAccount={(accountId) => {
+          if (dialogState.groupId && updateGroupAccount) {
+            updateGroupAccount({ groupId: dialogState.groupId, accountId });
+            toast({
+              title: t("common.success"),
+              description: t("groups.accountSwitched")
+            });
+          }
+        }}
+        onOpenShare={() => {
+          if (dialogState.groupId) {
+            setShareDialog({
+              open: true,
+              groupId: dialogState.groupId,
+              groupName: dialogState.initialName || ""
+            });
+          }
+        }}
         onSubmit={(data) => {
           if (dialogState.mode === 'create') {
             createGroupMutation.mutate(data);

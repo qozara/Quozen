@@ -4,23 +4,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { parseMembers } from "@/lib/utils";
-import { MemberInput } from "@quozen/core";
+import { MemberInput, GroupMembershipResolver, ResolvedGroupAccount, GroupCollaborator } from "@quozen/core";
 import { useTranslation } from "react-i18next";
 import { useAutoSync } from "@/hooks/use-auto-sync";
-import { X, Plus, Loader2, Upload, Trash2, Check } from "lucide-react";
+import { X, Plus, Loader2, Upload, Trash2, Check, Share2, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { GroupIcon, GROUP_ICON_PRESETS } from "./group-icon";
 import { compressImage } from "@/lib/image-compression";
 import { cn } from "@/lib/utils";
+import { useGroupParticipants } from "@/hooks/use-group-participants";
 
 interface GroupDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode: "create" | "edit";
+  groupId?: string;
   initialName?: string;
   initialMembers?: string;
   initialIcon?: string;
   isPending: boolean;
+  currentAccountId?: string;
+  onSelectAccount?: (accountId: string) => void;
+  onOpenShare?: () => void;
   onSubmit: (data: { name: string; members: MemberInput[]; icon?: string }) => void;
 }
 
@@ -28,10 +34,14 @@ export default function GroupDialog({
   open,
   onOpenChange,
   mode,
+  groupId,
   initialName = "",
   initialMembers = "",
   initialIcon = "",
   isPending,
+  currentAccountId,
+  onSelectAccount,
+  onOpenShare,
   onSubmit
 }: GroupDialogProps) {
   const [groupName, setGroupName] = useState(initialName);
@@ -44,6 +54,11 @@ export default function GroupDialog({
 
   const { t } = useTranslation();
   const { setPaused } = useAutoSync();
+
+  const { data: participantsData } = useGroupParticipants(
+    groupId,
+    open && mode === "edit" && Boolean(groupId)
+  );
 
   useEffect(() => {
     if (open) setPaused(true);
@@ -107,6 +122,8 @@ export default function GroupDialog({
       icon
     });
   };
+
+  const showRichUnifiedList = mode === "edit" && participantsData && participantsData.accounts.length > 0;
 
   return (
     <Drawer
@@ -236,8 +253,11 @@ export default function GroupDialog({
               </div>
             </div>
 
+            {/* Members & Accounts Section */}
             <div>
-              <Label htmlFor="newMember">{t("groups.membersLabel")}</Label>
+              <Label htmlFor="newMember">
+                {mode === "edit" ? t("groups.membersSectionTitle") : t("groups.membersLabel")}
+              </Label>
               <div className="flex gap-2 mt-1">
                 <Input
                   id="newMember"
@@ -257,14 +277,136 @@ export default function GroupDialog({
                 </Button>
               </div>
 
-              {members.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {members.map((m, i) => (
+              {/* Mode Edit: Unified Accounts & Members List */}
+              {showRichUnifiedList ? (
+                <div className="space-y-2 mt-3" data-testid="unified-participants-list">
+                  {participantsData.accounts.map((account: ResolvedGroupAccount) => {
+                    const isOwner = account.member.role === "owner" || account.managers.some(m => m.role === "owner");
+                    const isCurrent = Boolean(currentAccountId && account.member.userId === currentAccountId);
+                    let subtitle = "";
+                    if (account.kind === "shared") {
+                      subtitle = GroupMembershipResolver.formatManagers(account.managers);
+                    } else if (account.kind === "personal") {
+                      subtitle = account.managers[0]?.email || account.member.email;
+                    } else {
+                      subtitle = t("groups.offlineAccount");
+                    }
+
+                    // Matching index in editable members state
+                    const memberIdx = members.findIndex(m =>
+                      (m.email && account.member.email && m.email.toLowerCase() === account.member.email.toLowerCase()) ||
+                      (m.username && (m.username === account.member.name || m.username === account.member.userId))
+                    );
+                    const canDelete = memberIdx >= 0 && (members.length > 1 || participantsData.accounts.length > 1);
+
+                    return (
+                      <div
+                        key={account.member.userId}
+                        className="flex items-center justify-between p-2 rounded-lg border bg-card/60 text-xs"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Avatar className="w-7 h-7">
+                            {account.managers[0]?.avatarUrl && (
+                              <AvatarImage src={account.managers[0].avatarUrl} alt={account.member.name} />
+                            )}
+                            <AvatarFallback className="text-[10px] uppercase font-medium bg-muted">
+                              {account.member.name.slice(0, 2)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-medium truncate max-w-[150px]">
+                              {account.member.name}
+                            </span>
+                            {subtitle && (
+                              <span className="text-[10px] text-muted-foreground truncate max-w-[180px]">
+                                {subtitle}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isCurrent && (
+                            <Badge variant="outline" className="text-[9px] h-4 border-primary text-primary font-medium px-1.5" data-testid={`badge-current-account-${account.member.userId}`}>
+                              {t("groups.youBadge")}
+                            </Badge>
+                          )}
+                          {!isCurrent && onSelectAccount && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onSelectAccount(account.member.userId)}
+                              className="h-5 text-[10px] px-1.5 text-primary hover:bg-primary/10 font-normal"
+                              data-testid={`button-use-account-${account.member.userId}`}
+                            >
+                              {t("groups.useAccount")}
+                            </Button>
+                          )}
+                          {account.kind === "shared" && (
+                            <Badge variant="secondary" className="text-[9px] h-4 bg-primary/10 text-primary px-1.5">
+                              {t("groups.sharedAccount")}
+                            </Badge>
+                          )}
+                          {account.kind === "offline" && (
+                            <Badge variant="outline" className="text-[9px] h-4 text-muted-foreground px-1.5">
+                              {t("groups.offlineAccount")}
+                            </Badge>
+                          )}
+                          {isOwner && (
+                            <Badge variant="default" className="text-[9px] h-4 px-1.5">
+                              {t("roles.owner")}
+                            </Badge>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMember(memberIdx)}
+                              className="hover:bg-muted text-muted-foreground hover:text-destructive rounded-full p-1 transition-colors"
+                              title={t("common.delete")}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Unassigned Collaborators Notice */}
+                  {participantsData.unassignedCollaborators.length > 0 && (
+                    <div className="p-2.5 rounded-lg border border-amber-200/80 bg-amber-50/50 dark:bg-amber-950/20 text-xs space-y-1 mt-2">
+                      <div className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-300 text-[11px]">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>{t("groups.unassignedCollaboratorsTitle")}</span>
+                      </div>
+                      <div className="space-y-1">
+                        {participantsData.unassignedCollaborators.map((c: GroupCollaborator) => (
+                          <div key={c.id || c.email} className="flex items-center justify-between text-[11px] text-muted-foreground">
+                            <span>{c.displayName} ({c.email})</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Newly added pending members */}
+                  {members.filter(m => {
+                    const norm = (m.email || m.username || "").toLowerCase();
+                    return !participantsData.accounts.some((a: ResolvedGroupAccount) =>
+                      (a.member.email && a.member.email.toLowerCase() === norm) ||
+                      a.member.name.toLowerCase() === norm ||
+                      a.member.userId.toLowerCase() === norm
+                    );
+                  }).map((m, i) => (
                     <Badge key={i} variant="secondary" className="pl-2 pr-1 py-1 flex items-center gap-1">
                       <span className="truncate max-w-[150px]">{m.email || m.username}</span>
                       <button
                         type="button"
-                        onClick={() => handleRemoveMember(i)}
+                        onClick={() => {
+                          const idx = members.indexOf(m);
+                          if (idx >= 0) handleRemoveMember(idx);
+                        }}
                         className="hover:bg-muted rounded-full p-0.5 transition-colors"
                       >
                         <X className="w-3 h-3" />
@@ -272,11 +414,48 @@ export default function GroupDialog({
                     </Badge>
                   ))}
                 </div>
+              ) : (
+                members.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {members.map((m, i) => (
+                      <Badge key={i} variant="secondary" className="pl-2 pr-1 py-1 flex items-center gap-1">
+                        <span className="truncate max-w-[150px]">{m.email || m.username}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMember(i)}
+                          className="hover:bg-muted rounded-full p-0.5 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )
               )}
 
               <p className="text-xs text-muted-foreground mt-2">
                 {t("groups.membersHint2")}
               </p>
+
+              {/* Link to Share Dialog */}
+              {mode === "edit" && onOpenShare && participantsData && (
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="p-0 h-auto text-xs text-primary flex items-center gap-1.5"
+                    onClick={() => {
+                      onOpenChange(false);
+                      onOpenShare();
+                    }}
+                    data-testid="link-manage-sharing"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>{t("groups.manageAccessLink", { count: participantsData.collaborators.length })}</span>
+                  </Button>
+                </div>
+              )}
             </div>
           </form>
         </div>

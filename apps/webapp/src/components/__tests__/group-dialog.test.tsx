@@ -6,6 +6,39 @@ vi.mock("@/hooks/use-auto-sync", () => ({
     useAutoSync: () => ({ setPaused: vi.fn() })
 }));
 
+const mockParticipants = {
+    accessMode: "restricted",
+    collaborators: [
+        { id: "p1", email: "alice@example.com", displayName: "Alice", role: "owner" },
+        { id: "p2", email: "charlie@example.com", displayName: "Charlie", role: "editor" }
+    ],
+    accounts: [
+        {
+            member: { userId: "user-1", email: "alice@example.com", name: "Alice", role: "owner", joinedAt: new Date() },
+            kind: "personal",
+            managers: [{ id: "p1", email: "alice@example.com", displayName: "Alice", role: "owner" }]
+        },
+        {
+            member: { userId: "user-shared", email: "", name: "Garcia Family", role: "member", joinedAt: new Date() },
+            kind: "shared",
+            managers: [{ id: "p2", email: "charlie@example.com", displayName: "Charlie", role: "editor" }]
+        },
+        {
+            member: { userId: "user-offline", email: "", name: "David", role: "member", joinedAt: new Date() },
+            kind: "offline",
+            managers: []
+        }
+    ],
+    unassignedCollaborators: []
+};
+
+vi.mock("@/hooks/use-group-participants", () => ({
+    useGroupParticipants: (groupId?: string) => ({
+        data: groupId === "group-rich" ? mockParticipants : undefined,
+        isLoading: false
+    })
+}));
+
 vi.mock("react-i18next", () => ({
     useTranslation: () => ({
         t: (key: string) => {
@@ -108,5 +141,61 @@ describe("GroupDialog Component", () => {
             members: [],
             icon: ""
         });
+    });
+
+    it("renders the unified accounts list in edit mode showing personal, shared, and offline accounts", () => {
+        const onOpenShare = vi.fn();
+        render(
+            <GroupDialog
+                open={true}
+                onOpenChange={vi.fn()}
+                mode="edit"
+                groupId="group-rich"
+                initialName="Road Trip"
+                isPending={false}
+                onOpenShare={onOpenShare}
+                onSubmit={vi.fn()}
+            />
+        );
+
+        expect(screen.getByTestId("unified-participants-list")).toBeInTheDocument();
+        expect(screen.getByText("Alice")).toBeInTheDocument();
+        expect(screen.getByText("alice@example.com")).toBeInTheDocument();
+
+        expect(screen.getByText("Garcia Family")).toBeInTheDocument();
+        expect(screen.getByText(/Managed by Charlie/i)).toBeInTheDocument();
+
+        expect(screen.getByText("David")).toBeInTheDocument();
+
+        const shareLink = screen.getByTestId("link-manage-sharing");
+        expect(shareLink).toBeInTheDocument();
+        fireEvent.click(shareLink);
+        expect(onOpenShare).toHaveBeenCalled();
+    });
+
+    it("displays 'You' badge for active account and allows switching via 'Use' button", () => {
+        const onSelectAccount = vi.fn();
+        render(
+            <GroupDialog
+                open={true}
+                onOpenChange={vi.fn()}
+                mode="edit"
+                groupId="group-rich"
+                initialName="Road Trip"
+                currentAccountId="user-1"
+                onSelectAccount={onSelectAccount}
+                isPending={false}
+                onSubmit={vi.fn()}
+            />
+        );
+
+        // user-1 has You badge
+        expect(screen.getByTestId("badge-current-account-user-1")).toBeInTheDocument();
+
+        // user-shared has Use button
+        const useBtn = screen.getByTestId("button-use-account-user-shared");
+        expect(useBtn).toBeInTheDocument();
+        fireEvent.click(useBtn);
+        expect(onSelectAccount).toHaveBeenCalledWith("user-shared");
     });
 });

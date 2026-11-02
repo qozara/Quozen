@@ -152,18 +152,62 @@ describe('Account-User Separation (Shared, Personal, and Offline Accounts)', () 
         expect(ledger.members).toHaveLength(2);
         expect(ledger.members.some(m => m.userId === userB.id)).toBe(false);
         expect(await clientB.groups.getGroupAccountId(group.id)).toBe(userA.id);
+
+        // US-COLLAB: Participants overview reflects User B co-managing User A's account
+        const participants = await clientA.groups.getGroupParticipants(group.id);
+        const managedAccount = participants.accounts.find(a => a.member.userId === userA.id);
+        expect(managedAccount).toBeDefined();
+        expect(managedAccount?.kind).toBe('shared');
+        expect(managedAccount?.managers.some(m => m.email === userB.email)).toBe(true);
+        expect(participants.collaborators.some(c => c.email === userB.email)).toBe(true);
     });
 
-    it('refuses to remove an account in removeUnusedMember if it is owner or has transactions', async () => {
+    it('allows owner to switch to a shared account and remove their unused initial account while preserving group ownership', async () => {
+        // User A creates group with a shared account 'compartida' and invites User B
+        const group = await clientA.groups.create('Viaje Amigos', [
+            { username: 'compartida' },
+            { username: 'Bob', email: userB.email }
+        ]);
+
+        let ledger = await clientA.ledger(group.id).getLedger();
+        expect(ledger.members).toHaveLength(3);
+        const compartidaAccount = ledger.members.find(m => m.name === 'compartida')!;
+        expect(compartidaAccount).toBeDefined();
+
+        // User A switches to manage 'compartida'
+        await clientA.groups.updateGroupAccount(group.id, compartidaAccount.userId);
+        expect(await clientA.groups.getGroupAccountId(group.id)).toBe(compartidaAccount.userId);
+
+        // User A can remove their unused personal account (userA.id)
+        const removed = await clientA.ledger(group.id).removeUnusedMember(userA.id);
+        expect(removed).toBe(true);
+
+        ledger = await clientA.ledger(group.id).getLedger();
+        expect(ledger.members).toHaveLength(2);
+        expect(ledger.members.some(m => m.userId === userA.id)).toBe(false);
+
+        // User A is STILL group owner in cached settings and when re-importing
+        const settings = await clientA.groups.getSettings();
+        const cached = settings.groupCache.find(g => g.id === group.id);
+        expect(cached?.role).toBe('owner');
+
+        const reimported = await clientA.groups.importGroup(group.id);
+        expect(reimported.isOwner).toBe(true);
+
+        // Participants overview shows User A managing compartida with owner status
+        const participants = await clientA.groups.getGroupParticipants(group.id);
+        const resolvedCompartida = participants.accounts.find(a => a.member.userId === compartidaAccount.userId);
+        expect(resolvedCompartida).toBeDefined();
+        expect(resolvedCompartida?.kind).toBe('shared');
+        expect(resolvedCompartida?.managers.some(m => m.email === userA.email && m.role === 'owner')).toBe(true);
+    });
+
+    it('refuses to remove an account in removeUnusedMember if it has transactions or is the last remaining account', async () => {
         const group = await clientA.groups.create('Safety Check', [
             { username: 'Bob', email: userB.email }
         ]);
         await clientB.groups.joinGroup(group.id);
         await clientB.ledger(group.id).getLedger(); // triggers email -> u2 migration
-
-        // Owner account cannot be removed even with 0 transactions
-        const ownerRemoved = await clientA.ledger(group.id).removeUnusedMember(userA.id);
-        expect(ownerRemoved).toBe(false);
 
         // Add an expense involving u2
         await clientA.ledger(group.id).addExpense({
@@ -181,6 +225,11 @@ describe('Account-User Separation (Shared, Personal, and Offline Accounts)', () 
         // Member with transactions cannot be removed
         const activeMemberRemoved = await clientB.ledger(group.id).removeUnusedMember(userB.id);
         expect(activeMemberRemoved).toBe(false);
+
+        // Cannot remove the only remaining account
+        const soloGroup = await clientA.groups.create('Solo Group');
+        const soloRemoved = await clientA.ledger(soloGroup.id).removeUnusedMember(userA.id);
+        expect(soloRemoved).toBe(false);
 
         const ledger = await clientA.ledger(group.id).getLedger();
         expect(ledger.members).toHaveLength(2);

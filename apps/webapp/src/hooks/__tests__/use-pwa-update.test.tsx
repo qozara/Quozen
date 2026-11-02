@@ -207,4 +207,66 @@ describe("usePwaUpdate & PwaUpdateProvider", () => {
 
     Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
   });
+
+  it("handles installing worker already in installed state without hanging", async () => {
+    mockRegistration.update = vi.fn().mockImplementation(async () => {
+      mockRegistration.installing = {
+        state: "installed",
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      } as any;
+    });
+
+    render(
+      <PwaUpdateProvider>
+        <TestConsumer />
+      </PwaUpdateProvider>
+    );
+
+    act(() => {
+      capturedSwOptions.onRegisteredSW?.("/sw.js", mockRegistration);
+    });
+
+    fireEvent.click(screen.getByTestId("btn-check"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("need-refresh")).toHaveTextContent("true");
+      expect(screen.getByTestId("is-checking")).toHaveTextContent("false");
+    });
+  });
+
+  it("recovers from hanging reg.update() via timeout and resets isChecking", async () => {
+    vi.useFakeTimers();
+
+    // Never resolves
+    mockRegistration.update = vi.fn().mockImplementation(() => new Promise(() => {}));
+
+    render(
+      <PwaUpdateProvider>
+        <TestConsumer />
+      </PwaUpdateProvider>
+    );
+
+    act(() => {
+      capturedSwOptions.onRegisteredSW?.("/sw.js", mockRegistration);
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("btn-check"));
+    });
+
+    expect(screen.getByTestId("is-checking")).toHaveTextContent("true");
+
+    // Advance time past the 6s timeout
+    await act(async () => {
+      vi.advanceTimersByTime(7000);
+    });
+
+    expect(screen.getByTestId("is-checking")).toHaveTextContent("false");
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: expect.anything(),
+      })
+    );
+  });
 });

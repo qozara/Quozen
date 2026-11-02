@@ -102,7 +102,7 @@ export class GoogleDriveStorageLayer implements IStorageLayer {
     }
 
     async listPermissions(fileId: string): Promise<any[]> {
-        const res = await this.fetchWithAuth(`${DRIVE_API_URL}/files/${fileId}/permissions`);
+        const res = await this.fetchWithAuth(`${DRIVE_API_URL}/files/${fileId}/permissions?fields=permissions(id,type,role,emailAddress,displayName,photoLink,deleted)`);
         const data = await res.json() as any;
         return data.permissions || [];
     }
