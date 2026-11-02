@@ -6,6 +6,21 @@ import { ToastAction } from "@/components/ui/toast";
 
 const UPDATE_CHECK_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
 
+const withTimeout = <T,>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve(fallback);
+      });
+  });
+};
+
 export interface PwaUpdateContextValue {
   needRefresh: boolean;
   isChecking: boolean;
@@ -152,49 +167,91 @@ export function PwaUpdateProvider({ children }: { children: React.ReactNode }) {
     try {
       let reg = registrationRef.current;
       if (!reg && typeof navigator !== "undefined" && "serviceWorker" in navigator) {
-        reg = await navigator.serviceWorker.getRegistration();
-        registrationRef.current = reg;
+        reg = await withTimeout(navigator.serviceWorker.getRegistration(), 3000, undefined);
+        if (reg) registrationRef.current = reg;
       }
 
       if (reg) {
         lastCheckRef.current = Date.now();
-        await reg.update();
 
+        // 1. Check if a worker is already waiting
         if (reg.waiting) {
           showUpdateToast();
           return;
         }
 
-        if (reg.installing) {
-          const installingWorker = reg.installing;
-          const installed = await new Promise<boolean>((resolve) => {
-            const onStateChange = () => {
-              if (installingWorker.state === "installed") {
-                installingWorker.removeEventListener("statechange", onStateChange);
-                resolve(true);
-              } else if (
-                installingWorker.state === "redundant" ||
-                installingWorker.state === "activated"
-              ) {
-                installingWorker.removeEventListener("statechange", onStateChange);
-                resolve(false);
-              }
-            };
-            installingWorker.addEventListener("statechange", onStateChange);
-          });
+        // 2. Trigger SW update with a 6s safety timeout to avoid hanging indefinitely
+        await withTimeout(reg.update(), 6000, undefined);
 
-          if (installed) {
+        // 3. Check again if a waiting worker appeared
+        if (reg.waiting || registrationRef.current?.waiting) {
+          showUpdateToast();
+          return;
+        }
+
+        // 4. Check if a worker is installing
+        const installingWorker = reg.installing || registrationRef.current?.installing;
+        if (installingWorker) {
+          if (installingWorker.state === "installed") {
             showUpdateToast();
             return;
           }
+
+          if (installingWorker.state !== "redundant" && installingWorker.state !== "activated") {
+            const installed = await new Promise<boolean>((resolve) => {
+              let settled = false;
+              const cleanup = () => {
+                installingWorker.removeEventListener("statechange", onStateChange);
+              };
+
+              const timer = setTimeout(() => {
+                if (!settled) {
+                  settled = true;
+                  cleanup();
+                  resolve(installingWorker.state === "installed");
+                }
+              }, 4000);
+
+              const onStateChange = () => {
+                if (settled) return;
+                if (installingWorker.state === "installed") {
+                  settled = true;
+                  clearTimeout(timer);
+                  cleanup();
+                  resolve(true);
+                } else if (
+                  installingWorker.state === "redundant" ||
+                  installingWorker.state === "activated"
+                ) {
+                  settled = true;
+                  clearTimeout(timer);
+                  cleanup();
+                  resolve(false);
+                }
+              };
+
+              installingWorker.addEventListener("statechange", onStateChange);
+            });
+
+            if (installed || reg.waiting || registrationRef.current?.waiting) {
+              showUpdateToast();
+              return;
+            }
+          }
         }
+      }
+
+      if (needRefresh || registrationRef.current?.waiting) {
+        showUpdateToast();
+        return;
       }
 
       toastRef.current({
         title: tRef.current("pwa.upToDateTitle"),
         description: tRef.current("pwa.upToDateDesc", { version: __COMMIT_HASH__ }),
       });
-    } catch {
+    } catch (err) {
+      console.warn("[PWA] Update check encountered an error:", err);
       toastRef.current({
         title: tRef.current("pwa.upToDateTitle"),
         description: tRef.current("pwa.upToDateDesc", { version: __COMMIT_HASH__ }),
