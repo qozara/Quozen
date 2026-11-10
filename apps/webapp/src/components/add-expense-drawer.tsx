@@ -56,6 +56,15 @@ export default function AddExpenseDrawer() {
     });
 
     const users = ledger?.members || [];
+    const effectiveAccountId = (() => {
+        if (!users.length) return currentUserId;
+        const normId = (currentUserId || "").trim().toLowerCase();
+        const matched =
+            users.find(u => u.userId === currentUserId) ||
+            (normId ? users.find(u => u.email && u.email.trim().toLowerCase() === normId) : undefined) ||
+            users[0];
+        return matched?.userId || currentUserId;
+    })();
 
     const isUnhydratedOffline = !isLoading && !!ledger && !isOnline && (
         (ledger as any).isHydrated === false ||
@@ -84,7 +93,7 @@ export default function AddExpenseDrawer() {
             const result = await draftService.createDraft({
                 input: expenseDraftMeta.rawInput,
                 ledger,
-                activeAccountId: currentUserId,
+                activeAccountId: effectiveAccountId,
                 locale,
                 forceAi: true
             });
@@ -111,7 +120,7 @@ export default function AddExpenseDrawer() {
     const expenseMutation = useMutation({
         mutationFn: async (data: any) => {
             if (!activeGroupId) throw new Error("No active group");
-            return await quozen.ledger(activeGroupId, currentUserId).addExpense({
+            return await quozen.ledger(activeGroupId, effectiveAccountId).addExpense({
                 description: data.description,
                 amount: data.amount,
                 category: data.category,
@@ -179,7 +188,7 @@ export default function AddExpenseDrawer() {
                             onRefineWithAi={aiStatus === 'available' && isOnline ? handleRefineWithAi : undefined}
                             isRefiningWithAi={isRefining}
                             categories={ledger?.categories}
-                            currentUserId={currentUserId}
+                            currentUserId={effectiveAccountId}
                             isPending={expenseMutation.isPending}
                             onSubmit={(data) => expenseMutation.mutate(data)}
                             onCancel={handleClose}

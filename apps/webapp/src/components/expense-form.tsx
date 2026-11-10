@@ -101,12 +101,23 @@ export default function ExpenseForm({
     ];
   }, [availableCategories, initialCatId]);
 
+  const resolvedDefaultPaidBy = useMemo(() => {
+    if (!users.length) return currentUserId;
+    const normId = (currentUserId || "").trim().toLowerCase();
+    const matched =
+      users.find(u => u.userId === currentUserId) ||
+      (normId ? users.find(u => u.email && u.email.trim().toLowerCase() === normId) : undefined) ||
+      (authUser?.email ? users.find(u => u.email === authUser.email) : undefined) ||
+      users[0];
+    return matched?.userId || currentUserId;
+  }, [users, currentUserId, authUser?.email]);
+
   const [description, setDescription] = useState(draft?.description || initialData?.description || "");
   const [amount, setAmount] = useState(
     draft?.amount ? draft.amount.toString() : (initialData?.amount?.toString() || "")
   );
   const [paidBy, setPaidBy] = useState(
-    draft?.paidByUserId || initialData?.paidByUserId || (initialData as any)?.paidBy || currentUserId
+    draft?.paidByUserId || initialData?.paidByUserId || (initialData as any)?.paidBy || resolvedDefaultPaidBy
   );
   const [category, setCategory] = useState(initialCatId);
   const [date, setDate] = useState(
@@ -152,10 +163,12 @@ export default function ExpenseForm({
   };
 
   useEffect(() => {
-    if (!initialData && !draft && currentUserId) {
-      setPaidBy(currentUserId);
+    if (!initialData && !draft && resolvedDefaultPaidBy) {
+      if (!paidBy || !users.some(u => u.userId === paidBy) || paidBy === currentUserId) {
+        setPaidBy(resolvedDefaultPaidBy);
+      }
     }
-  }, [currentUserId, initialData, draft]);
+  }, [resolvedDefaultPaidBy, currentUserId, users, initialData, draft]);
 
   const formatUserLabel = (u?: Member) => {
     if (!u) return "";

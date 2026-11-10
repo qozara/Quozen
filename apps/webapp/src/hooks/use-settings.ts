@@ -129,6 +129,8 @@ export function useSettings() {
         };
       });
       queryClient.invalidateQueries({ queryKey: queryKey });
+      queryClient.invalidateQueries({ queryKey: ["group-participants", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["drive", "group", groupId] });
     }
   });
 

@@ -60,7 +60,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const { formatDate } = useDateFormatter();
-  const { settings, updateGroupAccount } = useSettings();
+  const { settings, updateGroupAccount, updateGroupAccountAsync } = useSettings();
   const { groups } = useGroups();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -112,8 +112,10 @@ export default function Dashboard() {
 
   const currentUser = useMemo(() => {
     if (!users.length) return undefined;
+    const normCurrentId = (currentUserId || "").trim().toLowerCase();
     return (
       users.find(u => u.userId === currentUserId) ||
+      (normCurrentId ? users.find(u => u.email && u.email.trim().toLowerCase() === normCurrentId) : undefined) ||
       (authUser?.email ? users.find(u => u.email === authUser.email) : undefined) ||
       users[0]
     );
@@ -128,11 +130,16 @@ export default function Dashboard() {
         (authUser.name && currentUser.name !== authUser.name))
   );
 
-  const applyAccountSwitch = (accountId: string) => {
+  const applyAccountSwitch = async (accountId: string) => {
     if (setActiveAccountId) {
-      setActiveAccountId(accountId);
+      await setActiveAccountId(accountId);
+    } else if (updateGroupAccountAsync && activeGroupId) {
+      await updateGroupAccountAsync({ groupId: activeGroupId, accountId });
     } else if (updateGroupAccount && activeGroupId) {
       updateGroupAccount({ groupId: activeGroupId, accountId });
+    }
+    if (activeGroupId) {
+      queryClient.invalidateQueries({ queryKey: ["group-participants", activeGroupId] });
     }
   };
 
@@ -180,11 +187,12 @@ export default function Dashboard() {
     setPendingSwitch(null);
     try {
       await quozen.ledger(activeGroupId, targetUserId).removeUnusedMember(unusedMemberId);
-      applyAccountSwitch(targetUserId);
+      await applyAccountSwitch(targetUserId);
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
+      queryClient.invalidateQueries({ queryKey: ["group-participants", activeGroupId] });
     } catch (err) {
       console.error("Failed to remove unused personal account", err);
-      applyAccountSwitch(targetUserId);
+      await applyAccountSwitch(targetUserId);
     }
   };
 
