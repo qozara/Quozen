@@ -1037,7 +1037,18 @@ export class GroupRepository {
         if (!rawJson) return {};
         try {
             const parsed = JSON.parse(rawJson);
-            return typeof parsed === "object" && parsed !== null ? parsed : {};
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+            const clean: AccountManagersMap = Object.create(null);
+            for (const [key, emails] of Object.entries(parsed)) {
+                if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+                if (Array.isArray(emails)) {
+                    clean[key] = emails
+                        .filter(e => typeof e === "string")
+                        .map(e => e.trim())
+                        .filter(Boolean);
+                }
+            }
+            return clean;
         } catch {
             return {};
         }

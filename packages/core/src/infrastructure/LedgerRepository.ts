@@ -724,6 +724,7 @@ export class LedgerRepository {
             const targetEmails: string[] = Array.isArray(parsed[newUserId]) ? [...parsed[newUserId]] : [];
 
             for (const [key, emails] of Object.entries(parsed)) {
+                if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
                 if (key === newUserId) continue;
                 if (key === oldUserId || key.trim().toLowerCase() === normOld) {
                     if (Array.isArray(emails)) {
