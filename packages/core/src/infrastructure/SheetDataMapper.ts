@@ -257,7 +257,7 @@ export class SheetDataMapper {
 
     static mapToMember(row: any[], rowIndex: number, headerMap: HeaderMap = DEFAULT_MEMBER_MAP): SheetRow<Member> {
         const userId = row[getHeaderIndex(headerMap, 'userId', 0)!];
-        const email = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'email', 1)!]);
+        const rawEmail = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'email', 1)!]);
         const name = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'name', 2)!]);
         const role = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'role', 3)!]);
         const joinedAt = row[getHeaderIndex(headerMap, 'joinedAt', 4)!];
@@ -269,12 +269,18 @@ export class SheetDataMapper {
         const parsedJoinedAt = safeDate(joinedAt, new Date(0));
         const updatedAt = updatedAtCol ? safeDate(updatedAtCol, parsedJoinedAt) : parsedJoinedAt;
 
+        const managedBy = rawEmail
+            ? Array.from(new Set(rawEmail.split(",").map(e => e.trim().toLowerCase()).filter(Boolean)))
+            : [];
+        const primaryEmail = managedBy[0] || (rawEmail ? rawEmail.trim().toLowerCase() : "");
+
         const member: Member = {
             userId: userId ? String(userId) : "",
-            email,
+            email: primaryEmail,
             name,
             role: (role === "owner" || role === "member") ? role : "member",
             joinedAt: parsedJoinedAt,
+            managedBy,
             updatedAt
         };
 
@@ -302,8 +308,12 @@ export class SheetDataMapper {
             ? safeIso(member.updatedAt, joinedIso)
             : joinedIso;
 
+        const emailValue = Array.isArray(member.managedBy) && member.managedBy.length > 0
+            ? member.managedBy.join(", ")
+            : (member.email || "");
+
         setCol('userId', member.userId);
-        setCol('email', sanitizeSheetValue(member.email || ""));
+        setCol('email', sanitizeSheetValue(emailValue));
         setCol('name', sanitizeSheetValue(member.name || ""));
         setCol('role', sanitizeSheetValue(member.role || "member"));
         setCol('joinedAt', joinedIso);

@@ -56,9 +56,17 @@ export interface Member {
     name: string;
     role: "owner" | "member";
     joinedAt: Date;
+    managedBy?: string[];
     updatedAt?: Date;
     deletedAt?: Date;
 }
+
+/**
+ * Domain alias for Member. In Quozen's accounting domain, a "Member" row in the
+ * spreadsheet/database represents a Ledger Account (a bucket/balance of money),
+ * which may be personal (1 manager), shared (2+ managers), or offline (0 managers).
+ */
+export type LedgerAccount = Member;
 
 export interface LedgerAnalytics {
     balances: Record<string, number>;

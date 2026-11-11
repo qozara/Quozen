@@ -98,3 +98,35 @@ export interface GoogleDriverOptions {
     httpClient?: GoogleHttpClient;
     storageLayer?: IStorageLayer;
 }
+
+export interface CloudContainerMetadata {
+    id: string;
+    name: string;
+    isOwner: boolean;
+    lastAccessed?: string;
+    createdTime?: string;
+    properties?: Record<string, string>;
+    owners?: Array<{ emailAddress?: string }>;
+    capabilities?: { canDelete?: boolean };
+}
+
+export interface CloudGroupCatalogDriver {
+    id: string;
+    name: string;
+    listGroupContainers(): Promise<CloudContainerMetadata[]>;
+    getGroupContainer(groupId: string): Promise<CloudContainerMetadata | null>;
+    createGroupContainer(title: string, sheetTitles: string[], properties?: Record<string, string>): Promise<string>;
+    updateGroupContainer(groupId: string, metadata: { name?: string; properties?: Record<string, string> }): Promise<void>;
+    deleteGroupContainer(groupId: string): Promise<void>;
+    checkContainerHealth(groupId: string): Promise<{ available: boolean; reason?: "trashed" | "deleted" }>;
+}
+
+export interface CloudAccessControlDriver {
+    id: string;
+    name: string;
+    listCollaborators(groupId: string): Promise<import("../domain/collaborator").GroupCollaborator[]>;
+    grantAccess(groupId: string, email: string, role: "editor" | "viewer"): Promise<{ displayName?: string }>;
+    revokeAccess(groupId: string, collaboratorIdOrEmail: string): Promise<void>;
+    getAccessMode(groupId: string): Promise<import("../domain/collaborator").GroupAccessMode>;
+    setAccessMode(groupId: string, mode: import("../domain/collaborator").GroupAccessMode): Promise<void>;
+}
