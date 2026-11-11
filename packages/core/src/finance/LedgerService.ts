@@ -93,10 +93,23 @@ export class LedgerService {
         return this.repo.getExpenses();
     }
 
+    private resolveCanonicalMemberId(idOrEmail: string | undefined, members: Member[]): string | undefined {
+        if (!idOrEmail) return undefined;
+        const exact = members.find(m => m.userId === idOrEmail);
+        if (exact) return exact.userId;
+        const norm = idOrEmail.trim().toLowerCase();
+        const byEmail = members.find(m => m.email && m.email.trim().toLowerCase() === norm);
+        if (byEmail) return byEmail.userId;
+        const byUserIdInsensitive = members.find(m => m.userId.trim().toLowerCase() === norm);
+        if (byUserIdInsensitive) return byUserIdInsensitive.userId;
+        return idOrEmail;
+    }
+
     private async assertMembership(): Promise<Member[]> {
         const members = await this.repo.getMembers();
         const userEmail = (this.user.email || "").trim().toLowerCase();
-        const effectiveAccountId = await this.resolveEffectiveAccountId();
+        const rawEffectiveAccountId = await this.resolveEffectiveAccountId();
+        const effectiveAccountId = this.resolveCanonicalMemberId(rawEffectiveAccountId, members);
         const isMember = members.some(
             m =>
                 (effectiveAccountId && m.userId === effectiveAccountId) ||
@@ -125,6 +138,11 @@ export class LedgerService {
         if (splits.length === 0 && members.length > 0) {
             const amounts = distributeAmount(payload.amount, members.length);
             splits = members.map((m, i) => ({ userId: m.userId, amount: amounts[i] }));
+        } else if (splits.length > 0 && members.length > 0) {
+            splits = splits.map(s => ({
+                ...s,
+                userId: this.resolveCanonicalMemberId(s.userId, members) || s.userId
+            }));
         }
 
         for (const s of splits) {
@@ -152,13 +170,16 @@ export class LedgerService {
             resolvedCategory = matched.id;
         }
 
+        const resolvedPaidByUserId =
+            this.resolveCanonicalMemberId(payload.paidByUserId, members) || payload.paidByUserId;
+
         const expense: Expense = {
             id: crypto.randomUUID(),
             description: payload.description,
             amount: payload.amount,
             category: resolvedCategory,
             date: new Date(payload.date),
-            paidByUserId: payload.paidByUserId,
+            paidByUserId: resolvedPaidByUserId,
             splits: splits,
             createdAt: new Date(),
             updatedAt: new Date()
@@ -169,7 +190,7 @@ export class LedgerService {
 
     async updateExpense(expenseId: string, payload: UpdateExpenseDTO, expectedLastModified?: Date): Promise<void> {
         await this.assertNotArchived();
-        await this.assertMembership();
+        const members = await this.assertMembership();
         if (payload.amount !== undefined) {
             this.assertValidAmount(payload.amount, "Expense amount");
         }
@@ -197,7 +218,11 @@ export class LedgerService {
 
         // Validate splits mismatch if amount or splits are updated
         const newAmount = payload.amount ?? current.amount;
-        const newSplits = payload.splits ?? current.splits;
+        const rawSplits = payload.splits ?? current.splits;
+        const newSplits = rawSplits.map(s => ({
+            ...s,
+            userId: this.resolveCanonicalMemberId(s.userId, members) || s.userId
+        }));
         for (const s of newSplits) {
             const sAmount = Number(s.amount);
             if (!Number.isFinite(sAmount) || sAmount < 0) {
@@ -209,14 +234,17 @@ export class LedgerService {
             throw new Error("Splits mismatch");
         }
 
+        const rawPaidBy = payload.paidByUserId ?? current.paidByUserId;
+        const resolvedPaidBy = this.resolveCanonicalMemberId(rawPaidBy, members) || rawPaidBy;
+
         const updated: Expense = {
             ...current,
             description: payload.description ?? current.description,
             amount: payload.amount ?? current.amount,
             category: newCategory,
             date: payload.date ? new Date(payload.date) : current.date,
-            paidByUserId: payload.paidByUserId ?? current.paidByUserId,
-            splits: payload.splits ?? current.splits,
+            paidByUserId: resolvedPaidBy,
+            splits: newSplits,
             updatedAt: new Date()
         };
 
@@ -235,9 +263,11 @@ export class LedgerService {
 
     async addSettlement(payload: CreateSettlementDTO): Promise<Settlement> {
         await this.assertNotArchived();
-        await this.assertMembership();
+        const members = await this.assertMembership();
         this.assertValidAmount(payload.amount, "Settlement amount");
-        if (payload.fromUserId === payload.toUserId) {
+        const resolvedFrom = this.resolveCanonicalMemberId(payload.fromUserId, members) || payload.fromUserId;
+        const resolvedTo = this.resolveCanonicalMemberId(payload.toUserId, members) || payload.toUserId;
+        if (resolvedFrom === resolvedTo) {
             throw new Error("A user cannot settle with themselves");
         }
 
@@ -245,8 +275,8 @@ export class LedgerService {
         const settlement: Settlement = {
             id: crypto.randomUUID(),
             date: payload.date || now,
-            fromUserId: payload.fromUserId,
-            toUserId: payload.toUserId,
+            fromUserId: resolvedFrom,
+            toUserId: resolvedTo,
             amount: payload.amount,
             method: payload.method || 'cash',
             notes: payload.notes,
@@ -258,7 +288,7 @@ export class LedgerService {
 
     async updateSettlement(settlementId: string, payload: UpdateSettlementDTO): Promise<void> {
         await this.assertNotArchived();
-        await this.assertMembership();
+        const members = await this.assertMembership();
         if (payload.amount !== undefined) {
             this.assertValidAmount(payload.amount, "Settlement amount");
         }
@@ -268,8 +298,10 @@ export class LedgerService {
             : (await this.repo.getSettlements()).find(s => s.id === settlementId);
         if (!current) throw new Error("Settlement not found");
 
-        const targetFrom = payload.fromUserId ?? current.fromUserId;
-        const targetTo = payload.toUserId ?? current.toUserId;
+        const rawFrom = payload.fromUserId ?? current.fromUserId;
+        const rawTo = payload.toUserId ?? current.toUserId;
+        const targetFrom = this.resolveCanonicalMemberId(rawFrom, members) || rawFrom;
+        const targetTo = this.resolveCanonicalMemberId(rawTo, members) || rawTo;
         if (targetFrom === targetTo) {
             throw new Error("A user cannot settle with themselves");
         }
@@ -364,7 +396,8 @@ export class LedgerService {
             typeof (this.repo as any).getGroupIcon === "function" ? (this.repo as any).getGroupIcon() : Promise.resolve(undefined)
         ]);
 
-        const effectiveAccountId = await this.resolveEffectiveAccountId();
+        const rawEffectiveAccountId = await this.resolveEffectiveAccountId();
+        const effectiveAccountId = this.resolveCanonicalMemberId(rawEffectiveAccountId, members);
         const hasLinkedAccount = Boolean(
             effectiveAccountId &&
             effectiveAccountId !== this.user.id &&
@@ -374,20 +407,30 @@ export class LedgerService {
         if (!hasLinkedAccount) {
             const currentUserMember = members.find(m => m.email === this.user.email || m.userId === this.user.id);
             if (currentUserMember && currentUserMember.userId !== this.user.id) {
-                await this.repo.migrateUser(currentUserMember.userId, this.user.id, this.user.name);
+                const oldId = currentUserMember.userId;
+                const hasCustomName = Boolean(
+                    currentUserMember.name &&
+                    currentUserMember.name !== oldId &&
+                    currentUserMember.name !== currentUserMember.email &&
+                    currentUserMember.name !== "Unknown"
+                );
+                await this.repo.migrateUser(oldId, this.user.id, this.user.name);
                 
                 // Apply migration to the loaded in-memory data
                 expenses.forEach(e => {
-                    if (e.paidByUserId === currentUserMember.userId) e.paidByUserId = this.user.id;
+                    if (e.paidByUserId === oldId) e.paidByUserId = this.user.id;
                     e.splits?.forEach(s => {
-                        if (s.userId === currentUserMember.userId) s.userId = this.user.id;
+                        if (s.userId === oldId) s.userId = this.user.id;
                     });
                 });
                 settlements.forEach(s => {
-                    if (s.fromUserId === currentUserMember.userId) s.fromUserId = this.user.id;
-                    if (s.toUserId === currentUserMember.userId) s.toUserId = this.user.id;
+                    if (s.fromUserId === oldId) s.fromUserId = this.user.id;
+                    if (s.toUserId === oldId) s.toUserId = this.user.id;
                 });
                 currentUserMember.userId = this.user.id;
+                if (this.user.name && !hasCustomName) {
+                    currentUserMember.name = this.user.name;
+                }
             }
         }
 

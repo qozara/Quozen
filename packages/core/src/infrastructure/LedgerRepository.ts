@@ -697,16 +697,81 @@ export class LedgerRepository {
         await this.touchGroup();
     }
 
+    private async migrateAccountManagersMetadata(oldUserId: string, newUserId: string): Promise<void> {
+        if (!this.storage || oldUserId === newUserId) return;
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (isOffline) return;
+
+        try {
+            const res = await this.storage.batchGetValues(this.groupId, ["_meta!A1:C"]);
+            const rows = res[0]?.values || [];
+            let rowIndex = -1;
+            let rawJson = "";
+            for (let i = 0; i < rows.length; i++) {
+                if (String(rows[i]?.[0] || "").trim() === "account_managers") {
+                    rowIndex = i + 1;
+                    rawJson = String(rows[i]?.[1] || "").trim();
+                    break;
+                }
+            }
+            if (rowIndex === -1 || !rawJson) return;
+
+            const parsed = JSON.parse(rawJson);
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+
+            const normOld = oldUserId.trim().toLowerCase();
+            let changed = false;
+            const targetEmails: string[] = Array.isArray(parsed[newUserId]) ? [...parsed[newUserId]] : [];
+
+            for (const [key, emails] of Object.entries(parsed)) {
+                if (key === newUserId) continue;
+                if (key === oldUserId || key.trim().toLowerCase() === normOld) {
+                    if (Array.isArray(emails)) {
+                        for (const em of emails) {
+                            const trimmed = String(em || "").trim();
+                            if (trimmed && !targetEmails.some(e => e.toLowerCase() === trimmed.toLowerCase())) {
+                                targetEmails.push(trimmed);
+                            }
+                        }
+                    }
+                    delete parsed[key];
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                if (targetEmails.length > 0) {
+                    parsed[newUserId] = targetEmails;
+                }
+                const nowIso = new Date().toISOString();
+                await this.storage.updateValues(
+                    this.groupId,
+                    `_meta!A${rowIndex}:C${rowIndex}`,
+                    [["account_managers", JSON.stringify(parsed), nowIso]]
+                );
+            }
+        } catch {
+            // Non-fatal if offline or _meta tab is missing
+        }
+    }
+
     async migrateUser(oldUserId: string, newUserId: string, newName?: string): Promise<void> {
         if (this.db) {
             const members = await this.getMembers();
             const member = members.find(m => m.userId === oldUserId);
             if (member) {
+                const hasCustomName = Boolean(
+                    member.name &&
+                    member.name !== oldUserId &&
+                    member.name !== member.email &&
+                    member.name !== "Unknown"
+                );
+                const resolvedName = hasCustomName ? member.name : (newName || member.name);
                 await this.deleteMember(oldUserId);
                 await this.addMember({
                     ...member,
                     userId: newUserId,
-                    name: newName || member.name,
+                    name: resolvedName,
                     updatedAt: new Date()
                 });
             }
@@ -748,6 +813,8 @@ export class LedgerRepository {
                     await this.updateSettlement(settlement);
                 }
             }
+
+            await this.migrateAccountManagersMetadata(oldUserId, newUserId);
             return;
         }
 
@@ -755,8 +822,14 @@ export class LedgerRepository {
         const members = await this.getMembers();
         const member = members.find(m => m.userId === oldUserId);
         if (member) {
+            const hasCustomName = Boolean(
+                member.name &&
+                member.name !== oldUserId &&
+                member.name !== member.email &&
+                member.name !== "Unknown"
+            );
             member.userId = newUserId;
-            if (newName) member.name = newName;
+            if (newName && !hasCustomName) member.name = newName;
             
             const rowIndex = this.memberRowMap.get(oldUserId);
             if (rowIndex && this.storage) {
@@ -804,5 +877,7 @@ export class LedgerRepository {
                 await this.updateSettlement(settlement);
             }
         }
+
+        await this.migrateAccountManagersMetadata(oldUserId, newUserId);
     }
 }

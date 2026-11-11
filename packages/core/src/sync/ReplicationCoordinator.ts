@@ -29,7 +29,8 @@ export class ReplicationCoordinator {
 
     constructor(
         private db: QuozenDatabase,
-        private provider: CloudSyncProvider
+        private provider: CloudSyncProvider,
+        private onAfterSync?: (groupId?: string) => Promise<void>
     ) {
         this.lastSyncedAtByDocId = ReplicationCoordinator.getCheckpointMap(this.db.name);
         this.statusSubject.next(this.provider.getStatus());
@@ -355,6 +356,14 @@ export class ReplicationCoordinator {
             }
 
             ReplicationCoordinator.persistCheckpointMap(this.db.name, this.lastSyncedAtByDocId);
+        }
+
+        if (this.onAfterSync && !isGroupUnhealthy) {
+            try {
+                await this.onAfterSync(targetGroupId);
+            } catch (err) {
+                console.warn("[ReplicationCoordinator] Post-sync consistency check failed:", err);
+            }
         }
     }
 

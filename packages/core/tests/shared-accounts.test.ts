@@ -62,12 +62,16 @@ describe('Account-User Separation (Shared, Personal, and Offline Accounts)', () 
     const userA = { id: 'u1', username: 'alice', name: 'Alice', email: 'alice@example.com' };
     const userB = { id: 'u2', username: 'bob', name: 'Bob', email: 'bob@example.com' };
     const userC = { id: 'u3', username: 'charlie', name: 'Charlie', email: 'charlie@example.com' };
+    const userD = { id: 'u4', username: 'diana', name: 'Diana', email: 'diana@example.com' };
+
+    let clientD: QuozenClient;
 
     beforeEach(() => {
         sharedStorage = new InMemoryAdapter();
         clientA = new QuozenClient({ storage: createPerUserStorage(sharedStorage), user: userA });
         clientB = new QuozenClient({ storage: createPerUserStorage(sharedStorage), user: userB });
         clientC = new QuozenClient({ storage: createPerUserStorage(sharedStorage), user: userC });
+        clientD = new QuozenClient({ storage: createPerUserStorage(sharedStorage), user: userD });
     });
 
     it('allows two users (A and B) to co-manage a Shared Account and split 50/50 with User C without schema or row migrations', async () => {
@@ -296,5 +300,178 @@ describe('Account-User Separation (Shared, Personal, and Offline Accounts)', () 
             { userId: userA.id, amount: 20 },
             { userId: userC.email, amount: 20 }
         ]);
+    });
+
+    it('reproduces Madryn 4-user scenario: A & B manage Account X, C & D manage Account Y (belonging to C), D eliminates personal account and can log expenses', async () => {
+        // 1. User A creates group "Madryn" and shares with B, C, and D
+        const group = await clientA.groups.create('Madryn', [
+            { username: 'Bob', email: userB.email },
+            { username: 'Account Y', email: userC.email },
+            { username: 'Diana', email: userD.email }
+        ]);
+
+        // 2. Users A and B configure Account X (A renames account to X, B switches to X and removes B's personal account)
+        await clientA.ledger(group.id).renameMember(userA.id, 'Account X');
+        await clientB.groups.joinGroup(group.id);
+        await clientB.ledger(group.id).getLedger(); // migrates bob@example.com -> u2
+        expect(await clientB.ledger(group.id).removeUnusedMember(userB.id)).toBe(true);
+        await clientB.groups.updateGroupAccount(group.id, userA.id);
+
+        // 3. User D logs in, switches to Account Y (belonging to C, whose userId is still charlie@example.com before C logs in),
+        // and eliminates D's unused personal account
+        await clientD.groups.joinGroup(group.id);
+        await clientD.ledger(group.id).getLedger(); // migrates diana@example.com -> u4
+        expect(await clientD.ledger(group.id).removeUnusedMember(userD.id)).toBe(true);
+        await clientD.groups.updateGroupAccount(group.id, userC.email);
+
+        // 4. User C logs in and opens the group (triggers migrateUser: charlie@example.com -> u3)
+        await clientC.groups.joinGroup(group.id);
+        await clientC.ledger(group.id).getLedger();
+
+        // 5. Verify Share Dialog / Participants Overview shows A & B managing X, and BOTH C & D managing Y
+        const participants = await clientA.groups.getGroupParticipants(group.id);
+        expect(participants.accounts).toHaveLength(2);
+
+        const accountX = participants.accounts.find(a => a.member.userId === userA.id)!;
+        expect(accountX).toBeDefined();
+        expect(accountX.kind).toBe('shared');
+        expect(accountX.managers.map(m => m.email.toLowerCase()).sort()).toEqual([
+            userA.email,
+            userB.email
+        ]);
+
+        const accountY = participants.accounts.find(a => a.member.userId === userC.id)!;
+        expect(accountY).toBeDefined();
+        expect(accountY.member.name).toBe('Account Y');
+        expect(accountY.kind).toBe('shared');
+        expect(accountY.managers.map(m => m.email.toLowerCase()).sort()).toEqual([
+            userC.email,
+            userD.email
+        ]);
+
+        // D must NOT be unassigned!
+        expect(participants.unassignedCollaborators).toHaveLength(0);
+
+        // 6. Verify User D can log a new expense without failing assertMembership ("Forbidden")
+        const dEffectiveAccountId = await clientD.groups.getGroupAccountId(group.id);
+        const expenseByD = await clientD.ledger(group.id, dEffectiveAccountId).addExpense({
+            description: 'Whale Watching Tour',
+            amount: 120,
+            paidByUserId: dEffectiveAccountId || userC.id,
+            category: 'Entertainment',
+            date: new Date('2026-11-10')
+        });
+
+        expect(expenseByD.paidByUserId).toBe(userC.id);
+        const finalLedger = await clientD.ledger(group.id).getLedger();
+        expect(finalLedger.expenses).toHaveLength(1);
+        expect(finalLedger.getUserBalance(userC.id)).toBe(60);
+        expect(finalLedger.getUserBalance(userA.id)).toBe(-60);
+    });
+
+    it('guarantees consistency upon Cloud Sync when split-brain occurs between user_settings.accountId and _meta.account_managers', async () => {
+        const { getRxStorageMemory } = await import('rxdb/plugins/storage-memory');
+        const {
+            createQuozenDatabase,
+            destroyQuozenDatabase,
+            CompositeCloudSyncProvider,
+            GoogleDriveBlobDriver,
+            GoogleSheetsTabularDriver
+        } = await import('../src');
+
+        const dbC = await createQuozenDatabase({
+            name: `test_madryn_c_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            storage: getRxStorageMemory()
+        });
+        const dbD = await createQuozenDatabase({
+            name: `test_madryn_d_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            storage: getRxStorageMemory()
+        });
+
+        try {
+            const storageC = createPerUserStorage(sharedStorage);
+            const storageD = createPerUserStorage(sharedStorage);
+
+            const blobDriverC = new GoogleDriveBlobDriver({ getAccessToken: () => null, storageLayer: storageC });
+            const syncProviderC = new CompositeCloudSyncProvider({
+                id: 'sync-c',
+                name: 'Sync C',
+                blobDriver: blobDriverC,
+                tabularDriver: new GoogleSheetsTabularDriver({ getAccessToken: () => null, storageLayer: storageC })
+            });
+            await syncProviderC.initialize();
+
+            const blobDriverD = new GoogleDriveBlobDriver({ getAccessToken: () => null, storageLayer: storageD });
+            const syncProviderD = new CompositeCloudSyncProvider({
+                id: 'sync-d',
+                name: 'Sync D',
+                blobDriver: blobDriverD,
+                tabularDriver: new GoogleSheetsTabularDriver({ getAccessToken: () => null, storageLayer: storageD })
+            });
+            await syncProviderD.initialize();
+
+            const rxClientC = new QuozenClient({
+                storage: storageC,
+                user: userC,
+                db: dbC,
+                blobDriver: blobDriverC,
+                syncProvider: syncProviderC
+            });
+            const rxClientD = new QuozenClient({
+                storage: storageD,
+                user: userD,
+                db: dbD,
+                blobDriver: blobDriverD,
+                syncProvider: syncProviderD
+            });
+
+            // 1. User A creates group Madryn with C and D
+            const group = await clientA.groups.create('Madryn Sync', [
+                { username: 'Account Y', email: userC.email },
+                { username: 'Diana', email: userD.email }
+            ]);
+
+            // 2. User D joins, switches to C's account (pre-migration ID: charlie@example.com), removes unused personal row
+            await rxClientD.groups.joinGroup(group.id);
+            await rxClientD.ledger(group.id).getLedger();
+            await rxClientD.ledger(group.id).removeUnusedMember(userD.id);
+            await rxClientD.groups.updateGroupAccount(group.id, userC.email);
+            await rxClientD.replication!.sync(group.id);
+
+            // Simulate split-brain: _meta!account_managers lost D's write (empty {}) AND C logs in and migrates charlie@example.com -> u3
+            await clientA.groups.setAccountManagers(group.id, {});
+            await rxClientC.groups.joinGroup(group.id);
+            await rxClientC.ledger(group.id).getLedger();
+            await rxClientC.replication!.sync(group.id);
+
+            // 3. Now D runs Cloud Sync -> must reconcile D's accountId (charlie@example.com -> u3) AND restore _meta!account_managers[u3] = [diana@example.com]
+            await rxClientD.replication!.sync(group.id);
+
+            const healedAccountId = await rxClientD.groups.getGroupAccountId(group.id);
+            expect(healedAccountId).toBe(userC.id);
+
+            const participants = await clientA.groups.getGroupParticipants(group.id);
+            const accountY = participants.accounts.find(a => a.member.userId === userC.id)!;
+            expect(accountY).toBeDefined();
+            expect(accountY.kind).toBe('shared');
+            expect(accountY.managers.map(m => m.email.toLowerCase()).sort()).toEqual([
+                userC.email,
+                userD.email
+            ]);
+            expect(participants.unassignedCollaborators).toHaveLength(0);
+
+            // 4. Verify User D can log an expense after sync healing
+            const exp = await rxClientD.ledger(group.id, healedAccountId).addExpense({
+                description: 'Penguin Excursion',
+                amount: 80,
+                paidByUserId: healedAccountId!,
+                category: 'Entertainment',
+                date: new Date('2026-11-10')
+            });
+            expect(exp.paidByUserId).toBe(userC.id);
+        } finally {
+            await destroyQuozenDatabase(dbC);
+            await destroyQuozenDatabase(dbD);
+        }
     });
 });

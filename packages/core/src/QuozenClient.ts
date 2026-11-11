@@ -35,9 +35,6 @@ export class QuozenClient {
 
         this.db = config.db;
         this.syncProvider = config.syncProvider;
-        if (this.db && this.syncProvider) {
-            this.replication = new ReplicationCoordinator(this.db, this.syncProvider);
-        }
 
         this.groups = new GroupRepository(
             this.storage,
@@ -47,6 +44,18 @@ export class QuozenClient {
             config.blobDriver,
             (groupId?: string) => this.triggerBackgroundSync(groupId)
         );
+
+        if (this.db && this.syncProvider) {
+            this.replication = new ReplicationCoordinator(
+                this.db,
+                this.syncProvider,
+                async (groupId?: string) => {
+                    await this.groups.reconcileGroupAccountConsistency(groupId, undefined, {
+                        suppressSyncTrigger: true
+                    });
+                }
+            );
+        }
     }
 
     private async triggerBackgroundSync(groupId?: string): Promise<void> {

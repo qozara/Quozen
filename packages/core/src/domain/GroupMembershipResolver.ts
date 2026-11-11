@@ -24,13 +24,35 @@ export class GroupMembershipResolver {
             }
         }
 
-        // Identify which emails have explicitly chosen to manage another account
-        const explicitlyBoundEmails = new Map<string, string>(); // email -> accountId
-        for (const [accountId, emails] of Object.entries(accountManagers)) {
-            if (Array.isArray(emails)) {
-                for (const em of emails) {
-                    if (em) explicitlyBoundEmails.set(em.trim().toLowerCase(), accountId);
+        const resolveCanonicalAccountId = (rawKey: string): string => {
+            const exact = members.find(m => m.userId === rawKey);
+            if (exact) return exact.userId;
+            const normKey = rawKey.trim().toLowerCase();
+            const byEmail = members.find(m => m.email && m.email.trim().toLowerCase() === normKey);
+            if (byEmail) return byEmail.userId;
+            const byUserIdInsensitive = members.find(m => m.userId.trim().toLowerCase() === normKey);
+            if (byUserIdInsensitive) return byUserIdInsensitive.userId;
+            return rawKey;
+        };
+
+        // Normalize accountManagers keys (handling pre-migration email keys) and identify explicit email bindings
+        const normalizedManagers = new Map<string, string[]>();
+        const explicitlyBoundEmails = new Map<string, string>(); // email -> canonicalAccountId
+        for (const [rawAccountId, emails] of Object.entries(accountManagers)) {
+            if (!Array.isArray(emails)) continue;
+            const canonicalAccountId = resolveCanonicalAccountId(rawAccountId);
+            const existing = normalizedManagers.get(canonicalAccountId) || [];
+            for (const em of emails) {
+                const trimmed = em?.trim();
+                if (!trimmed) continue;
+                const norm = trimmed.toLowerCase();
+                explicitlyBoundEmails.set(norm, canonicalAccountId);
+                if (!existing.some(e => e.toLowerCase() === norm)) {
+                    existing.push(trimmed);
                 }
+            }
+            if (existing.length > 0) {
+                normalizedManagers.set(canonicalAccountId, existing);
             }
         }
 
@@ -38,17 +60,18 @@ export class GroupMembershipResolver {
         const allAssignedEmails = new Set<string>();
 
         for (const member of members) {
-            const rawManagerEmails = accountManagers[member.userId];
-            let managerEmails: string[] = [];
+            const rawManagerEmails = normalizedManagers.get(member.userId) || [];
+            const managerEmails: string[] = [...rawManagerEmails];
 
-            if (Array.isArray(rawManagerEmails) && rawManagerEmails.length > 0) {
-                managerEmails = Array.from(new Set(rawManagerEmails.map(e => e.trim()).filter(Boolean)));
-            } else if (member.email) {
-                const normEmail = member.email.trim().toLowerCase();
-                // Only default to member.email if this user has NOT explicitly mapped themselves to a different account
+            if (member.email && member.email.trim()) {
+                const trimmedMemberEmail = member.email.trim();
+                const normEmail = trimmedMemberEmail.toLowerCase();
+                // Include member.email if this user has NOT explicitly mapped themselves to a different account
                 const boundTo = explicitlyBoundEmails.get(normEmail);
                 if (!boundTo || boundTo === member.userId) {
-                    managerEmails = [member.email.trim()];
+                    if (!managerEmails.some(e => e.toLowerCase() === normEmail)) {
+                        managerEmails.unshift(trimmedMemberEmail);
+                    }
                 }
             }
 

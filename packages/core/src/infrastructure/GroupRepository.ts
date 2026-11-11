@@ -62,17 +62,186 @@ export class GroupRepository {
     }
 
     async getGroupAccountId(groupId: string): Promise<string | undefined> {
+        let accountId: string | undefined;
         if (this.accountIdCache.has(groupId)) {
-            return this.accountIdCache.get(groupId);
+            accountId = this.accountIdCache.get(groupId);
+        } else {
+            try {
+                const settings = await this.getSettings();
+                accountId = settings.groupCache.find(g => g.id === groupId)?.accountId;
+                this.accountIdCache.set(groupId, accountId);
+            } catch {
+                return undefined;
+            }
         }
+
         try {
-            const settings = await this.getSettings();
-            const accountId = settings.groupCache.find(g => g.id === groupId)?.accountId;
-            this.accountIdCache.set(groupId, accountId);
-            return accountId;
+            const members = await new LedgerRepository(this.storage, groupId, this.db).getMembers();
+            if (members.length > 0) {
+                const hasExactAccount = Boolean(accountId && members.some(m => m.userId === accountId));
+                const normEmail = (this.user.email || "").trim().toLowerCase();
+                const hasPersonalRow = members.some(
+                    m =>
+                        m.userId === this.user.id ||
+                        (normEmail && (m.email || "").trim().toLowerCase() === normEmail) ||
+                        (normEmail && m.userId.trim().toLowerCase() === normEmail)
+                );
+                if ((accountId && !hasExactAccount) || (!accountId && !hasPersonalRow)) {
+                    const healed = await this.reconcileGroupAccountConsistency(groupId, members);
+                    if (healed !== undefined) {
+                        return healed;
+                    }
+                }
+            }
         } catch {
-            return undefined;
+            // Non-fatal in mock/offline environments without member rows
         }
+
+        return accountId;
+    }
+
+    async reconcileGroupAccountConsistency(
+        groupId?: string,
+        preloadedMembers?: Member[],
+        options?: { suppressSyncTrigger?: boolean }
+    ): Promise<string | undefined> {
+        let settings: UserSettings;
+        try {
+            settings = await this.getSettings();
+        } catch {
+            return groupId ? this.accountIdCache.get(groupId) : undefined;
+        }
+
+        const targetGroupId = groupId || settings.activeGroupId || undefined;
+        if (!targetGroupId) return undefined;
+
+        const cachedGroup =
+            settings.groupCache.find(g => g.id === targetGroupId) ||
+            settings.archivedGroupCache?.find(g => g.id === targetGroupId);
+        let currentAccountId = cachedGroup?.accountId || this.accountIdCache.get(targetGroupId);
+
+        let members: Member[] = [];
+        try {
+            members = preloadedMembers || (await new LedgerRepository(this.storage, targetGroupId, this.db).getMembers());
+        } catch {
+            return currentAccountId;
+        }
+        if (members.length === 0) return currentAccountId;
+
+        const findMemberByIdOrEmail = (idOrEmail?: string): Member | undefined => {
+            if (!idOrEmail) return undefined;
+            const exact = members.find(m => m.userId === idOrEmail);
+            if (exact) return exact;
+            const norm = idOrEmail.trim().toLowerCase();
+            const byEmail = members.find(m => m.email && m.email.trim().toLowerCase() === norm);
+            if (byEmail) return byEmail;
+            return members.find(m => m.userId.trim().toLowerCase() === norm);
+        };
+
+        let accountManagers: AccountManagersMap = {};
+        try {
+            accountManagers = await this.getAccountManagers(targetGroupId);
+        } catch {
+            accountManagers = {};
+        }
+
+        let metaChanged = false;
+        let settingsChanged = false;
+
+        // Rule A: Heal pre-migration keys in _meta!account_managers (e.g. charlie@example.com -> u3)
+        for (const [rawKey, emails] of Object.entries({ ...accountManagers })) {
+            if (!members.some(m => m.userId === rawKey)) {
+                const matched = findMemberByIdOrEmail(rawKey);
+                if (matched && matched.userId !== rawKey) {
+                    const existing = Array.isArray(accountManagers[matched.userId])
+                        ? [...accountManagers[matched.userId]]
+                        : [];
+                    if (Array.isArray(emails)) {
+                        for (const em of emails) {
+                            const trimmed = String(em || "").trim();
+                            if (trimmed && !existing.some(e => e.toLowerCase() === trimmed.toLowerCase())) {
+                                existing.push(trimmed);
+                            }
+                        }
+                    }
+                    if (existing.length > 0) {
+                        accountManagers[matched.userId] = existing;
+                    }
+                    delete accountManagers[rawKey];
+                    metaChanged = true;
+                }
+            }
+        }
+
+        // Rule B: Heal cachedGroup.accountId if it points to a pre-migration email whose member now has a Google userId
+        let resolvedMember = findMemberByIdOrEmail(currentAccountId);
+        if (currentAccountId && resolvedMember && resolvedMember.userId !== currentAccountId) {
+            currentAccountId = resolvedMember.userId;
+            settingsChanged = true;
+        }
+
+        const trimmedUserEmail = (this.user.email || "").trim();
+        const normUserEmail = trimmedUserEmail.toLowerCase();
+
+        // Rule C: If currentAccountId is missing or points to a removed member, recover from _meta!account_managers
+        if ((!currentAccountId || !resolvedMember) && normUserEmail) {
+            for (const [accKey, emails] of Object.entries(accountManagers)) {
+                if (Array.isArray(emails) && emails.some(e => String(e || "").trim().toLowerCase() === normUserEmail)) {
+                    const boundMember = findMemberByIdOrEmail(accKey);
+                    if (boundMember) {
+                        resolvedMember = boundMember;
+                        if (currentAccountId !== boundMember.userId) {
+                            currentAccountId = boundMember.userId;
+                            settingsChanged = true;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Rule D: If currentAccountId resolves to a valid member, ensure _meta!account_managers reflects this user's binding
+        if (currentAccountId && resolvedMember && normUserEmail) {
+            for (const [accKey, emails] of Object.entries(accountManagers)) {
+                if (accKey === resolvedMember.userId) continue;
+                if (Array.isArray(emails) && emails.some(e => String(e || "").trim().toLowerCase() === normUserEmail)) {
+                    accountManagers[accKey] = emails.filter(e => String(e || "").trim().toLowerCase() !== normUserEmail);
+                    metaChanged = true;
+                }
+            }
+
+            const isNonDefaultAccount =
+                resolvedMember.userId !== this.user.id ||
+                (resolvedMember.email || "").trim().toLowerCase() !== normUserEmail ||
+                Array.isArray(accountManagers[resolvedMember.userId]);
+
+            if (isNonDefaultAccount) {
+                const existing = Array.isArray(accountManagers[resolvedMember.userId])
+                    ? accountManagers[resolvedMember.userId]
+                    : [];
+                if (!existing.some(e => String(e || "").trim().toLowerCase() === normUserEmail)) {
+                    accountManagers[resolvedMember.userId] = [...existing, trimmedUserEmail];
+                    metaChanged = true;
+                }
+            }
+        }
+
+        if (metaChanged) {
+            await this.setAccountManagers(targetGroupId, accountManagers);
+        }
+
+        if (settingsChanged && currentAccountId) {
+            this.accountIdCache.set(targetGroupId, currentAccountId);
+            if (cachedGroup) {
+                cachedGroup.accountId = currentAccountId;
+                cachedGroup.updatedAt = new Date().toISOString();
+                await this.saveSettings(settings, options);
+            }
+        } else if (currentAccountId) {
+            this.accountIdCache.set(targetGroupId, currentAccountId);
+        }
+
+        return currentAccountId;
     }
 
     async updateGroupAccount(groupId: string, accountId: string): Promise<void> {
@@ -196,7 +365,7 @@ export class GroupRepository {
         return this.reconcileGroups();
     }
 
-    async saveSettings(settings: UserSettings): Promise<void> {
+    async saveSettings(settings: UserSettings, options?: { suppressSyncTrigger?: boolean }): Promise<void> {
         this.syncAccountIdCache(settings);
         const nowIso = new Date().toISOString();
         settings.lastUpdated = nowIso;
@@ -226,7 +395,7 @@ export class GroupRepository {
             const isOffline =
                 typeof globalThis !== "undefined" &&
                 (globalThis as any).navigator?.onLine === false;
-            if (isOffline || (this.onMutation && !isMockE2E)) {
+            if (!options?.suppressSyncTrigger && (isOffline || (this.onMutation && !isMockE2E))) {
                 await this.onMutation?.(settings.activeGroupId || undefined);
                 return;
             }
@@ -605,7 +774,9 @@ export class GroupRepository {
             let memberId = member.email || member.username || `user-${crypto.randomUUID()}`;
             if (member.email) {
                 const perm = await this.storage.createPermission(fileId, "writer", "user", member.email);
-                if (perm.displayName) memberName = perm.displayName;
+                if ((!member.username || member.username === member.email) && perm.displayName) {
+                    memberName = perm.displayName;
+                }
                 memberId = member.email;
             }
             initialMembers.push([memberId, member.email || "", memberName, "member", nowIso, nowIso]);
@@ -914,8 +1085,10 @@ export class GroupRepository {
     }
 
     async getGroupParticipants(groupId: string): Promise<GroupParticipantsOverview> {
-        const [ledgerMembers, collaborators, accountManagers, accessMode] = await Promise.all([
-            new LedgerRepository(this.storage, groupId, this.db).getMembers(),
+        const ledgerMembers = await new LedgerRepository(this.storage, groupId, this.db).getMembers();
+        await this.reconcileGroupAccountConsistency(groupId, ledgerMembers);
+
+        const [collaborators, accountManagers, accessMode] = await Promise.all([
             this.getGroupCollaborators(groupId),
             this.getAccountManagers(groupId),
             this.getGroupPermissions(groupId)
@@ -1217,7 +1390,9 @@ export class GroupRepository {
                 if (desired.email && !isOffline) {
                     try {
                         const perm = await this.storage.createPermission(groupId, "writer", "user", desired.email);
-                        if (perm?.displayName) memberName = perm.displayName;
+                        if ((!desired.username || desired.username === desired.email) && perm?.displayName) {
+                            memberName = perm.displayName;
+                        }
                         memberId = desired.email;
                     } catch (err) {
                         if (!this.db || !isNetworkError(err)) throw err;
