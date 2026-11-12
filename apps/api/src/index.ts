@@ -28,7 +28,7 @@ app.use('*', cors({
             return origin;
         }
         // Match only Quozen-specific Vercel preview and production deployments (e.g. quozen.vercel.app, quozen-git-*.vercel.app)
-        if (/^https:\/\/quozen(?:-[a-zA-Z0-9-]+)*\.vercel\.app$/.test(origin)) {
+        if (/^https:\/\/quozen(?:-[a-zA-Z0-9]+)*\.vercel\.app$/.test(origin)) {
             return origin;
         }
         return null;
