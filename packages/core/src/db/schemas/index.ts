@@ -402,11 +402,14 @@ export function memberToDoc(member: Member, groupId: string): MemberDocType {
     const updatedIso = member.updatedAt
         ? safeIsoString(member.updatedAt, joinedIso)
         : joinedIso;
+    const emailVal = Array.isArray(member.managedBy) && member.managedBy.length > 0
+        ? member.managedBy.join(", ")
+        : (member.email || "");
     return {
         id: `${groupId}_${member.userId}`,
         groupId,
         userId: member.userId,
-        email: member.email || "",
+        email: emailVal,
         name: member.name || "",
         role: member.role,
         joinedAt: joinedIso,
@@ -416,12 +419,17 @@ export function memberToDoc(member: Member, groupId: string): MemberDocType {
 }
 
 export function docToMember(doc: MemberDocType | DeepReadonlyObject<MemberDocType>): Member {
+    const rawEmail = doc.email || "";
+    const managedBy = rawEmail
+        ? Array.from(new Set(rawEmail.split(",").map(e => e.trim().toLowerCase()).filter(Boolean)))
+        : [];
     const member: Member = {
         userId: doc.userId,
-        email: doc.email || "",
+        email: managedBy[0] || (rawEmail ? rawEmail.trim().toLowerCase() : ""),
         name: doc.name,
         role: doc.role,
         joinedAt: new Date(doc.joinedAt),
+        managedBy,
         updatedAt: new Date(doc.updatedAt || doc.joinedAt)
     };
     if (doc.deletedAt) {

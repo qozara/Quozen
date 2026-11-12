@@ -6,21 +6,29 @@ import { groupsRouter } from './routes/groups.js';
 
 export const app = new OpenAPIHono();
 
-// Security Headers (nosniff, X-Frame-Options, Referrer-Policy, etc.)
-app.use('*', secureHeaders());
+// Security Headers (nosniff, X-Frame-Options, Referrer-Policy, HSTS, etc.)
+app.use('*', secureHeaders({
+    strictTransportSecurity: 'max-age=31536000; includeSubDomains; preload',
+    xFrameOptions: 'DENY',
+    xContentTypeOptions: 'nosniff',
+    referrerPolicy: 'strict-origin-when-cross-origin',
+    xPermittedCrossDomainPolicies: 'none',
+    xDownloadOptions: 'noopen',
+}));
 
-// CORS Configuration
+// CORS Configuration - Restrict to Quozen/Qozara production, Quozen Vercel previews, and local dev
 app.use('*', cors({
     origin: (origin) => {
         if (!origin) return '*';
         if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
             return origin;
         }
-        if (
-            origin.endsWith('.quozen.org') ||
-            origin.endsWith('.qozara.org') ||
-            origin.endsWith('.vercel.app')
-        ) {
+        // Match https://quozen.org, https://qozara.org and their subdomains
+        if (/^https:\/\/(?:[a-zA-Z0-9-]+\.)*(?:quozen\.org|qozara\.org)$/.test(origin)) {
+            return origin;
+        }
+        // Match only Quozen-specific Vercel preview and production deployments (e.g. quozen.vercel.app, quozen-git-*.vercel.app)
+        if (/^https:\/\/quozen(?:-[a-zA-Z0-9]+)*\.vercel\.app$/.test(origin)) {
             return origin;
         }
         return null;

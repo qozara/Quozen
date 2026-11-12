@@ -398,15 +398,18 @@ export class LedgerService {
 
         const rawEffectiveAccountId = await this.resolveEffectiveAccountId();
         const effectiveAccountId = this.resolveCanonicalMemberId(rawEffectiveAccountId, members);
+        const normUserEmail = (this.user.email || "").trim().toLowerCase();
         const hasLinkedAccount = Boolean(
             effectiveAccountId &&
             effectiveAccountId !== this.user.id &&
-            members.some(m => m.userId === effectiveAccountId)
+            effectiveAccountId.toLowerCase() !== normUserEmail &&
+            members.some(m => m.userId === effectiveAccountId && (m.email || "").trim().toLowerCase() !== normUserEmail)
         );
 
         if (!hasLinkedAccount) {
             const currentUserMember = members.find(m => m.email === this.user.email || m.userId === this.user.id);
-            if (currentUserMember && currentUserMember.userId !== this.user.id) {
+            const isLegacyEmailUserId = currentUserMember && currentUserMember.userId === currentUserMember.email;
+            if (isLegacyEmailUserId && currentUserMember.userId !== this.user.id) {
                 const oldId = currentUserMember.userId;
                 const hasCustomName = Boolean(
                     currentUserMember.name &&

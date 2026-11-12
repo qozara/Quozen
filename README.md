@@ -23,9 +23,9 @@ Quozen is built as a highly modular monorepo, decoupling core business logic fro
 - **Share via Email**: Invite friends directly via their Google account.
 - **Archive & Unarchive Groups**: Archive obsolete or settled groups to declutter your active group list. Archived groups are read-only, organized in a dedicated "Archived" tab, and evaluated with strict laziness (zero remote Google Drive/Sheets calls). Restore them anytime with a single click.
 - **Drive Deletion Detection & Self-Healing**: Detects if a spreadsheet file was trashed or deleted in Google Drive, informs the user with an alert, and auto-prunes the entry from active and archived lists.
-- **Personal, Shared & Offline Accounts**: Decouples logged-in Google **Users** from group ledger **Accounts**:
+- **Personal, Shared & Offline Accounts**: Decouples logged-in Google **Users** from group ledger **Accounts** (see [ADR 20261012](docs/adr/20261012-account-user-separation.md) and [ADR 20261110](docs/adr/20261110-account-identity-and-cloud-storage-decoupling.md)):
   - **Personal Account**: Default 1:1 account for an individual user.
-  - **Shared Account**: Multiple logged-in users (e.g., a family, a couple, or a subgroup of friends) can link to and co-manage a single consolidated account that counts as one share in group splits.
+  - **Shared Account**: Multiple logged-in users (e.g., a family, a couple, or a subgroup of friends) can link to and co-manage a single consolidated account that counts as one share in group splits. Manager emails are stored as a comma-separated list (`managedBy`) directly in the `Members` table as the single source of truth without mutating opaque ledger account IDs.
   - **Offline Account**: Add accounts without an email (e.g., `"Bob"`) and let any logged-in user switch to or record expenses on their behalf.
 
 ### ⚡ Instant Deterministic Parser & Human-in-the-Loop Confirmation
@@ -66,6 +66,12 @@ To function, Quozen requests these specific permissions:
 - `https://www.googleapis.com/auth/drive.file`: **File Management.** Allows Quozen to access *only* the files it creates. It **cannot** see your other personal photos, docs, or spreadsheets.
 - `https://www.googleapis.com/auth/spreadsheets`: **Data Operations.** Allows reading and writing expenses to the specific group sheets.
 - `email` & `profile`: **Identity.** Used to display your name/avatar and identify you in expense splits.
+
+### Decoupled Cloud Storage & Access Control Architecture
+Rather than hardcoding cloud-vendor specific APIs into group management, `@quozen/core` defines cloud-agnostic driver ports (see [ADR 20261110](docs/adr/20261110-account-identity-and-cloud-storage-decoupling.md)):
+- **`CloudGroupCatalogDriver`**: Handles file/container discovery, metadata queries, and health checks without leaking Google Drive query syntax (`properties has ... and trashed = false`).
+- **`CloudAccessControlDriver`**: Manages collaborators, role assignments (`editor` vs `viewer`), and access modes (`public` vs `restricted`).
+- **`StorageLayerCatalogAndAclDriver`**: The default adapter implementing both interfaces on top of `IStorageLayer`, keeping `GroupRepository` completely decoupled and enabling straightforward mocking or future BYOB storage extensions (Nextcloud, S3, Dropbox, Local Folder).
 
 ---
 

@@ -6,7 +6,7 @@ import { User } from "./domain/models";
 import { StorageCacheProxy } from "./infrastructure/StorageCacheProxy";
 import { ValidationService } from "./schema/ValidationService";
 import type { QuozenDatabase } from "./db";
-import type { CloudSyncProvider, BlobStorageDriver } from "./sync/types";
+import type { CloudSyncProvider, BlobStorageDriver, CloudGroupCatalogDriver, CloudAccessControlDriver } from "./sync/types";
 import { ReplicationCoordinator } from "./sync/ReplicationCoordinator";
 
 export interface QuozenConfig {
@@ -18,6 +18,8 @@ export interface QuozenConfig {
     db?: QuozenDatabase;
     syncProvider?: CloudSyncProvider;
     blobDriver?: BlobStorageDriver;
+    catalogDriver?: CloudGroupCatalogDriver;
+    aclDriver?: CloudAccessControlDriver;
 }
 
 export class QuozenClient {
@@ -42,7 +44,9 @@ export class QuozenClient {
             config.getToken,
             this.db,
             config.blobDriver,
-            (groupId?: string) => this.triggerBackgroundSync(groupId)
+            (groupId?: string) => this.triggerBackgroundSync(groupId),
+            config.catalogDriver,
+            config.aclDriver
         );
 
         if (this.db && this.syncProvider) {

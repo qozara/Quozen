@@ -15,13 +15,16 @@ import { OfflineOperationError, GroupFileUnavailableError } from "../errors";
 import {
     GroupCollaborator,
     GroupParticipantsOverview,
-    AccountManagersMap,
-    CollaboratorRole
+    AccountManagersMap
 } from "../domain/collaborator";
 import { GroupMembershipResolver } from "../domain/GroupMembershipResolver";
+import type { CloudGroupCatalogDriver, CloudAccessControlDriver } from "../sync/types";
+import { StorageLayerCatalogAndAclDriver } from "../sync/StorageLayerCatalogAndAclDriver";
 
 export class GroupRepository {
     private accountIdCache = new Map<string, string | undefined>();
+    private catalogDriver: CloudGroupCatalogDriver;
+    private aclDriver: CloudAccessControlDriver;
 
     constructor(
         private storage: IStorageLayer,
@@ -29,8 +32,13 @@ export class GroupRepository {
         private getToken?: () => string | null,
         private db?: QuozenDatabase,
         private blobDriver?: BlobStorageDriver,
-        private onMutation?: (groupId?: string) => void
-    ) { }
+        private onMutation?: (groupId?: string) => void,
+        catalogDriver?: CloudGroupCatalogDriver,
+        aclDriver?: CloudAccessControlDriver
+    ) {
+        this.catalogDriver = catalogDriver || new StorageLayerCatalogAndAclDriver(this.storage, this.user.email);
+        this.aclDriver = aclDriver || (this.catalogDriver as unknown as CloudAccessControlDriver);
+    }
 
     private migrateSettingsToV2(settings: UserSettings): UserSettings {
         if (!settings.version || settings.version < 2) {
@@ -78,8 +86,19 @@ export class GroupRepository {
         try {
             const members = await new LedgerRepository(this.storage, groupId, this.db).getMembers();
             if (members.length > 0) {
-                const hasExactAccount = Boolean(accountId && members.some(m => m.userId === accountId));
                 const normEmail = (this.user.email || "").trim().toLowerCase();
+                if (normEmail) {
+                    const managedMember = members.find(m => m.managedBy?.some(e => e.toLowerCase() === normEmail));
+                    if (managedMember) {
+                        if (accountId !== managedMember.userId) {
+                            accountId = managedMember.userId;
+                            this.accountIdCache.set(groupId, accountId);
+                        }
+                        return accountId;
+                    }
+                }
+
+                const hasExactAccount = Boolean(accountId && members.some(m => m.userId === accountId));
                 const hasPersonalRow = members.some(
                     m =>
                         m.userId === this.user.id ||
@@ -183,7 +202,34 @@ export class GroupRepository {
         const trimmedUserEmail = (this.user.email || "").trim();
         const normUserEmail = trimmedUserEmail.toLowerCase();
 
-        // Rule C: If currentAccountId is missing or points to a removed member, recover from _meta!account_managers
+        // Ingest legacy _meta!account_managers into member.managedBy if present
+        for (const [accId, emails] of Object.entries(accountManagers)) {
+            if (Array.isArray(emails) && emails.length > 0) {
+                const targetMember = members.find(m => m.userId === accId);
+                if (targetMember && (!targetMember.managedBy || targetMember.managedBy.length === 0)) {
+                    targetMember.managedBy = [...emails];
+                    try {
+                        const ledgerRepo = new LedgerRepository(this.storage, targetGroupId, this.db);
+                        await ledgerRepo.updateMember(targetMember);
+                    } catch {
+                        // Non-fatal
+                    }
+                }
+            }
+        }
+
+        // Rule C: If currentAccountId is missing or points to a removed member, recover from member.managedBy or _meta!account_managers
+        if (normUserEmail) {
+            const managedMember = members.find(m => m.managedBy?.some(e => e.toLowerCase() === normUserEmail));
+            if (managedMember) {
+                resolvedMember = managedMember;
+                if (currentAccountId !== managedMember.userId) {
+                    currentAccountId = managedMember.userId;
+                    settingsChanged = true;
+                }
+            }
+        }
+
         if ((!currentAccountId || !resolvedMember) && normUserEmail) {
             for (const [accKey, emails] of Object.entries(accountManagers)) {
                 if (Array.isArray(emails) && emails.some(e => String(e || "").trim().toLowerCase() === normUserEmail)) {
@@ -473,7 +519,7 @@ export class GroupRepository {
             } catch {}
         }
 
-        const files = await this.storage.listFiles(`properties has { key='quozen_type' and value='group' } and trashed = false`);
+        const files = await this.catalogDriver.listGroupContainers();
         const existingGroupMap = new Map<string, CachedGroup>();
         if (existingSettings?.groupCache) {
             for (const g of existingSettings.groupCache) {
@@ -490,7 +536,7 @@ export class GroupRepository {
             return {
                 id: file.id,
                 name: file.name.startsWith(QUOZEN_PREFIX) ? file.name.slice(QUOZEN_PREFIX.length) : file.name,
-                role: (file.owners?.some((o: any) => o.emailAddress === this.user.email) || file.capabilities?.canDelete) ? ("owner" as const) : ("member" as const),
+                role: file.isOwner ? ("owner" as const) : ("member" as const),
                 ...(accountId ? { accountId } : {}),
                 lastAccessed: existing?.lastAccessed || file.createdTime,
                 ...(existing?.isHydrated !== undefined ? { isHydrated: existing.isHydrated } : {}),
@@ -521,26 +567,7 @@ export class GroupRepository {
     }
 
     private async checkFileHealth(groupId: string): Promise<{ available: boolean; reason?: "trashed" | "deleted" }> {
-        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
-        if (isOffline) {
-            return { available: true };
-        }
-        try {
-            const meta = await this.storage.getFile(groupId, { fields: "id,name,trashed" });
-            if (meta?.trashed) {
-                return { available: false, reason: "trashed" };
-            }
-            return { available: true };
-        } catch (err: any) {
-            const msg = (err?.message || "").toLowerCase();
-            if (msg.includes("404") || msg.includes("not found") || msg.includes("410") || err?.name === "NotFoundError") {
-                return { available: false, reason: "deleted" };
-            }
-            if (isNetworkError(err)) {
-                return { available: true };
-            }
-            throw err;
-        }
+        return this.catalogDriver.checkContainerHealth(groupId);
     }
 
     async purgeUnavailableGroup(groupId: string, groupName?: string, reason: "trashed" | "deleted" = "deleted"): Promise<void> {
@@ -903,7 +930,7 @@ export class GroupRepository {
         }
 
         if (access === 'public') {
-            await this.storage.createPermission(groupId, "writer", "anyone");
+            await this.aclDriver.setAccessMode(groupId, "public");
         } else {
             // When restricting access, ensure all members who joined via link retain explicit user permissions
             try {
@@ -912,17 +939,17 @@ export class GroupRepository {
                 if (memberRows.length > 1) {
                     const headers = SheetDataMapper.buildHeaderMap(memberRows[0]);
                     const members = memberRows.slice(1).map((r: any[], i: number) => SheetDataMapper.mapToMember(r, i + 2, headers).entity);
-                    const existingPerms = await this.storage.listPermissions(groupId);
+                    const existingCollabs = await this.aclDriver.listCollaborators(groupId);
                     const existingEmails = new Set(
-                        existingPerms
-                            .filter((p: any) => p.type === 'user' && (p.emailAddress || p.email))
-                            .map((p: any) => (p.emailAddress || p.email).toLowerCase())
+                        existingCollabs
+                            .filter(c => c.email)
+                            .map(c => c.email.toLowerCase())
                     );
 
                     for (const m of members) {
                         if (m.email && m.role !== 'owner' && !existingEmails.has(m.email.toLowerCase())) {
                             try {
-                                await this.storage.createPermission(groupId, "writer", "user", m.email);
+                                await this.aclDriver.grantAccess(groupId, m.email, "editor");
                             } catch (e) {
                                 console.warn(`Could not add explicit permission for member ${m.email}:`, e);
                             }
@@ -933,23 +960,12 @@ export class GroupRepository {
                 console.warn("Could not verify member permissions before restricting group:", e);
             }
 
-            const permissions = await this.storage.listPermissions(groupId);
-            const publicPerm = permissions.find((p: any) => p.type === 'anyone');
-            if (publicPerm) {
-                await this.storage.deletePermission(groupId, publicPerm.id);
-            }
+            await this.aclDriver.setAccessMode(groupId, "restricted");
         }
     }
 
     async getGroupPermissions(groupId: string): Promise<'public' | 'restricted'> {
-        try {
-            const permissions = await this.storage.listPermissions(groupId);
-            const publicPerm = permissions.find((p: any) => p.type === 'anyone');
-            return publicPerm ? 'public' : 'restricted';
-        } catch (e) {
-            console.error("Failed to get permissions", e);
-            return 'restricted';
-        }
+        return this.aclDriver.getAccessMode(groupId);
     }
 
     // --- Group Metadata (_meta tab) Encapsulation ---
@@ -1021,7 +1037,18 @@ export class GroupRepository {
         if (!rawJson) return {};
         try {
             const parsed = JSON.parse(rawJson);
-            return typeof parsed === "object" && parsed !== null ? parsed : {};
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+            const clean: AccountManagersMap = Object.create(null);
+            for (const [key, emails] of Object.entries(parsed)) {
+                if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+                if (Array.isArray(emails)) {
+                    clean[key] = emails
+                        .filter(e => typeof e === "string")
+                        .map(e => e.trim())
+                        .filter(Boolean);
+                }
+            }
+            return clean;
         } catch {
             return {};
         }
@@ -1036,6 +1063,38 @@ export class GroupRepository {
     async updateAccountManagerBinding(groupId: string, userEmail: string | undefined, targetAccountId: string | null): Promise<void> {
         if (!userEmail) return;
         const normEmail = userEmail.trim().toLowerCase();
+
+        // 1. Update Member.managedBy in LedgerRepository
+        try {
+            const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db, () => this.onMutation?.(groupId));
+            const members = await ledgerRepo.getMembers();
+            for (const member of members) {
+                const currentManaged = member.managedBy ? [...member.managedBy] : (member.email ? [member.email] : []);
+                const hasEmail = currentManaged.some(e => e.toLowerCase() === normEmail);
+
+                if (targetAccountId && member.userId === targetAccountId) {
+                    if (!hasEmail) {
+                        const updated = [...currentManaged, userEmail.trim()];
+                        await ledgerRepo.updateMember({
+                            ...member,
+                            managedBy: updated,
+                            email: member.email || ""
+                        });
+                    }
+                } else if (hasEmail) {
+                    const updated = currentManaged.filter(e => e.toLowerCase() !== normEmail);
+                    await ledgerRepo.updateMember({
+                        ...member,
+                        managedBy: updated,
+                        email: member.email && member.email.toLowerCase() === normEmail ? "" : member.email
+                    });
+                }
+            }
+        } catch (err) {
+            console.warn("[GroupRepository] Failed to update Member.managedBy:", err);
+        }
+
+        // 2. Backward compatibility: also sync _meta!account_managers
         const map = await this.getAccountManagers(groupId);
         let changed = false;
 
@@ -1060,28 +1119,7 @@ export class GroupRepository {
     }
 
     async getGroupCollaborators(groupId: string): Promise<GroupCollaborator[]> {
-        try {
-            const raw = await this.storage.listPermissions(groupId);
-            return (raw || [])
-                .filter((p: any) => p.type === "user" || p.role === "owner" || (p.emailAddress && p.type !== "anyone"))
-                .map((p: any) => {
-                    const email = p.emailAddress || "";
-                    let role: CollaboratorRole = "editor";
-                    if (p.role === "owner") role = "owner";
-                    else if (p.role === "reader" || p.role === "viewer") role = "viewer";
-
-                    return {
-                        id: p.id || `perm-${email}`,
-                        email,
-                        displayName: p.displayName || (email ? email.split("@")[0] : "User"),
-                        avatarUrl: p.photoLink,
-                        role
-                    };
-                });
-        } catch (err) {
-            console.warn("[GroupRepository] Failed to list group collaborators:", err);
-            return [];
-        }
+        return this.aclDriver.listCollaborators(groupId);
     }
 
     async getGroupParticipants(groupId: string): Promise<GroupParticipantsOverview> {
@@ -1106,7 +1144,7 @@ export class GroupRepository {
         if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
             throw new OfflineOperationError("Revoking group access requires an internet connection.", "changePermissions");
         }
-        await this.storage.deletePermission(groupId, permissionId);
+        await this.aclDriver.revokeAccess(groupId, permissionId);
     }
 
     async validateQuozenSpreadsheet(spreadsheetId: string): Promise<{ valid: boolean; status?: ValidationStatus; error?: string; name?: string; members?: Member[] }> {
@@ -1217,7 +1255,7 @@ export class GroupRepository {
             }
             
             const memberToMigrate = validation.members.find(m => m.email === this.user.email || m.userId === this.user.id);
-            if (!linkedAccountId && memberToMigrate && memberToMigrate.userId !== this.user.id) {
+            if (!linkedAccountId && memberToMigrate && memberToMigrate.userId !== this.user.id && memberToMigrate.userId === memberToMigrate.email) {
                 const ledgerRepo = new LedgerRepository(this.storage, spreadsheetId, this.db, () => this.onMutation?.(spreadsheetId));
                 await ledgerRepo.migrateUser(memberToMigrate.userId, this.user.id, this.user.name);
             }
@@ -1289,7 +1327,7 @@ export class GroupRepository {
         // Ensure joining user receives explicit Google Drive permission so they don't lose access when link becomes restricted
         if (this.user.email) {
             try {
-                await this.storage.createPermission(spreadsheetId, "writer", "user", this.user.email);
+                await this.aclDriver.grantAccess(spreadsheetId, this.user.email, "editor");
             } catch (e) {
                 console.warn("Could not set explicit permission during joinGroup", e);
             }
@@ -1335,7 +1373,7 @@ export class GroupRepository {
         if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
             throw new OfflineOperationError("This operation requires an internet connection.", "deleteGroup");
         }
-        await this.storage.deleteFile(groupId);
+        await this.catalogDriver.deleteGroupContainer(groupId);
         await this.purgeUnavailableGroup(groupId, undefined, "deleted");
     }
 
@@ -1389,7 +1427,7 @@ export class GroupRepository {
                 let memberId = desired.username || desired.email || `user-${crypto.randomUUID()}`;
                 if (desired.email && !isOffline) {
                     try {
-                        const perm = await this.storage.createPermission(groupId, "writer", "user", desired.email);
+                        const perm = await this.aclDriver.grantAccess(groupId, desired.email, "editor");
                         if ((!desired.username || desired.username === desired.email) && perm?.displayName) {
                             memberName = perm.displayName;
                         }

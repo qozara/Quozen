@@ -88,7 +88,7 @@ export class SheetDataMapper {
         const updatedAtIdx = getHeaderIndex(headerMap, 'updatedAt');
         const deletedAtIdx = getHeaderIndex(headerMap, 'deletedAt');
 
-        const id = row[idIdx];
+        const id = desanitizeSheetValue(row[idIdx]);
         const date = row[dateIdx];
         const description = desanitizeSheetValue(row[descIdx]);
         const amountRaw = row[amountIdx];
@@ -101,14 +101,29 @@ export class SheetDataMapper {
 
         let splits: ExpenseSplit[] = [];
         try {
-            splits = typeof splitsRaw === 'string' ? JSON.parse(splitsRaw) : (splitsRaw || []);
+            const rawSplits = typeof splitsRaw === 'string' ? JSON.parse(splitsRaw) : (splitsRaw || []);
+            if (Array.isArray(rawSplits)) {
+                splits = rawSplits
+                    .filter((s: any) => s && typeof s === 'object' && typeof s.userId === 'string' && typeof s.amount === 'number' && Number.isFinite(s.amount))
+                    .map((s: any) => ({
+                        userId: desanitizeSheetValue(s.userId),
+                        amount: s.amount
+                    }));
+            }
         } catch {
             splits = [];
         }
 
         let meta: any = {};
         try {
-            meta = typeof metaRaw === 'string' ? JSON.parse(metaRaw) : (metaRaw || {});
+            const rawMeta = typeof metaRaw === 'string' ? JSON.parse(metaRaw) : (metaRaw || {});
+            if (rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)) {
+                meta = {
+                    createdAt: typeof rawMeta.createdAt === 'string' ? rawMeta.createdAt : undefined,
+                    lastModified: typeof rawMeta.lastModified === 'string' ? rawMeta.lastModified : undefined,
+                    deletedAt: typeof rawMeta.deletedAt === 'string' ? rawMeta.deletedAt : undefined
+                };
+            }
         } catch {
             meta = {};
         }
@@ -164,7 +179,7 @@ export class SheetDataMapper {
         const updatedIso = expense.updatedAt ? safeIso(expense.updatedAt, dateIso) : dateIso;
         const deletedIso = expense.deletedAt ? safeIso(expense.deletedAt, updatedIso) : undefined;
 
-        setCol('id', expense.id);
+        setCol('id', sanitizeSheetValue(expense.id));
         setCol('date', dateIso);
         setCol('description', sanitizeSheetValue(expense.description));
         setCol('amount', expense.amount);
@@ -184,7 +199,7 @@ export class SheetDataMapper {
     }
 
     static mapToSettlement(row: any[], rowIndex: number, headerMap: HeaderMap = DEFAULT_SETTLEMENT_MAP): SheetRow<Settlement> {
-        const id = row[getHeaderIndex(headerMap, 'id', 0)!];
+        const id = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'id', 0)!]);
         const date = row[getHeaderIndex(headerMap, 'date', 1)!];
         const fromUserId = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'fromUserId', 2)!]);
         const toUserId = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'toUserId', 3)!]);
@@ -240,7 +255,7 @@ export class SheetDataMapper {
             ? safeIso(settlement.updatedAt, dateIso)
             : dateIso;
 
-        setCol('id', settlement.id);
+        setCol('id', sanitizeSheetValue(settlement.id));
         setCol('date', dateIso);
         setCol('fromUserId', sanitizeSheetValue(settlement.fromUserId));
         setCol('toUserId', sanitizeSheetValue(settlement.toUserId));
@@ -256,8 +271,8 @@ export class SheetDataMapper {
     }
 
     static mapToMember(row: any[], rowIndex: number, headerMap: HeaderMap = DEFAULT_MEMBER_MAP): SheetRow<Member> {
-        const userId = row[getHeaderIndex(headerMap, 'userId', 0)!];
-        const email = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'email', 1)!]);
+        const userId = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'userId', 0)!]);
+        const rawEmail = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'email', 1)!]);
         const name = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'name', 2)!]);
         const role = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'role', 3)!]);
         const joinedAt = row[getHeaderIndex(headerMap, 'joinedAt', 4)!];
@@ -269,12 +284,18 @@ export class SheetDataMapper {
         const parsedJoinedAt = safeDate(joinedAt, new Date(0));
         const updatedAt = updatedAtCol ? safeDate(updatedAtCol, parsedJoinedAt) : parsedJoinedAt;
 
+        const managedBy = rawEmail
+            ? Array.from(new Set(rawEmail.split(",").map(e => e.trim().toLowerCase()).filter(Boolean)))
+            : [];
+        const primaryEmail = managedBy[0] || (rawEmail ? rawEmail.trim().toLowerCase() : "");
+
         const member: Member = {
             userId: userId ? String(userId) : "",
-            email,
+            email: primaryEmail,
             name,
             role: (role === "owner" || role === "member") ? role : "member",
             joinedAt: parsedJoinedAt,
+            managedBy,
             updatedAt
         };
 
@@ -302,8 +323,12 @@ export class SheetDataMapper {
             ? safeIso(member.updatedAt, joinedIso)
             : joinedIso;
 
-        setCol('userId', member.userId);
-        setCol('email', sanitizeSheetValue(member.email || ""));
+        const emailValue = Array.isArray(member.managedBy) && member.managedBy.length > 0
+            ? member.managedBy.join(", ")
+            : (member.email || "");
+
+        setCol('userId', sanitizeSheetValue(member.userId));
+        setCol('email', sanitizeSheetValue(emailValue));
         setCol('name', sanitizeSheetValue(member.name || ""));
         setCol('role', sanitizeSheetValue(member.role || "member"));
         setCol('joinedAt', joinedIso);
@@ -316,7 +341,7 @@ export class SheetDataMapper {
     }
 
     static mapToCategory(row: any[], rowIndex: number, headerMap: HeaderMap = DEFAULT_CATEGORY_MAP): SheetRow<ExpenseCategory> {
-        const id = row[getHeaderIndex(headerMap, 'id', 0)!];
+        const id = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'id', 0)!]);
         const name = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'name', 1)!]);
         const icon = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'icon', 2)!]);
         const description = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'description', 3)!]);

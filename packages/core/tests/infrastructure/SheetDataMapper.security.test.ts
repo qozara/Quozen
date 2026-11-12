@@ -65,9 +65,9 @@ describe('SheetDataMapper Security: Formula / CSV Injection Mitigation (CWE-1236
         expect(restored.entity.notes).toBe('-2+5+cmd|calc');
     });
 
-    it('sanitizes and restores formula injection characters in member names and emails', () => {
+    it('sanitizes and restores formula injection characters in member names, emails, and userIds', () => {
         const member: Member = {
-            userId: 'm-1',
+            userId: '=m-attacker',
             email: '+attacker@example.com',
             name: '=cmd|"/C calc"!A0',
             role: 'member',
@@ -76,11 +76,31 @@ describe('SheetDataMapper Security: Formula / CSV Injection Mitigation (CWE-1236
         };
 
         const row = SheetDataMapper.mapFromMember(member, DEFAULT_MEMBER_MAP);
+        expect(row[DEFAULT_MEMBER_MAP.userId]).toBe(`'=m-attacker`);
         expect(row[DEFAULT_MEMBER_MAP.email]).toBe(`'+attacker@example.com`);
         expect(row[DEFAULT_MEMBER_MAP.name]).toBe(`'=cmd|"/C calc"!A0`);
 
         const restored = SheetDataMapper.mapToMember(row, 2, DEFAULT_MEMBER_MAP);
+        expect(restored.entity.userId).toBe('=m-attacker');
         expect(restored.entity.email).toBe('+attacker@example.com');
         expect(restored.entity.name).toBe('=cmd|"/C calc"!A0');
+    });
+
+    it('safely handles prototype pollution attempts in expense splits and metadata', () => {
+        const poisonedRow = [
+            'exp-1',
+            '2026-10-16T12:00:00.000Z',
+            'Dinner',
+            '50',
+            'u1',
+            'Food',
+            '{"__proto__": {"polluted": true}}',
+            '{"__proto__": {"admin": true}}'
+        ];
+
+        const mapped = SheetDataMapper.mapToExpense(poisonedRow, 2, DEFAULT_EXPENSE_MAP);
+        expect((Object.prototype as any).polluted).toBeUndefined();
+        expect((Object.prototype as any).admin).toBeUndefined();
+        expect(mapped.entity.splits).toEqual([]);
     });
 });

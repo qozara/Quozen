@@ -63,6 +63,19 @@ export class GroupMembershipResolver {
             const rawManagerEmails = normalizedManagers.get(member.userId) || [];
             const managerEmails: string[] = [...rawManagerEmails];
 
+            if (Array.isArray(member.managedBy)) {
+                for (const em of member.managedBy) {
+                    const trimmed = em.trim();
+                    const norm = trimmed.toLowerCase();
+                    if (norm && !managerEmails.some(e => e.toLowerCase() === norm)) {
+                        const boundTo = explicitlyBoundEmails.get(norm);
+                        if (!boundTo || boundTo === member.userId) {
+                            managerEmails.push(trimmed);
+                        }
+                    }
+                }
+            }
+
             if (member.email && member.email.trim()) {
                 const trimmedMemberEmail = member.email.trim();
                 const normEmail = trimmedMemberEmail.toLowerCase();
@@ -97,8 +110,11 @@ export class GroupMembershipResolver {
                 kind = !member.email ? "offline" : "personal";
             } else if (managers.length === 1) {
                 const single = managers[0];
+                const isExplicitlyAdopted = normalizedManagers.has(member.userId);
                 const matchesMemberEmail = Boolean(
-                    member.email && single.email.toLowerCase() === member.email.trim().toLowerCase()
+                    !isExplicitlyAdopted &&
+                    member.email &&
+                    single.email.toLowerCase() === member.email.trim().toLowerCase()
                 );
                 kind = matchesMemberEmail ? "personal" : "shared";
             } else {
