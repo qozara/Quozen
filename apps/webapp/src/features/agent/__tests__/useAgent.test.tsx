@@ -4,6 +4,8 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { Ledger, Expense } from "@quozen/core";
+import { LlmIntentEscalator } from "@quozen/ai-services";
+import { getAuthToken } from "@/lib/tokenStore";
 
 const {
     mockOpenExpenseWithDraft,
@@ -330,6 +332,11 @@ describe("useAgent Hook", () => {
             const response = await result.current.executeCommand("Split 80 with An");
 
             expect(response.success).toBe(true);
+            expect(LlmIntentEscalator).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    getAuthToken
+                })
+            );
             expect(mockEscalateCommand).toHaveBeenCalledTimes(1);
             expect(mockOpenExpenseWithDraft).toHaveBeenCalledTimes(1);
 

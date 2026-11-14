@@ -88,4 +88,48 @@ describe('LlmIntentEscalator Local Network Safeguards', () => {
     expect(configPassed.baseUrl).toBe('http://localhost:11434/api');
     expect(configPassed.providerPreference).toBe('local');
   });
+
+  it('forwards getAuthToken and byokProvider to AiProviderFactory.createProvider', async () => {
+    const createProviderSpy = vi.spyOn(AiProviderFactory, 'createProvider').mockResolvedValue({
+      id: 'cloud-proxy',
+      mode: 'cloud',
+      chat: vi.fn().mockResolvedValue({
+        type: 'tool_call',
+        tool: 'addExpense',
+        arguments: {
+          description: 'Coffee',
+          amount: 5,
+          paidByUserId: 'Alice',
+          splitStrategy: 'equally_everyone'
+        }
+      }),
+      checkAvailability: vi.fn().mockResolvedValue(true),
+      getSetupMessage: () => null
+    } as any);
+
+    const mockGetAuthToken = vi.fn().mockResolvedValue('google-oauth-token');
+
+    const escalator = new LlmIntentEscalator({
+      proxyUrl: 'https://ai.qozara.org',
+      provider: 'auto',
+      byokProvider: 'google',
+      getAuthToken: mockGetAuthToken
+    });
+
+    await escalator.escalateCommand({
+      input: 'coffee 5',
+      locale: 'en',
+      meName: 'Alice',
+      memberNames: ['Alice', 'Bob'],
+      categories: [{ id: 'food_dining', name: 'Food', description: 'Dining' }]
+    });
+
+    expect(createProviderSpy).toHaveBeenCalledTimes(1);
+    expect(createProviderSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        byokProvider: 'google'
+      }),
+      mockGetAuthToken
+    );
+  });
 });

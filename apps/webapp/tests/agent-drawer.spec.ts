@@ -130,9 +130,11 @@ test.describe('Deterministic Command Parser (Instant, Offline-Ready, Zero-Delay)
 
 test.describe('Optional LLM Escalation Suite (Isolated Mock AI Calls)', () => {
     let llmCallCount = 0;
+    let lastAuthHeader: string | undefined;
 
     test.beforeEach(async ({ page }) => {
         llmCallCount = 0;
+        lastAuthHeader = undefined;
 
         // Mock Proxy Health Check
         const proxyHealthMock = async (route: any) => {
@@ -161,6 +163,7 @@ test.describe('Optional LLM Escalation Suite (Isolated Mock AI Calls)', () => {
             }
 
             llmCallCount++;
+            lastAuthHeader = route.request().headers()['authorization'];
             await route.fulfill({
                 status: 200,
                 headers: { 'Access-Control-Allow-Origin': '*' },
@@ -207,7 +210,8 @@ test.describe('Optional LLM Escalation Suite (Isolated Mock AI Calls)', () => {
         const chatPromise = page.waitForResponse(resp => resp.url().includes('/api/v1/agent/chat'));
         await refineButton.click();
         await chatPromise;
-        // Verify LLM endpoint was contacted
+        // Verify LLM endpoint was contacted with Bearer authorization header
         expect(llmCallCount).toBeGreaterThanOrEqual(1);
+        expect(lastAuthHeader).toMatch(/^Bearer .+/);
     });
 });

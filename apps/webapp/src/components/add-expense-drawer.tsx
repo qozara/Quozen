@@ -13,6 +13,7 @@ import { useAiFeature } from "@/features/agent/AiFeatureContext";
 import { CommandDraftService } from "@quozen/core";
 import { LlmIntentEscalator } from "@quozen/ai-services";
 import { useSettings } from "@/hooks/use-settings";
+import { getAuthToken } from "@/lib/tokenStore";
 
 export default function AddExpenseDrawer() {
     const {
@@ -84,9 +85,11 @@ export default function AddExpenseDrawer() {
                 proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL || 'http://localhost:8788',
                 provider: settings?.preferences?.aiProvider as any,
                 ciphertext: settings?.encryptedApiKey,
+                byokProvider: settings?.preferences?.byokProvider,
                 enableLocalAi: settings?.preferences?.enableLocalAi ?? false,
                 ollamaBaseUrl: settings?.preferences?.ollamaBaseUrl,
-                ollamaModel: settings?.preferences?.ollamaModel
+                ollamaModel: settings?.preferences?.ollamaModel,
+                getAuthToken
             });
             const draftService = new CommandDraftService({ escalator });
             const locale = settings?.preferences?.locale === 'system' ? i18n.language : (settings?.preferences?.locale || 'en');
