@@ -8,15 +8,15 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 export const SyncTrigger: React.FC = () => {
     const { t } = useTranslation();
     const autoSync = useAutoSync();
-    const uxSyncState = autoSync?.uxSyncState ?? "hidden";
+    const uxSyncState = autoSync?.uxSyncState ?? "local";
     const [isOpen, setIsOpen] = useState(false);
 
-    if (uxSyncState === "hidden") {
+    if (uxSyncState === "local") {
         return null;
     }
 
     const badgeBorderColor =
-        uxSyncState === "warning"
+        uxSyncState === "error" || uxSyncState === "waiting"
             ? "border-amber-500/50 bg-amber-500/10"
             : uxSyncState === "offline"
               ? "border-border bg-muted"

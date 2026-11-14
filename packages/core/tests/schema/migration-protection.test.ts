@@ -382,8 +382,8 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         expect(mockClient.createBackup).toHaveBeenCalledWith("spreadsheet-xyz", undefined);
     });
 
-    it("Sync evaluator correctly maps incompatible provider status to warning and diagnostic", () => {
-        expect(resolveUXStatus({ isOnline: true, providerConnected: true, providerStatus: "incompatible" })).toBe("warning");
+    it("Sync evaluator correctly maps incompatible provider status to error and diagnostic", () => {
+        expect(resolveUXStatus({ isOnline: true, providerConnected: true, providerStatus: "incompatible" })).toBe("error");
         expect(resolveProviderDiagnostic(true, true, "incompatible")).toBe("incompatible");
     });
 });

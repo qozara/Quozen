@@ -1,124 +1,67 @@
 import {
-    SchemaEngine,
-    GoogleSheetsFetchClient,
+    ValidationService as BaseValidationService,
     ValidationStatus,
-    type SchemaStatusDTO as GDocsSchemaStatusDTO,
+    type SchemaStatusDTO as BaseSchemaStatusDTO,
 } from "@qozara/gdocs-schema";
+import { ConflictError, SchemaIncompatibleError } from "../errors";
 import { QuozenSchema } from "./SchemaDefinition";
 import { migrations } from "./migrations/index";
-import { ConflictError, SchemaIncompatibleError } from "../errors";
 
 export { ValidationStatus };
 
-export interface SchemaStatusDTO extends Omit<GDocsSchemaStatusDTO, "lastModifiedTime"> {
+export interface SchemaStatusDTO extends Omit<BaseSchemaStatusDTO, "lastModifiedTime" | "valid" | "errors"> {
     lastModifiedTime: string;
 }
 
-export class ValidationService {
-    private static inFlightMigrations = new Map<string, Promise<void>>();
-    public readonly client: GoogleSheetsFetchClient;
-    public readonly engine: SchemaEngine;
-
+export class ValidationService extends BaseValidationService {
     constructor(getToken: () => string | null) {
-        const token = getToken();
-        if (!token) throw new Error("ValidationService requires a valid Google access token.");
-
-        this.client = new GoogleSheetsFetchClient({
-            accessToken: token,
-            fetchImpl: async (url: string | Request | URL, init?: RequestInit) => {
-                const finalInit = init ? { ...init } : {};
-                if (finalInit.method === "GET" && finalInit.headers) {
-                    const headers = new Headers(finalInit.headers as any);
-                    headers.delete("Content-Type");
-                    finalInit.headers = headers;
-                }
-                return globalThis.fetch(url, finalInit);
-            },
+        super(getToken, {
+            requireTokenOnConstruct: true,
+            useSchemaEngine: true,
+            defaultSchema: QuozenSchema,
+            migrations,
+            appPropertyPrefix: "quozen",
+            defaultFileType: "group",
         });
-        this.engine = new SchemaEngine(this.client);
     }
 
-    public async createBackup(spreadsheetId: string, customName?: string): Promise<string> {
-        return this.client.createBackup(spreadsheetId, customName);
+    public override async checkHealth(spreadsheetId: string): Promise<SchemaStatusDTO & { valid: boolean; errors: string[]; lastModifiedTime: string }> {
+        return super.checkHealth(spreadsheetId, QuozenSchema);
     }
 
-    public async checkHealth(spreadsheetId: string): Promise<SchemaStatusDTO> {
-        const result = await this.engine.checkHealth(spreadsheetId, QuozenSchema);
-        return {
-            ...result,
-            lastModifiedTime: result.lastModifiedTime || new Date().toISOString(),
-        };
+    public override async initializeFile(spreadsheetId: string, version: number = QuozenSchema.version): Promise<void> {
+        await super.initializeFile(spreadsheetId, version);
     }
 
-    public async initializeFile(spreadsheetId: string, version: number = QuozenSchema.version): Promise<void> {
-        await this.engine.initializeFile(spreadsheetId, version);
-        await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
-    }
-
-    public async repairFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
-        if (expectedLastModified) {
-            const res = (await this.client.getFileAppProperties(spreadsheetId)) as any;
-            const currentModified = res?.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
-            const expectedModified = new Date(expectedLastModified).getTime();
-            if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
-                throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
-            }
-        }
-
+    public async repairFile(spreadsheetId: string, expectedLastModified?: string): Promise<any> {
         try {
-            await this.engine.repair(spreadsheetId, QuozenSchema, undefined, migrations);
-            await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
+            await super.repairFile(spreadsheetId, QuozenSchema, expectedLastModified);
         } catch (e: any) {
-            if (e?.message?.toLowerCase().includes("incompatible")) {
+            if (e instanceof ConflictError || e?.name === "ConflictError") {
+                throw new ConflictError(e?.message || "Data has been modified by another user.");
+            }
+            if (e instanceof SchemaIncompatibleError || e?.name === "SchemaIncompatibleError") {
                 throw new SchemaIncompatibleError("Cannot repair spreadsheet: the schema is from a newer version of Quozen.");
             }
             throw e;
         }
     }
 
-    public async migrateFile(spreadsheetId: string, expectedLastModified?: string): Promise<void> {
-        const inFlight = ValidationService.inFlightMigrations.get(spreadsheetId);
-        if (inFlight) {
-            return inFlight;
-        }
-
-        const migrationPromise = (async () => {
-            if (expectedLastModified) {
-                const res = (await this.client.getFileAppProperties(spreadsheetId)) as any;
-                const currentModified = res?.modifiedTime ? new Date(res.modifiedTime).getTime() : 0;
-                const expectedModified = new Date(expectedLastModified).getTime();
-                if (currentModified > 0 && expectedModified > 0 && currentModified > expectedModified) {
-                    throw new ConflictError("Spreadsheet has been modified since it was last fetched.");
-                }
-            }
-
-            try {
-                await this.engine.migrate(spreadsheetId, QuozenSchema, migrations);
-                await this.updateFileMetadata(spreadsheetId, ValidationStatus.READY);
-            } catch (e: any) {
-                if (e?.message?.toLowerCase().includes("incompatible")) {
-                    throw new SchemaIncompatibleError("Cannot migrate spreadsheet: the schema is from a newer version of Quozen.");
-                }
-                throw e;
-            }
-        })();
-
-        ValidationService.inFlightMigrations.set(spreadsheetId, migrationPromise);
+    public async migrateFile(spreadsheetId: string, expectedLastModified?: string): Promise<any> {
         try {
-            await migrationPromise;
-        } finally {
-            ValidationService.inFlightMigrations.delete(spreadsheetId);
+            await super.migrateFile(spreadsheetId, QuozenSchema, migrations, expectedLastModified);
+        } catch (e: any) {
+            if (e instanceof ConflictError || e?.name === "ConflictError") {
+                throw new ConflictError(e?.message || "Data has been modified by another user.");
+            }
+            if (e instanceof SchemaIncompatibleError || e?.name === "SchemaIncompatibleError") {
+                throw new SchemaIncompatibleError("Cannot migrate spreadsheet: the schema is from a newer version of Quozen.");
+            }
+            throw e;
         }
     }
 
     public async updateFileMetadata(spreadsheetId: string, status: ValidationStatus): Promise<void> {
-        const properties = {
-            quozen_validation_status: status,
-            quozen_validation_time: new Date().toISOString(),
-            quozen_type: "group",
-            version: "1.0",
-            quozen_schema_version: String(QuozenSchema.version),
-        };
-        await this.client.updateFileAppProperties(spreadsheetId, properties).catch(() => {});
+        await super.updateFileMetadata(spreadsheetId, status, QuozenSchema.version);
     }
 }
