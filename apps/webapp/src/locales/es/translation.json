@@ -429,11 +429,12 @@
         "justNow": "ahora mismo",
         "cloudSyncFailedTitle": "Problema de Sincronización",
         "states": {
-            "synced": "Todos los cambios guardados en Google Drive",
+            "idle": "Todos los cambios guardados en Google Drive",
             "syncing": "Sincronizando con Google Drive...",
             "offline": "Modo sin conexión — cambios guardados localmente",
-            "warning": "Acción requerida para reanudar la sincronización",
-            "hidden": "Almacenamiento local activo"
+            "waiting": "Límite de frecuencia — esperando para reanudar",
+            "error": "Acción requerida para reanudar la sincronización",
+            "local": "Almacenamiento local activo"
         },
         "diagnostics": {
             "synced": "Sincronizado",

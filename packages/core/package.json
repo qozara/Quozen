@@ -28,7 +28,9 @@
     },
     "dependencies": {
         "@qozara/ai-client": "^1.0.0",
-        "@qozara/gdocs-schema": "^1.2.0",
+        "@qozara/cloud-sync": "^1.0.0",
+        "@qozara/cloud-sync-google": "^1.0.0",
+        "@qozara/gdocs-schema": "^1.3.0",
         "rxdb": "^17.5.0",
         "rxjs": "^7.8.1"
     }

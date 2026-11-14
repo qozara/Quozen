@@ -13,7 +13,8 @@ export const SyncGlyph: React.FC<SyncGlyphProps> = ({ state, className = "w-4 h-
             return <Loader2 className={`${className} text-primary animate-spin`} aria-hidden="true" />;
         case "offline":
             return <CloudOff className={`${className} text-muted-foreground`} aria-hidden="true" />;
-        case "warning":
+        case "waiting":
+        case "error":
             return (
                 <span className="relative inline-flex items-center justify-center">
                     <AlertCircle className={`${className} text-amber-500`} aria-hidden="true" />
@@ -23,9 +24,9 @@ export const SyncGlyph: React.FC<SyncGlyphProps> = ({ state, className = "w-4 h-
                     />
                 </span>
             );
-        case "synced":
+        case "idle":
             return <CheckCircle2 className={`${className} text-emerald-500`} aria-hidden="true" />;
-        case "hidden":
+        case "local":
         default:
             return null;
     }

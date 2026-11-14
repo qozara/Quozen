@@ -429,11 +429,12 @@
         "justNow": "just now",
         "cloudSyncFailedTitle": "Cloud Sync Issue",
         "states": {
-            "synced": "All changes saved to Google Drive",
+            "idle": "All changes saved to Google Drive",
             "syncing": "Synchronizing with Google Drive...",
             "offline": "Working offline — changes saved locally",
-            "warning": "Action required to resume cloud sync",
-            "hidden": "Local storage active"
+            "waiting": "Rate limited — waiting to resume sync",
+            "error": "Action required to resume cloud sync",
+            "local": "Local storage active"
         },
         "diagnostics": {
             "synced": "Synchronized",

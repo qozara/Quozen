@@ -1,16 +1,17 @@
+import type {
+    CollaboratorRole,
+    GroupAccessMode,
+    GroupAccountKind,
+    GroupCollaborator,
+} from "@qozara/cloud-sync";
 import { Member } from "./models";
 
-export type CollaboratorRole = "owner" | "editor" | "viewer";
-export type GroupAccessMode = "public" | "restricted";
-export type GroupAccountKind = "personal" | "shared" | "offline";
-
-export interface GroupCollaborator {
-    id: string;
-    email: string;
-    displayName: string;
-    avatarUrl?: string;
-    role: CollaboratorRole;
-}
+export type {
+    CollaboratorRole,
+    GroupAccessMode,
+    GroupAccountKind,
+    GroupCollaborator,
+};
 
 export interface ResolvedGroupAccount {
     member: Member;
