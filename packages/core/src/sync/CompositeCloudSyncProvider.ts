@@ -1,16 +1,20 @@
-import type {
-    CloudSyncProvider,
-    CompositeCloudSyncProviderOptions,
-    CollectionRoute,
-    BlobStorageDriver,
-    TabularStorageDriver,
-    TabularRow,
-    SyncDeltaPayload,
-    SyncStatus
-} from "./types";
+import {
+    CompositeCloudSyncProvider as BaseCompositeCloudSyncProvider,
+    isNetworkError,
+    parseTimestampMs,
+    type CollectionRoute,
+    type CompositeCloudSyncProviderOptions,
+    type GroupTabularSerializer,
+    type TabularRow,
+} from "@qozara/cloud-sync";
 import { SETTINGS_FILE_NAME, QUOZEN_PREFIX } from "../types";
-import { TableNotFoundError, GroupFileUnavailableError } from "../errors";
-import { SheetDataMapper, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP, DEFAULT_CATEGORY_MAP } from "../infrastructure/SheetDataMapper";
+import {
+    SheetDataMapper,
+    DEFAULT_EXPENSE_MAP,
+    DEFAULT_SETTLEMENT_MAP,
+    DEFAULT_MEMBER_MAP,
+    DEFAULT_CATEGORY_MAP,
+} from "../infrastructure/SheetDataMapper";
 import { mergeUserSettingsDocs } from "./UserSettingsMerger";
 import {
     expenseToDoc,
@@ -25,46 +29,35 @@ import {
     type ExpenseDocType,
     type SettlementDocType,
     type MemberDocType,
-    type CategoryDocType
+    type CategoryDocType,
 } from "../db/schemas";
 
-function parseTimestamp(val?: string | number | null): number {
-    if (!val) return 0;
-    if (typeof val === "number") return val;
-    const t = new Date(val).getTime();
-    return isNaN(t) ? 0 : t;
-}
+export { isNetworkError };
 
 export const DEFAULT_COLLECTION_ROUTES: Record<string, CollectionRoute> = {
     user_settings: {
         target: "blob",
-        filename: SETTINGS_FILE_NAME
+        filename: SETTINGS_FILE_NAME,
     },
     members: {
         target: "tabular",
-        tabName: "Members"
+        tabName: "Members",
     },
     categories: {
         target: "tabular",
-        tabName: "Categories"
+        tabName: "Categories",
     },
     expenses: {
         target: "tabular",
-        tabName: "Expenses"
+        tabName: "Expenses",
     },
     settlements: {
         target: "tabular",
-        tabName: "Settlements"
-    }
+        tabName: "Settlements",
+    },
 };
 
-interface CollectionTabularSerializer {
-    defaultHeaders: string[];
-    rowToDoc(row: TabularRow, groupId: string): Record<string, any>;
-    docToRow(doc: Record<string, any>, headers?: string[]): TabularRow;
-}
-
-const tabularSerializers: Record<string, CollectionTabularSerializer> = {
+const tabularSerializers: Record<string, GroupTabularSerializer> = {
     expenses: {
         defaultHeaders: ["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"],
         rowToDoc(row: TabularRow, groupId: string) {
@@ -80,9 +73,9 @@ const tabularSerializers: Record<string, CollectionTabularSerializer> = {
                 updatedAt: doc.updatedAt,
                 deletedAt: doc.deletedAt,
                 headers: headers || this.defaultHeaders,
-                values: SheetDataMapper.mapFromExpense(expense, headerMap)
+                values: SheetDataMapper.mapFromExpense(expense, headerMap),
             };
-        }
+        },
     },
     settlements: {
         defaultHeaders: ["id", "date", "fromUserId", "toUserId", "amount", "method", "notes", "updatedAt"],
@@ -100,9 +93,9 @@ const tabularSerializers: Record<string, CollectionTabularSerializer> = {
                 updatedAt: doc.updatedAt,
                 deletedAt: doc.deletedAt,
                 headers: targetHeaders,
-                values: SheetDataMapper.mapFromSettlement(settlement, headerMap)
+                values: SheetDataMapper.mapFromSettlement(settlement, headerMap),
             };
-        }
+        },
     },
     members: {
         defaultHeaders: ["userId", "email", "name", "role", "joinedAt", "updatedAt"],
@@ -120,9 +113,9 @@ const tabularSerializers: Record<string, CollectionTabularSerializer> = {
                 updatedAt: doc.updatedAt,
                 deletedAt: doc.deletedAt,
                 headers: targetHeaders,
-                values: SheetDataMapper.mapFromMember(member, headerMap)
+                values: SheetDataMapper.mapFromMember(member, headerMap),
             };
-        }
+        },
     },
     categories: {
         defaultHeaders: ["id", "name", "icon", "description", "updatedAt"],
@@ -140,296 +133,62 @@ const tabularSerializers: Record<string, CollectionTabularSerializer> = {
                 updatedAt: doc.updatedAt,
                 deletedAt: doc.deletedAt,
                 headers: targetHeaders,
-                values: SheetDataMapper.mapFromCategory(category, headerMap)
+                values: SheetDataMapper.mapFromCategory(category, headerMap),
             };
-        }
-    }
+        },
+    },
 };
 
-export function isNetworkError(err: any): boolean {
-    if (!err) return false;
-    if (typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false) {
-        return true;
-    }
-    const msg = String(err?.message || err).toLowerCase();
-    return (
-        msg.includes("fetch") ||
-        msg.includes("network") ||
-        msg.includes("econnreset") ||
-        msg.includes("enotfound") ||
-        msg.includes("etimedout")
-    );
-}
-
-export class CompositeCloudSyncProvider implements CloudSyncProvider {
-    id: string;
-    name: string;
-    description?: string;
-
-    protected initialized = false;
-    protected status: SyncStatus = "disconnected";
-    protected lastSyncedTime: string | null = null;
-    protected lastError: any = null;
-    protected statusListeners: Set<(status: SyncStatus, error?: any) => void> = new Set();
-    protected blobDriver?: BlobStorageDriver;
-    protected tabularDriver?: TabularStorageDriver;
-    protected routes: Record<string, CollectionRoute>;
-    protected activeGroupId: string | null;
-    protected lastPulledUserSettingsUpdatedAt: string | null = null;
-
+export class CompositeCloudSyncProvider extends BaseCompositeCloudSyncProvider {
     constructor(options: CompositeCloudSyncProviderOptions) {
-        this.id = options.id;
-        this.name = options.name;
-        this.description = options.description;
-        this.blobDriver = options.blobDriver;
-        this.tabularDriver = options.tabularDriver;
-        this.routes = options.routes || { ...DEFAULT_COLLECTION_ROUTES };
-        this.activeGroupId = options.activeGroupId ?? null;
-    }
-
-    getLastError(): any {
-        return this.lastError;
-    }
-
-    setActiveGroupId(groupId: string | null): void {
-        this.activeGroupId = groupId;
-    }
-
-    getActiveGroupId(): string | null {
-        return this.activeGroupId;
-    }
-
-    isInitialized(): boolean {
-        return this.initialized;
-    }
-
-    getStatus(): SyncStatus {
-        return this.status;
-    }
-
-    getLastSyncedTime(): string | null {
-        return this.lastSyncedTime;
-    }
-
-    onStatusChange(listener: (status: SyncStatus, error?: any) => void): () => void {
-        this.statusListeners.add(listener);
-        return () => {
-            this.statusListeners.delete(listener);
-        };
-    }
-
-    protected setStatus(newStatus: SyncStatus, error?: any): void {
-        if (error !== undefined) {
-            this.lastError = error;
-        } else if (newStatus === "idle" || newStatus === "synced") {
-            this.lastError = null;
-        }
-        this.status = newStatus;
-        for (const listener of this.statusListeners) {
-            try {
-                listener(newStatus, this.lastError);
-            } catch (err) {
-                console.error("Error in status change listener", err);
-            }
-        }
-    }
-
-    async initialize(_credentials?: any): Promise<void> {
-        this.initialized = true;
-        this.lastSyncedTime = new Date().toISOString();
-        this.setStatus("idle");
-    }
-
-    async disconnect(): Promise<void> {
-        this.initialized = false;
-        this.setStatus("disconnected");
-    }
-
-    async repair(groupId: string): Promise<void> {
-        if (!this.tabularDriver?.repairTable) {
-            throw new Error("Repair is not supported by this tabular driver");
-        }
-        this.setStatus("syncing");
-        try {
-            await this.tabularDriver.repairTable(groupId);
-            this.setStatus("idle");
-        } catch (err) {
-            this.setStatus("corrupted");
-            throw err;
-        }
-    }
-
-    async migrate(groupId: string): Promise<void> {
-        if (!this.tabularDriver?.migrateTable) {
-            throw new Error("Migration is not supported by this tabular driver");
-        }
-        this.setStatus("syncing");
-        try {
-            await this.tabularDriver.migrateTable(groupId);
-            this.setStatus("idle");
-        } catch (err) {
-            this.setStatus("upgrade_required");
-            throw err;
-        }
-    }
-
-    async pull(groupId?: string): Promise<SyncDeltaPayload[]> {
-        if (!this.initialized) return [];
-        if (groupId) {
-            this.activeGroupId = groupId;
-        }
-        // Only pull group-scoped tabular data if a groupId is explicitly requested
-        const targetGroupId = groupId;
-
-        const results: SyncDeltaPayload[] = [];
-
-        // 1. Always pull blob routes (e.g. user_settings) first!
-        for (const [collection, route] of Object.entries(this.routes)) {
-            if (route.target === "blob" && this.blobDriver) {
-                try {
-                    const rawBlob = await this.blobDriver.readBlob<any>(route.filename);
-                    if (rawBlob) {
-                        const docs = Array.isArray(rawBlob)
-                            ? rawBlob
-                            : [rawBlob.id ? rawBlob : userSettingsToDoc(rawBlob)];
-                        if (collection === "user_settings" && docs[0]?.updatedAt) {
-                            this.lastPulledUserSettingsUpdatedAt = docs[0].updatedAt;
-                        }
-                        results.push({ collection, documents: docs });
-                    }
-                } catch (blobErr) {
-                    console.warn(`[Sync] Failed to read blob route ${route.filename}:`, blobErr);
-                }
-            }
-        }
-
-        const isMockMode = typeof import.meta !== "undefined" && (import.meta as any).env && ((import.meta as any).env.VITE_USE_MOCK_STORAGE === "true" || (import.meta as any).env.VITE_USE_MOCK_STORAGE === "remote");
-        if (!isMockMode && targetGroupId && typeof (this.tabularDriver as any)?.checkHealth === "function") {
-            try {
-                const health = await (this.tabularDriver as any).checkHealth(targetGroupId);
-                if (health.status === "UPGRADE_REQUIRED") {
-                    this.setStatus("upgrade_required");
-                    return results;
-                }
-                if (health.status === "INCOMPATIBLE") {
-                    this.setStatus("incompatible");
-                    return results;
-                }
-                if (health.status === "CORRUPTED") {
-                    this.setStatus("corrupted");
-                    return results;
-                }
-            } catch (healthErr: any) {
-                const healthMsg = String(healthErr?.message || healthErr).toLowerCase();
-                if (healthMsg.includes("404") || healthMsg.includes("not found") || healthMsg.includes("410") || healthErr?.name === "NotFoundError" || healthMsg.includes("trash")) {
-                    throw new GroupFileUnavailableError(targetGroupId, undefined, healthMsg.includes("trash") ? "trashed" : "deleted");
-                }
-                if (healthErr?.name === "SchemaIncompatibleError") {
-                    this.setStatus("incompatible");
-                    return results;
-                }
-                if (healthErr?.name === "SchemaUpgradeRequiredError" || healthMsg.includes("upgrade")) {
-                    this.setStatus("upgrade_required");
-                    return results;
-                }
-                if (healthErr?.name === "SchemaCorruptedError") {
-                    this.setStatus("corrupted");
-                    return results;
-                }
-            }
-        }
-
-        this.setStatus("syncing");
-        try {
-            for (const [collection, route] of Object.entries(this.routes)) {
-                if (route.target === "tabular" && this.tabularDriver && targetGroupId) {
-                    const serializer = tabularSerializers[collection];
-                    if (serializer) {
-                        try {
-                            const rows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
-                            if (rows) {
-                                const documents = rows
-                                    .map(r => serializer.rowToDoc(r, targetGroupId))
-                                    .filter(d => Boolean(d.id) && (collection !== "members" || Boolean(d.userId)));
-                                results.push({ collection, groupId: targetGroupId, documents });
-                            }
-                        } catch (tabErr: any) {
-                            const errMsg = String(tabErr?.message || tabErr).toLowerCase();
-                            if (tabErr instanceof TableNotFoundError || tabErr?.name === "TableNotFoundError") {
-                                // Missing table on unmigrated sheet -> signal upgrade_required
-                                this.setStatus("upgrade_required");
-                                return results;
-                            } else if (errMsg.includes("404") || errMsg.includes("not found") || errMsg.includes("410") || tabErr?.name === "NotFoundError" || errMsg.includes("trash")) {
-                                throw new GroupFileUnavailableError(targetGroupId, undefined, errMsg.includes("trash") ? "trashed" : "deleted");
-                            } else {
-                                throw tabErr;
+        super({
+            ...options,
+            routes: options.routes || { ...DEFAULT_COLLECTION_ROUTES },
+            groupSerializers: options.groupSerializers || tabularSerializers,
+            normalizeBlobDoc:
+                options.normalizeBlobDoc ??
+                ((collection, raw) => (collection === "user_settings" ? userSettingsToDoc(raw) : raw)),
+            filterPulledTabularDoc:
+                options.filterPulledTabularDoc ??
+                ((collection, doc) => Boolean(doc.id) && (collection !== "members" || Boolean(doc.userId))),
+            mergeBlobPush:
+                options.mergeBlobPush ??
+                (async (collection, pushDocs, existingDocs, { lastPulledUpdatedAt, tabularDriver }) => {
+                    if (collection !== "user_settings") {
+                        const docMap = new Map(existingDocs.map((d) => [d.id, d]));
+                        for (const doc of pushDocs) {
+                            if (doc.id) {
+                                docMap.set(doc.id, doc);
                             }
                         }
+                        return { docsToWrite: Array.from(docMap.values()) };
                     }
-                }
-            }
 
-            this.lastSyncedTime = new Date().toISOString();
-            this.setStatus("idle");
-            return results;
-        } catch (err: any) {
-            this.handleSyncException(err);
-            throw err;
-        }
-    }
+                    const existingMap = new Map(existingDocs.map((d) => [d.id || "global_settings", d]));
+                    const docsToWrite: Record<string, any>[] = [];
 
-    async push(payload: SyncDeltaPayload): Promise<void> {
-        if (!this.initialized) return;
-        if (payload.collection !== "user_settings" && (this.status === "upgrade_required" || this.status === "corrupted" || this.status === "incompatible")) return;
-
-        const prevStatus = this.status;
-        this.setStatus("syncing");
-        try {
-            const route = this.routes[payload.collection];
-            if (!route) return;
-
-            if (route.target === "blob") {
-                if (!this.blobDriver) {
-                    throw new Error(`BlobStorageDriver is required for collection "${payload.collection}"`);
-                }
-                const existingRaw = await this.blobDriver.readBlob<any>(route.filename);
-                const existingDocs: Record<string, any>[] = existingRaw
-                    ? Array.isArray(existingRaw)
-                        ? existingRaw
-                        : [existingRaw.id ? existingRaw : userSettingsToDoc(existingRaw)]
-                    : [];
-
-                let docsToWrite: Record<string, any>[] = [];
-
-                if (payload.collection === "user_settings") {
-                    const existingMap = new Map(existingDocs.map(d => [d.id || "global_settings", d]));
-                    const mergedDocs: Record<string, any>[] = [];
-
-                    for (const pushDoc of payload.documents) {
+                    for (const pushDoc of pushDocs) {
                         const docId = pushDoc.id || "global_settings";
                         const existingDoc = existingMap.get(docId);
                         if (
                             existingDoc &&
-                            this.lastPulledUserSettingsUpdatedAt &&
-                            parseTimestamp(existingDoc.updatedAt) > parseTimestamp(this.lastPulledUserSettingsUpdatedAt)
+                            lastPulledUpdatedAt &&
+                            parseTimestampMs(existingDoc.updatedAt) > parseTimestampMs(lastPulledUpdatedAt)
                         ) {
                             const { mergedDoc } = mergeUserSettingsDocs(pushDoc, existingDoc);
-                            mergedDocs.push(mergedDoc);
-                            existingMap.delete(docId);
+                            docsToWrite.push(mergedDoc);
                         } else {
-                            mergedDocs.push(pushDoc);
-                            existingMap.delete(docId);
+                            docsToWrite.push(pushDoc);
                         }
+                        existingMap.delete(docId);
                     }
                     for (const remaining of existingMap.values()) {
-                        mergedDocs.push(remaining);
-                    }
-                    docsToWrite = mergedDocs;
-                    if (docsToWrite[0]?.updatedAt) {
-                        this.lastPulledUserSettingsUpdatedAt = docsToWrite[0].updatedAt;
+                        docsToWrite.push(remaining);
                     }
 
-                    const storageLayer = (this.tabularDriver as any)?.storageLayer;
+                    const nextLastPulledUpdatedAt = docsToWrite[0]?.updatedAt || undefined;
+
+                    const storageLayer = (tabularDriver as any)?.storageLayer;
                     if (storageLayer && typeof storageLayer.updateFile === "function") {
                         for (const doc of docsToWrite) {
                             if (Array.isArray(doc.groupCache)) {
@@ -446,117 +205,9 @@ export class CompositeCloudSyncProvider implements CloudSyncProvider {
                             }
                         }
                     }
-                } else {
-                    const docMap = new Map(existingDocs.map(d => [d.id, d]));
-                    for (const doc of payload.documents) {
-                        if (doc.id) {
-                            docMap.set(doc.id, doc);
-                        }
-                    }
-                    docsToWrite = Array.from(docMap.values());
-                }
 
-                await this.blobDriver.writeBlob(route.filename, docsToWrite);
-            } else if (route.target === "tabular") {
-                if (!this.tabularDriver) {
-                    throw new Error(`TabularStorageDriver is required for collection "${payload.collection}"`);
-                }
-                const targetGroupId = payload.groupId || payload.documents[0]?.groupId || this.activeGroupId;
-                if (!targetGroupId) {
-                    throw new Error(`groupId is required to push tabular collection "${payload.collection}"`);
-                }
-
-                const serializer = tabularSerializers[payload.collection];
-                if (!serializer) {
-                    throw new Error(`No serializer registered for tabular collection "${payload.collection}"`);
-                }
-
-                let existingRows: TabularRow[] = [];
-                try {
-                    existingRows = await this.tabularDriver.readTable(targetGroupId, route.tabName);
-                } catch (readErr: any) {
-                    if (readErr instanceof TableNotFoundError || readErr?.name === "TableNotFoundError") {
-                        this.setStatus("upgrade_required");
-                        return;
-                    }
-                    throw readErr;
-                }
-
-                const rawHeaders = existingRows[0]?.headers || serializer.defaultHeaders;
-                const headersToWrite = [...rawHeaders];
-                if (
-                    (payload.collection === "settlements" || payload.collection === "members") &&
-                    !headersToWrite.some(h => h.trim().toLowerCase() === "updatedat")
-                ) {
-                    headersToWrite.push("updatedAt");
-                }
-                const existingDocs = existingRows
-                    .map(r => serializer.rowToDoc(r, targetGroupId))
-                    .filter(d => Boolean(d.id) && (payload.collection !== "members" || Boolean(d.userId)));
-
-                const docMap = new Map(existingDocs.map(d => [d.id, d]));
-                for (const doc of payload.documents) {
-                    if (doc.id) {
-                        if (doc.deletedAt) {
-                            docMap.delete(doc.id);
-                        } else {
-                            docMap.set(doc.id, doc);
-                        }
-                    }
-                }
-
-                const activeDocs = Array.from(docMap.values()).filter(d => !d.deletedAt);
-                const rows = activeDocs.map(d => serializer.docToRow(d, headersToWrite));
-                try {
-                    await this.tabularDriver.writeTable(targetGroupId, route.tabName, headersToWrite, rows);
-                } catch (writeErr: any) {
-                    if (writeErr instanceof TableNotFoundError || writeErr?.name === "TableNotFoundError") {
-                        this.setStatus("upgrade_required");
-                        return;
-                    }
-                    throw writeErr;
-                }
-            }
-
-            this.lastSyncedTime = new Date().toISOString();
-            if (prevStatus === "upgrade_required" || prevStatus === "corrupted" || prevStatus === "incompatible") {
-                this.setStatus(prevStatus);
-            } else {
-                this.setStatus("idle");
-            }
-        } catch (err: any) {
-            this.handleSyncException(err);
-            throw err;
-        }
-    }
-
-    private handleSyncException(err: any): void {
-        this.lastError = err;
-        const msg = String(err?.message || err);
-        if (err instanceof GroupFileUnavailableError || err?.name === "GroupFileUnavailableError") {
-            this.setStatus("idle", err);
-            return;
-        }
-        if (err?.name === "SchemaIncompatibleError" || msg.includes("incompatible")) {
-            this.setStatus("incompatible", err);
-            return;
-        }
-        if (err instanceof TableNotFoundError || err?.name === "TableNotFoundError") {
-            this.setStatus("upgrade_required", err);
-            return;
-        }
-        if (msg.includes("corruption") || msg.includes("missing required column") || err?.name === "SchemaCorruptedError") {
-            this.setStatus("corrupted", err);
-        } else if (msg.includes("upgrade") || err?.name === "SchemaUpgradeRequiredError") {
-            this.setStatus("upgrade_required", err);
-        } else if (msg.includes("Google Auth Failed") || msg.includes("401") || msg.includes("unauthorized")) {
-            this.setStatus("auth_failed", err);
-        } else if (msg.includes("Rate Limit") || msg.includes("429")) {
-            this.setStatus("throttled", err);
-        } else if (isNetworkError(err) || msg.includes("404") || msg.toLowerCase().includes("not found")) {
-            this.setStatus("idle", err);
-        } else {
-            this.setStatus("error", err);
-        }
+                    return { docsToWrite, nextLastPulledUpdatedAt };
+                }),
+        });
     }
 }

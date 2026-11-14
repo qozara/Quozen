@@ -34,7 +34,7 @@ export class ReplicationCoordinator {
     ) {
         this.lastSyncedAtByDocId = ReplicationCoordinator.getCheckpointMap(this.db.name);
         this.statusSubject.next(this.provider.getStatus());
-        this.unsubscribeProviderStatus = this.provider.onStatusChange((status, error) => {
+        this.unsubscribeProviderStatus = this.provider.onStatusChange?.((status, error) => {
             this.lastError = error ?? (this.provider as any).getLastError?.() ?? null;
             this.statusSubject.next(status);
         });

@@ -28,7 +28,7 @@ export const SyncInspectorPopover: React.FC<SyncInspectorPopoverProps> = ({ onCl
 
     const diagKey = resolveProviderDiagnostic(isOnline, true, syncStatus);
     const dotState: DotState =
-        uxSyncState === "hidden" ? "offline" : uxSyncState;
+        uxSyncState === "local" ? "offline" : uxSyncState;
 
     const handleForceSync = async () => {
         if (!isOnline || isForcingSync || syncStatus === "syncing") return;
