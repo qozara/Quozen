@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { quozen } from "@/lib/storage";
 import { useAiFeature } from "./AiFeatureContext";
 import { useAppContext } from "@/context/app-context";
+import { getAuthToken } from "@/lib/tokenStore";
 
 export const useAgent = () => {
     const { settings } = useSettings();
@@ -38,9 +39,11 @@ export const useAgent = () => {
                     proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL || 'http://localhost:8788',
                     provider: settings?.preferences?.aiProvider as any,
                     ciphertext: settings?.encryptedApiKey,
+                    byokProvider: settings?.preferences?.byokProvider,
                     enableLocalAi: settings?.preferences?.enableLocalAi ?? false,
                     ollamaBaseUrl: settings?.preferences?.ollamaBaseUrl,
-                    ollamaModel: settings?.preferences?.ollamaModel
+                    ollamaModel: settings?.preferences?.ollamaModel,
+                    getAuthToken
                 });
             }
 

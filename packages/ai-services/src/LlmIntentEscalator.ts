@@ -16,6 +16,7 @@ export interface LlmIntentEscalatorConfig {
   proxyUrl: string;
   provider?: 'qozara-intelligence' | 'byok' | 'ollama' | 'window.ai' | 'auto';
   ciphertext?: string;
+  byokProvider?: string;
   enableLocalAi?: boolean;
   ollamaBaseUrl?: string;
   ollamaModel?: string;
@@ -139,6 +140,7 @@ export class LlmIntentEscalator implements IIntentEscalator {
       enableLocalAi: isLocalAllowed,
       proxyUrl: this.config.proxyUrl,
       encryptedApiKey: this.config.ciphertext,
+      byokProvider: this.config.byokProvider,
       baseUrl: isLocalAllowed ? this.config.ollamaBaseUrl : undefined,
       ollamaModel: this.config.ollamaModel
     };
