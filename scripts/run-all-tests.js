@@ -15,17 +15,8 @@ const colors = {
 const tasks = [
     { name: "TypeScript Check", cmd: "npm", args: ["run", "check"] },
     { name: "Unit & Integration Tests", cmd: "npm", args: ["run", "test"] },
-    { name: "Core LLM Behavior", cmd: "npm", args: ["run", "test:ai:llm-behavior", "--workspace=@quozen/core"] },
     { name: "Playwright E2E Tests", cmd: "npm", args: ["run", "test:e2e", "--workspace=@quozen/webapp"] }
 ];
-
-if (!isNonInteractive) {
-    tasks.push({
-        name: "Live Infrastructure Smoke Test",
-        cmd: "npm",
-        args: ["run", "test:ai:live-smoke-test", "--workspace=@quozen/core"]
-    });
-}
 
 console.log(`${colors.bold}${colors.cyan}🚀 Starting Quozen Pre-Deployment Test Suite${colors.reset}`);
 

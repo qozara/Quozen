@@ -41,9 +41,9 @@ We strictly separate **instant deterministic parsing** from **optional LLM escal
 * **Guarantees:** Runs 100% offline with zero dependencies on LLMs or external network endpoints.
 
 ### Tier 2: AI Provider & Escalation Unit Tests (Mocked LLM)
-* **Goal:** Verify the internal logic, error catching, and routing of the Quozen AI modules and hexagonal escalation adapter.
-* **Files:** `AiProviderFactory.test.ts`, `LlmIntentEscalator.test.ts`, `QuozenAI.unit.test.ts`
-* We mock the LLM to return structured responses, errors, and rate limits to ensure our core never crashes.
+* **Goal:** Verify the internal logic, error catching, caching, and routing of `@quozen/ai-services` and `@qozara/ai-client` primitives.
+* **Files:** `packages/ai-services/tests/LlmIntentEscalator.test.ts`, `LruMemoryCache.test.ts`, `errors.test.ts`
+* We mock the LLM provider to return structured responses, errors, and rate limits to ensure graceful degradation.
 
 ### Tier 3: The LLM Intelligence Matrix (Live LLM + InMemory Storage)
 * **Goal:** Evaluate the chosen LLM's ability to extract intent and pick the right tools from natural language, using the blazing-fast `InMemoryAdapter`.

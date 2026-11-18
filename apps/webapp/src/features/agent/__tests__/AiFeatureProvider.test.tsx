@@ -3,18 +3,14 @@ import { renderHook, act } from "@testing-library/react";
 import { AiFeatureProvider } from "../AiFeatureProvider";
 import { useAiFeature } from "../AiFeatureContext";
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { AiProviderFactory } from "@quozen/core";
+import { AiProviderFactory } from "@quozen/ai-services";
 
 // Mock AiProviderFactory
-vi.mock("@quozen/core", () => ({
+vi.mock("@quozen/ai-services", () => ({
     AiProviderFactory: {
         createProvider: vi.fn(),
         getSetupMessage: vi.fn(),
     },
-    QuozenAI: vi.fn().mockImplementation(function (this: any) {
-        this.executeCommand = vi.fn().mockResolvedValue({ success: true, message: 'Done' });
-        return this;
-    }),
 }));
 
 let mockSettings: any = {

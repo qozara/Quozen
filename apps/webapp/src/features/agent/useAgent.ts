@@ -53,7 +53,7 @@ export const useAgent = () => {
                 ledger,
                 activeAccountId: currentUserId,
                 locale,
-                aiEnabled: Boolean(escalator)
+                genAiEnabled: Boolean(escalator)
             });
 
             if (result.kind === 'settlement' && result.settlementDraft) {

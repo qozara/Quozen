@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { QuozenClient, InMemoryAdapter, QuozenAI } from '../src';
+import { QuozenClient, InMemoryAdapter, CommandDraftService, type IIntentEscalator } from '../src';
 import { IStorageLayer } from '../src/infrastructure/IStorageLayer';
-import { AiProvider } from '../src/agent/providers/types';
 
 /**
  * Creates a per-user storage view that isolates `quozen-settings.json` per user
@@ -260,38 +259,45 @@ describe('Account-User Separation (Shared, Personal, and Offline Accounts)', () 
         expect(aLedger.members[0].name).toBe('Smith Household');
     });
 
-    it('resolves "me" in QuozenAI to the active linked Shared or Offline Account', async () => {
+    it('resolves "me" in CommandDraftService to the active linked Shared or Offline Account', async () => {
         const group = await clientA.groups.create('AI Trip', [
             { username: 'Charlie', email: userC.email }
         ]);
         await clientA.ledger(group.id).renameMember(userA.id, 'Garcia Family');
         await clientB.groups.joinGroup(group.id, { accountId: userA.id });
 
-        const mockProvider: AiProvider = {
-            id: 'mock',
-            mode: 'cloud',
-            chat: vi.fn().mockResolvedValue({
-                type: 'tool_call',
-                tool: 'addExpense',
-                arguments: {
-                    description: 'Museum Tickets',
-                    amount: 40,
-                    category: 'Entertainment',
-                    paidByUserId: 'me',
-                    splits: [
-                        { userId: 'me', amount: 20 },
-                        { userId: userC.email, amount: 20 }
-                    ]
-                }
-            }),
-            checkAvailability: vi.fn().mockResolvedValue(true),
-            getSetupMessage: () => null
+        const mockEscalator: IIntentEscalator = {
+            escalateCommand: vi.fn().mockResolvedValue({
+                intent: 'expense',
+                intentConfidence: 'high',
+                description: 'Museum Tickets',
+                amount: 40,
+                categoryHint: 'Entertainment',
+                payerToken: 'me',
+                splitStrategy: 'exact_amounts',
+                participantTokens: [],
+                excludedTokens: [],
+                exactAmountTokens: [
+                    { memberToken: 'me', amount: 20 },
+                    { memberToken: 'Charlie', amount: 20 }
+                ],
+                dateOffsetDays: 0
+            })
         };
 
-        const aiForB = new QuozenAI(clientB, mockProvider);
-        const result = await aiForB.executeCommand('I paid 40 for museum tickets', group.id, 'en');
+        const draftService = new CommandDraftService({ escalator: mockEscalator });
+        const ledgerBefore = await clientB.ledger(group.id).getLedger();
+        const result = await draftService.createDraft({
+            input: 'I paid 40 for museum tickets',
+            ledger: ledgerBefore,
+            activeAccountId: userA.id,
+            locale: 'en',
+            forceAi: true
+        });
 
-        expect(result.success).toBe(true);
+        expect(result.isAiEscalated).toBe(true);
+        expect(result.expenseDraft).toBeDefined();
+        await clientB.ledger(group.id, userA.id).addExpense(result.expenseDraft!);
 
         const ledger = await clientB.ledger(group.id).getLedger();
         expect(ledger.expenses).toHaveLength(1);

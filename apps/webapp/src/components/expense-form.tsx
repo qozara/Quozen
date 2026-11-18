@@ -18,7 +18,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useOptionalAuth } from "@/context/auth-provider";
-import { Zap, AlertTriangle, RefreshCw } from "lucide-react";
+import { Zap, AlertTriangle } from "lucide-react";
 
 const distributeAmount = (total: number, count: number): number[] => {
   if (count <= 0) return [];
@@ -51,8 +51,6 @@ interface ExpenseFormProps {
     isAiEscalated?: boolean;
     ambiguities?: string[];
   } | null;
-  onRefineWithAi?: () => Promise<void>;
-  isRefiningWithAi?: boolean;
   users: Member[];
   categories?: ExpenseCategory[];
   currentUserId: string;
@@ -66,8 +64,6 @@ export default function ExpenseForm({
   initialData,
   draft,
   draftMeta,
-  onRefineWithAi,
-  isRefiningWithAi = false,
   users,
   categories,
   currentUserId,
@@ -459,25 +455,6 @@ export default function ExpenseForm({
           "w-full bg-card border-t border-border shadow-[0_-4px_12px_rgba(0,0,0,0.06)] z-40 p-4 space-y-2",
           isDrawer ? "sticky bottom-0 -mx-4 px-8" : "fixed bottom-0 left-1/2 transform -translate-x-1/2 max-w-md"
         )}>
-          {draft && onRefineWithAi && !draftMeta?.isAiEscalated && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-full text-xs gap-1.5 h-8 border-dashed"
-              onClick={onRefineWithAi}
-              disabled={isRefiningWithAi || isPending}
-              data-testid="button-refine-with-ai"
-            >
-              {isRefiningWithAi ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Zap className="w-3.5 h-3.5 text-primary" />
-              )}
-              {t("agent.refineWithAi", "Not quite right? Refine with AI")}
-            </Button>
-          )}
-
           <Button
             type="submit"
             className="w-full h-12"

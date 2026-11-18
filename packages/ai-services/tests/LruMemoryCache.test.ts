@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LruMemoryCache } from '../src/cache/LruMemoryCache';
+import { LruMemoryCache } from '../src';
 
 describe('LruMemoryCache', () => {
   it('stores and retrieves cached entries', () => {

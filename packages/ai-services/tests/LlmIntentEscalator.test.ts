@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LlmIntentEscalator } from '../src/LlmIntentEscalator';
-import { AiProviderFactory } from '@quozen/core';
+import { AiProviderFactory } from '../src';
 
 describe('LlmIntentEscalator Local Network Safeguards', () => {
   beforeEach(() => {

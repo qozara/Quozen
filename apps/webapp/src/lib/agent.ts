@@ -1,4 +1,4 @@
-import { AgentClient } from "@quozen/core";
+import { AgentClient } from "@quozen/ai-services";
 import { getAuthToken } from "./tokenStore";
 
 const PROXY_URL = import.meta.env.VITE_AI_PROXY_URL;

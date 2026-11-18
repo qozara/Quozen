@@ -91,7 +91,7 @@ export async function startInteractive() {
                         ledger,
                         activeAccountId,
                         locale,
-                        aiEnabled: false
+                        genAiEnabled: false
                     });
 
                     if (result.kind === 'settlement' && result.settlementDraft) {

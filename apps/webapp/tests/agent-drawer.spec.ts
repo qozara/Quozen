@@ -169,10 +169,15 @@ test.describe('Optional LLM Escalation Suite (Isolated Mock AI Calls)', () => {
                 headers: { 'Access-Control-Allow-Origin': '*' },
                 contentType: 'application/json',
                 body: JSON.stringify({
-                    description: 'Refined Gourmet Dinner',
-                    amount: 75,
-                    category: 'food_dining',
-                    splitStrategy: 'equally_everyone'
+                    type: 'tool_call',
+                    tool: 'addExpense',
+                    arguments: {
+                        description: 'Refined Gourmet Dinner',
+                        amount: 75,
+                        category: 'food_dining',
+                        paidByUserId: 'Test User',
+                        splitStrategy: 'equally_everyone'
+                    }
                 })
             });
         });
@@ -180,7 +185,7 @@ test.describe('Optional LLM Escalation Suite (Isolated Mock AI Calls)', () => {
         await setupAuth(page);
     });
 
-    test('LLM Escalation: "Refine with AI" button contacts LLM provider only on user escalation', async ({ page }) => {
+    test('Transparent GenAI Escalation: automatically escalates ambiguous input when GenAI is enabled and populates draft', async ({ page }) => {
         await page.goto('/groups');
         await ensureLoggedIn(page);
 
@@ -193,24 +198,30 @@ test.describe('Optional LLM Escalation Suite (Isolated Mock AI Calls)', () => {
         await page.keyboard.press('Escape');
         await expect(shareTitle).not.toBeVisible();
 
-        // 1. Initial parse runs deterministically with 0 LLM calls
+        // 1. Standard deterministic input resolves locally with 0 LLM calls and no manual AI buttons
         await page.getByTestId('button-ai-assistant').click();
         await page.getByPlaceholder(/Type or dictate/i).fill('dinner 50');
         await page.getByTestId('button-ai-submit').click();
 
         await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();
         await expect(page.getByTestId('draft-confirmation-banner')).toBeVisible();
-
-        // Verify no LLM call was issued for initial deterministic parse
+        await expect(page.getByTestId('button-refine-with-ai')).toHaveCount(0);
         expect(llmCallCount).toBe(0);
 
-        // 2. User explicitly clicks "Refine with AI"
-        const refineButton = page.getByTestId('button-refine-with-ai');
-        await expect(refineButton).toBeVisible();
+        // Close drawer without submitting
+        await page.keyboard.press('Escape');
+        await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible();
+
+        // 2. Ambiguous / missing-amount prompt automatically escalates transparently to GenAI
+        await page.getByTestId('button-ai-assistant').click();
         const chatPromise = page.waitForResponse(resp => resp.url().includes('/api/v1/agent/chat'));
-        await refineButton.click();
+        await page.getByPlaceholder(/Type or dictate/i).fill('Split gourmet dinner among everyone');
+        await page.getByTestId('button-ai-submit').click();
         await chatPromise;
-        // Verify LLM endpoint was contacted with Bearer authorization header
+
+        await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();
+        await expect(page.getByTestId('input-expense-description')).toHaveValue('Refined Gourmet Dinner');
+        await expect(page.getByTestId('input-expense-amount')).toHaveValue('75');
         expect(llmCallCount).toBeGreaterThanOrEqual(1);
         expect(lastAuthHeader).toMatch(/^Bearer .+/);
     });

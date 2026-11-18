@@ -8,12 +8,7 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } f
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import { useGroups } from "@/hooks/use-groups";
 import { WifiOff } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useAiFeature } from "@/features/agent/AiFeatureContext";
-import { CommandDraftService } from "@quozen/core";
-import { LlmIntentEscalator } from "@quozen/ai-services";
-import { useSettings } from "@/hooks/use-settings";
-import { getAuthToken } from "@/lib/tokenStore";
+import { useEffect } from "react";
 
 export default function AddExpenseDrawer() {
     const {
@@ -27,11 +22,8 @@ export default function AddExpenseDrawer() {
     } = useAppContext();
     const { toast } = useToast();
     const queryClient = useQueryClient();
-    const { t, i18n } = useTranslation();
+    const { t } = useTranslation();
     const { groups } = useGroups();
-    const { settings } = useSettings();
-    const { status: aiStatus } = useAiFeature();
-    const [isRefining, setIsRefining] = useState(false);
 
     let autoSync: any;
     try {
@@ -75,49 +67,6 @@ export default function AddExpenseDrawer() {
     const handleClose = () => {
         setIsAddExpenseOpen(false);
         setExpenseDraft(null);
-    };
-
-    const handleRefineWithAi = async () => {
-        if (!expenseDraftMeta?.rawInput || !ledger || isRefining) return;
-        setIsRefining(true);
-        try {
-            const escalator = new LlmIntentEscalator({
-                proxyUrl: (import.meta as any).env.VITE_AI_PROXY_URL || 'http://localhost:8788',
-                provider: settings?.preferences?.aiProvider as any,
-                ciphertext: settings?.encryptedApiKey,
-                byokProvider: settings?.preferences?.byokProvider,
-                enableLocalAi: settings?.preferences?.enableLocalAi ?? false,
-                ollamaBaseUrl: settings?.preferences?.ollamaBaseUrl,
-                ollamaModel: settings?.preferences?.ollamaModel,
-                getAuthToken
-            });
-            const draftService = new CommandDraftService({ escalator });
-            const locale = settings?.preferences?.locale === 'system' ? i18n.language : (settings?.preferences?.locale || 'en');
-            const result = await draftService.createDraft({
-                input: expenseDraftMeta.rawInput,
-                ledger,
-                activeAccountId: effectiveAccountId,
-                locale,
-                forceAi: true
-            });
-
-            if (result.expenseDraft) {
-                setExpenseDraft(result.expenseDraft);
-                toast({
-                    title: t("common.success"),
-                    description: t("agent.refinedSuccess", "Draft updated with AI")
-                });
-            }
-        } catch (err: any) {
-            console.error("AI refinement error:", err);
-            toast({
-                title: t("common.error"),
-                description: err.message || t("agent.errorGeneric"),
-                variant: "destructive"
-            });
-        } finally {
-            setIsRefining(false);
-        }
     };
 
     const expenseMutation = useMutation({
@@ -188,8 +137,6 @@ export default function AddExpenseDrawer() {
                             users={users}
                             draft={expenseDraft || undefined}
                             draftMeta={expenseDraftMeta}
-                            onRefineWithAi={aiStatus === 'available' && isOnline ? handleRefineWithAi : undefined}
-                            isRefiningWithAi={isRefining}
                             categories={ledger?.categories}
                             currentUserId={effectiveAccountId}
                             isPending={expenseMutation.isPending}

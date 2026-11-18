@@ -59,9 +59,19 @@ export class CommandDraftService {
     activeAccountId: string;
     locale?: string;
     aiEnabled?: boolean;
+    genAiEnabled?: boolean;
     forceAi?: boolean;
   }): Promise<CommandDraftResult> {
-    const { input, ledger, activeAccountId, locale = 'en', aiEnabled = true, forceAi = false } = options;
+    const {
+      input,
+      ledger,
+      activeAccountId,
+      locale = 'en',
+      aiEnabled = true,
+      genAiEnabled,
+      forceAi = false
+    } = options;
+    const isGenAiActive = genAiEnabled ?? aiEnabled;
     const members = ledger.members || [];
     const meMember = members.find(m => m.userId === activeAccountId);
     const meName = meMember ? meMember.name : 'Me';
@@ -137,7 +147,7 @@ export class CommandDraftService {
     // 3. Optional JIT LLM Escalation check
     let isAiEscalated = false;
     const shouldEscalate = (forceAi || parsed.intentConfidence === 'low' || ambiguities.length > 0) &&
-      aiEnabled &&
+      isGenAiActive &&
       this.escalator !== undefined;
 
     if (shouldEscalate && this.escalator) {

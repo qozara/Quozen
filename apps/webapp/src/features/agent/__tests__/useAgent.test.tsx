@@ -31,7 +31,7 @@ vi.mock("@/context/app-context", () => ({
 vi.mock("@/hooks/use-settings", () => ({
     useSettings: vi.fn(() => ({
         settings: {
-            preferences: { aiProvider: 'cloud', locale: 'en' },
+            preferences: { aiProvider: 'cloud', byokProvider: 'google', locale: 'en' },
             encryptedApiKey: 'test-key'
         }
     })),
@@ -334,7 +334,8 @@ describe("useAgent Hook", () => {
             expect(response.success).toBe(true);
             expect(LlmIntentEscalator).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    getAuthToken
+                    getAuthToken,
+                    byokProvider: 'google'
                 })
             );
             expect(mockEscalateCommand).toHaveBeenCalledTimes(1);
