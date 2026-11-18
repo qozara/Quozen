@@ -16,6 +16,7 @@
     },
     "dependencies": {
         "@hookform/resolvers": "^3.10.0",
+        "@qozara/pwa-update": "^1.0.2",
         "@quozen/core": "*",
         "@quozen/ai-services": "*",
         "@radix-ui/react-accordion": "^1.2.4",
@@ -78,6 +79,7 @@
     },
     "devDependencies": {
         "@playwright/test": "^1.56.1",
+        "@qozara/pwa-vite": "^1.0.1",
         "@tailwindcss/typography": "^0.5.15",
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.0",

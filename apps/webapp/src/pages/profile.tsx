@@ -68,7 +68,13 @@ export default function Profile() {
   const { groups } = useGroups();
   const { t } = useTranslation();
   const { theme, systemTheme, setTheme } = useTheme();
-  const { needRefresh, isChecking: isCheckingUpdate, checkForUpdates, applyUpdate } = usePwaUpdate();
+  const {
+    needRefresh,
+    isChecking: isCheckingUpdate,
+    isUpdating = false,
+    checkForUpdates,
+    applyUpdate,
+  } = usePwaUpdate();
   const { } = useAiFeature();
   const [apiKey, setApiKey] = React.useState("");
   const [draftProvider, setDraftProvider] = React.useState(settings?.preferences?.aiProvider || "auto");
@@ -657,10 +663,10 @@ export default function Profile() {
             size="sm"
             className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
             onClick={() => void (needRefresh ? applyUpdate() : checkForUpdates())}
-            disabled={isCheckingUpdate}
+            disabled={isCheckingUpdate || isUpdating}
             data-testid="button-check-updates"
           >
-            <RefreshCw className={`w-3 h-3 mr-1 ${isCheckingUpdate ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-3 h-3 mr-1 ${(isCheckingUpdate || isUpdating) ? "animate-spin" : ""}`} />
             {isCheckingUpdate
               ? t("pwa.checkingForUpdates")
               : needRefresh

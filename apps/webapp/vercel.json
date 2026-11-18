@@ -3,11 +3,20 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/((?!assets/|favicon.*|logo.svg|manifest.json|.*\\.png|.*\\.ico).*)",
+      "source": "/((?!assets/|sw\\.js|registerSW\\.js|workbox-.*\\.js|version\\.json|favicon.*|logo\\.svg|manifest\\.json|.*\\.png|.*\\.ico).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
+    {
+      "source": "/(sw\\.js|version\\.json|index\\.html)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [

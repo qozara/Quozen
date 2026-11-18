@@ -476,6 +476,7 @@
         "checkingForUpdates": "Checking...",
         "upToDateTitle": "Up to Date",
         "upToDateDesc": "You are running the latest version ({{version}}).",
-        "offlineCheckDesc": "Connect to the internet to check for updates."
+        "offlineCheckDesc": "Connect to the internet to check for updates.",
+        "checkErrorDesc": "Could not check for updates. Please try again."
     }
 }
