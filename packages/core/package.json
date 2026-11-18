@@ -17,17 +17,14 @@
         "dev": "tsup src/index.ts --format esm --watch --dts",
         "lint": "tsc --noEmit",
         "test": "vitest run",
-        "test:all:non-interactive": "npm run test && npm run test:ai:llm-behavior",
-        "test:all": "npm run test:all:non-interactive && npm run test:ai:live-smoke-test",
-        "test:ai:llm-behavior": "cross-env RUN_LOCAL_LLM_TESTS=true vitest run tests/agent/llm-behavior.test.ts",
-        "test:ai:live-smoke-test": "cross-env RUN_LOCAL_LLM_TESTS=true vitest run tests/agent/infrastructure-smoke.test.ts"
+        "test:all:non-interactive": "npm run test",
+        "test:all": "npm run test"
     },
     "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^5.0.0"
     },
     "dependencies": {
-        "@qozara/ai-client": "^1.0.0",
         "@qozara/cloud-sync": "^1.0.0",
         "@qozara/cloud-sync-google": "^1.0.0",
         "@qozara/gdocs-schema": "^1.3.0",

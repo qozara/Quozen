@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect, useState, Component, ErrorInfo, ReactNode, useRef, useCallback, useMemo } from 'react';
 import { AiFeatureContext, AiFeatureState } from './AiFeatureContext';
-import { AiProviderFactory, AiProvider } from '@quozen/core';
+import { AiProviderFactory, type AiProvider } from '@quozen/ai-services';
 import { useSettings } from '@/hooks/use-settings';
 import { getAuthToken } from '@/lib/tokenStore';
 

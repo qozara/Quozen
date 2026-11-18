@@ -10,8 +10,8 @@ Quozen is a modern, privacy-first expense sharing platform designed for simplici
 
 Quozen is built as a highly modular monorepo, decoupling core business logic from the presentation layer to enable extreme portability across browsers, edge networks, and terminal environments.
 
-- 🧠 **`packages/core` (`@quozen/core`)**: The heart of Quozen. An isomorphic TypeScript SDK containing split-bill algorithms, an instant **offline-first deterministic natural language parser** with English and Spanish locale packs, RxDB local persistence collections, replication coordination, and pluggable sync backends (Google Drive & In-Memory).
-- 🤖 **`packages/ai-services` (`@quozen/ai-services`)**: Hexagonal AI escalation adapter providing optional LLM intent extraction, LRU caching, and error classification. Decoupled from core so Quozen runs 100% offline with zero external AI dependencies.
+- 🧠 **`packages/core` (`@quozen/core`)**: The heart of Quozen. An isomorphic TypeScript SDK containing split-bill algorithms, an instant **offline-first symbolic/deterministic natural language parser** (`StandardCommandParser`) with English and Spanish locale packs, RxDB local persistence collections, replication coordination, and pluggable sync backends (Google Drive & In-Memory).
+- 🤖 **`packages/ai-services` (`@quozen/ai-services`)**: Hexagonal Generative AI (GenAI) escalation adapter built on `@qozara/ai-client`, providing optional LLM intent extraction (`LlmIntentEscalator`), LRU caching, and error classification. Decoupled from core so Quozen runs 100% offline with zero external GenAI dependencies.
 - 💻 **`apps/webapp`**: The main React Single Page Application (SPA). Built with Vite, Tailwind CSS, Shadcn UI, and reactive query bindings for an instant, responsive local-first experience.
 - 🌐 **`apps/api`**: A high-performance, stateless REST API built with Hono and OpenAPI 3.0. Deployable to Cloudflare Workers or Vercel Edge, enabling AI agents and third-party integrations.
 - ⌨️ **`apps/cli`**: An interactive terminal application demonstrating Node.js compatibility and offering terminal-based expense management.
@@ -28,11 +28,11 @@ Quozen is built as a highly modular monorepo, decoupling core business logic fro
   - **Shared Account**: Multiple logged-in users (e.g., a family, a couple, or a subgroup of friends) can link to and co-manage a single consolidated account that counts as one share in group splits. Manager emails are stored as a comma-separated list (`managedBy`) directly in the `Members` table as the single source of truth without mutating opaque ledger account IDs.
   - **Offline Account**: Add accounts without an email (e.g., `"Bob"`) and let any logged-in user switch to or record expenses on their behalf.
 
-### ⚡ Instant Deterministic Parser & Human-in-the-Loop Confirmation
-- **Instant Natural Language (< 1ms)**: Dictate or type commands like *"Add 45 for dinner with Bob"* or *"Pagué 30 almuerzo"* and have them parsed instantly on device. Works **100% offline**, requires **zero AI calls**, and incurs **zero token costs**.
-- **Human-in-the-Loop Draft Confirmation (Never Auto-Commit)**: Neither the parser nor AI writes directly to your ledger. Quozen always opens an interactive **Draft Review** dialog (`AddExpenseDrawer` or `SettlementModal`) pre-populated with amounts, members, categories, and split ratios, allowing you to inspect, adjust, and explicitly confirm before committing.
+### ⚡ Instant Composite AI (Symbolic + GenAI) & Human-in-the-Loop Confirmation
+- **Instant Natural Language (< 1ms)**: Dictate or type commands like *"Add 45 for dinner with Bob"* or *"Pagué 30 almuerzo"* and have them parsed instantly on device. Works **100% offline**, requires **zero GenAI calls**, and incurs **zero token costs**.
+- **Human-in-the-Loop Draft Confirmation (Never Auto-Commit)**: Neither deterministic AI nor GenAI writes directly to your ledger. Quozen always opens the exact same interactive **Draft Review** dialog (`AddExpenseDrawer` or `SettlementModal`) pre-populated with amounts, members, categories, and split ratios, allowing you to inspect, adjust, and explicitly confirm before committing.
 - **English & Spanish Locale Packs**: Built-in grammatical pattern matching handles colloquial splits (`with Bob, Charlie`), exclusions (`sin Ana`, `except Bob`), itemized debts (`Bob 30 y Charlie 20`), and settlements (`I paid Bob 25 cash`, `settle up with Alice`).
-- **Pragmatic AI — Only Where Genuinely Needed**: We reserve generative LLMs and computer vision strictly for high-value tasks that genuinely require machine perception—such as scanning paper receipts/bills, itemized receipt breakdown, complex unstructured notes, or resolving ambiguous phrasing on user demand via **"Refine with AI"**.
+- **Transparent GenAI Enhancement**: Generative AI works invisibly behind the scenes—automatically escalating only when commands are ambiguous or incomplete, with identical UI whether GenAI is enabled or disabled.
 - **Privacy by Default (Zero Localhost Probing)**: Quozen never probes local network ports (like Ollama on `localhost:11434`) unless you explicitly toggle Local Network Access in Profile Settings, eliminating browser Private Network Access security warnings.
 
 ### 🔄 Smart Data Sync & Resilience
@@ -202,22 +202,21 @@ The CLI connects directly to your Google Drive via a local OAuth loopback server
 
 ---
 
-## 🤖 Pragmatic AI & Escalation Architecture
+## 🤖 Composite AI & Transparent GenAI Escalation
 
-Quozen embraces **Pragmatic AI**: we do not burn energy, API tokens, or user patience sending simple everyday commands to cloud LLMs when a deterministic, sub-millisecond local algorithm does the job better, faster, and 100% offline.
+Quozen embraces **Composite AI (Symbolic + GenAI)**: everyday commands resolve deterministically in under a millisecond with zero network calls or token burn, while optional **Generative AI (GenAI)** transparently enhances ambiguous or complex commands behind the scenes with zero UX friction.
 
-### When is AI Used?
-1. **Scanning Bills & Receipts (OCR / Multimodal)**: Extracting line items, totals, dates, and taxes from photos of receipts or invoices.
-2. **On-Demand Escalation ("Refine with AI")**: When voice dictation or a command contains ambiguous or complex phrasing, users can click **"Refine with AI"** from the draft confirmation banner to request deeper LLM interpretation.
-3. **Complex Unstructured Notes**: Extracting multi-way shared costs from long-form chat messages or unstructured trip itineraries.
+### When is GenAI Used?
+1. **Automatic Ambiguity & Low-Confidence Escalation**: When a command contains missing values, unrecognized phrasing, or ambiguous member references, `CommandDraftService` automatically escalates to `LlmIntentEscalator` (backed by `@qozara/ai-client`) if GenAI is enabled and online—falling back gracefully to an editable draft if disabled or offline.
+2. **Complex Unstructured Notes & Future Multimodal Tasks**: Extracting multi-way shared costs from long-form chat messages or receipt scans.
 
-### Polymorphic Provider Waterfall (On Escalation)
-When AI escalation is triggered, Quozen resolves the request through a configurable, privacy-first waterfall:
+### Polymorphic Provider Waterfall (On GenAI Escalation)
+When GenAI escalation is triggered, Quozen resolves the request through `@qozara/ai-client`'s configurable, privacy-first waterfall (`auto`, `cloud`, `byok`, `local-browser`, `local`, or `disabled` for deterministic-only):
 
 1. **Bring Your Own Key (BYOK):** Users can supply a personal Google Gemini API key. The key is encrypted via edge KMS (AES-256-GCM) and stored exclusively in the user's personal Google Drive with **zero server persistence**. All requests use the user's own quota with zero rate limits.
 2. **On-Device AI (Gemini Nano):** If your browser supports Chrome's Prompt API, Quozen runs inference locally on device for 100% private, zero-latency execution.
-3. **Qozara Intelligence:** Out-of-the-box edge AI powered by Gemini 2.0 Flash at `https://ai.qozara.org`, protected by sliding window rate limits (20 req/day for authenticated Google accounts; 5 req/day for anonymous users).
-4. **Local LLM (Ollama):** Optional local Ollama integration for users running self-hosted models (`qwen2.5`, `llama3.2`). Local network access is **disabled by default** to protect user privacy and avoid browser permission popups; users can enable it anytime in **Profile > Preferences > Allow Local Network Access**.
+3. **Local LLM (Ollama — Opt-In):** Optional local Ollama integration for users running self-hosted models (`qwen2.5`, `llama3.2`). Local network access is **disabled by default** to protect user privacy and avoid browser permission popups; users can enable it anytime in **Profile > Generative AI (GenAI) > Allow Local Network Access (Ollama)**.
+4. **Qozara Intelligence (`cloud`):** Out-of-the-box edge AI powered by Gemini 2.0 Flash at `https://ai.qozara.org`, protected by Mode 1A registered-account auth and sliding window rate limits (20 req/day).
 
 ### Enabling Local AI (Chrome)
 To use On-Device AI:

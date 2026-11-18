@@ -1,16 +1,16 @@
-# AI Pre-flight & Availability Architecture
+# GenAI Pre-flight & Availability Architecture
 
 ## Overview
 
-Quozen's command input is **offline-first and deterministic**. The quick command bar (`AgentTrigger`) is always active and available on device for local parsing via `StandardCommandParser`, even if AI features are disabled, unreachable, or the device is completely offline.
+Quozen's command input is **offline-first and deterministic**. The quick command drawer (`AgentCommandDrawer`) is always active and renders identically on device via Symbolic AI (`StandardCommandParser`), even if Generative AI (`GenAI`) is disabled in Profile settings, unreachable, or the device is completely offline.
 
-AI pre-flight checks govern **optional cloud/local LLM escalation** (such as "Refine with AI", OCR bill scanning, or custom BYOK keys) without blocking core user interactions.
+Pre-flight checks govern **optional GenAI enhancement** without blocking core user workflows or exposing provider-specific UI chrome inside command entry dialogs.
 
 ## Privacy & Zero-Localhost Probing Guarantee
 
-To prevent browser security warnings (Private Network Access popups when querying `localhost`), Quozen guarantees:
-- **No Automatic Localhost Probing**: Quozen will **never** attempt to connect to `http://localhost:11434` (Ollama) unless the user explicitly enables **"Allow Local Network Access (Ollama)"** (`enableLocalAi: true`) under **Profile > AI Assistant**.
-- **Safe Automatic Waterfall**: When `enableLocalAi` is false (default), the auto-resolution waterfall checks purely in-process or remote endpoints: BYOK Key -> `window.ai` (in-process Gemini Nano) -> Cloud Proxy (`https://ai.qozara.org`).
+To prevent browser security warnings (Private Network Access popups when querying `localhost`), `@qozara/ai-client` (`AiProviderFactory`) guarantees:
+- **Strict Opt-In Local Network Access**: Quozen will **never** probe or connect to `http://localhost:11434` (Ollama) unless the user explicitly enables **"Allow Local Network Access (Ollama)"** (`enableLocalAi: true`) under **Profile > Generative AI (GenAI)**.
+- **Safe Automatic Waterfall**: When `enableLocalAi` is false (default), the `auto` resolution waterfall checks purely in-process or remote endpoints: BYOK Key -> `window.ai` (in-process Gemini Nano) -> Qozara Intelligence Cloud Proxy (`https://ai.qozara.org`).
 
 ## Resolution Flow
 
@@ -20,20 +20,20 @@ sequenceDiagram
     participant Provider as AiFeatureProvider
     participant Context as AiFeatureContext
     participant Settings as UserSettings (RxDB)
-    participant Header as Header Agent Trigger
+    participant Drawer as AgentCommandDrawer
 
     App->>Provider: Mounts on Startup
     Provider->>Settings: Read preferences (enableLocalAi, aiProvider, keys)
     
-    %% Deterministic command bar is ALWAYS available
-    Provider->>Header: Mount Command Trigger (Offline-ready, Deterministic)
+    %% Deterministic command drawer is ALWAYS available
+    Provider->>Drawer: Mount Command Trigger (Identical UI with or without GenAI)
     
-    %% Optional AI Escalation Readiness Check
+    %% Optional GenAI Readiness Check
     alt VITE_DISABLE_AI is true or aiProvider is 'disabled'
-        Provider->>Context: status = 'unavailable'
+        Provider->>Context: status = 'unavailable' (Symbolic AI remains active)
     else enableLocalAi is false (Default)
-        Provider->>Context: Safe Cloud/WindowAI Mode (Zero localhost requests)
+        Provider->>Context: status = 'available' (Zero localhost requests)
     else enableLocalAi is true (User opted-in)
-        Provider->>Provider: Allow Local Ollama resolution (localhost:11434)
+        Provider->>Context: status = 'available' (Allow Ollama resolution on demand)
     end
 ```

@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
 import { Member, Settlement, SettlementDraft } from "@quozen/core";
-import { ArrowRightLeft, Trash2, Zap, AlertTriangle, RefreshCw } from "lucide-react";
+import { ArrowRightLeft, Trash2, Zap, AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,8 +43,6 @@ interface SettlementModalProps {
     isAiEscalated?: boolean;
     ambiguities?: string[];
   } | null;
-  onRefineWithAi?: () => Promise<void>;
-  isRefiningWithAi?: boolean;
 }
 
 export default function SettlementModal({
@@ -56,9 +54,7 @@ export default function SettlementModal({
   users = [],
   initialData,
   draft,
-  draftMeta,
-  onRefineWithAi,
-  isRefiningWithAi = false
+  draftMeta
 }: SettlementModalProps) {
   const { activeGroupId, currentUserId } = useAppContext();
   const { toast } = useToast();
@@ -333,25 +329,6 @@ export default function SettlementModal({
 
           {/* Sticky Footer */}
           <DrawerFooter className="border-t bg-background space-y-2">
-            {draft && onRefineWithAi && !draftMeta?.isAiEscalated && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full text-xs gap-1.5 h-8 border-dashed"
-                onClick={onRefineWithAi}
-                disabled={isRefiningWithAi || saveMutation.isPending}
-                data-testid="button-refine-settlement-ai"
-              >
-                {isRefiningWithAi ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Zap className="w-3.5 h-3.5 text-primary" />
-                )}
-                {t("agent.refineWithAi", "Not quite right? Refine with AI")}
-              </Button>
-            )}
-
             <div className="flex gap-3">
               {initialData && (
                 <Button

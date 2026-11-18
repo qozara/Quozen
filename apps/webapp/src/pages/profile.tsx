@@ -20,8 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { useTranslation } from "react-i18next";
 import React from "react";
 import { useAiFeature } from "@/features/agent/AiFeatureContext";
-import { agentClient } from "@/lib/agent";
-import { AiProviderFactory } from "@quozen/core";
+import { AiProviderFactory, validateAndPrepareAiSettings } from "@quozen/ai-services";
 import { getAuthToken } from "@/lib/tokenStore";
 
 const POPULAR_CURRENCIES = [
@@ -166,36 +165,29 @@ export default function Profile() {
     if (!settings) return;
     setIsVerifying(true);
 
-    let finalEncryptedKey = settings.encryptedApiKey;
-
     try {
-      if (draftProvider === 'byok' && apiKey.trim()) {
-        finalEncryptedKey = await agentClient.encryptApiKey(apiKey);
-      }
-
-      const config = {
-        providerPreference: draftProvider as any,
-        encryptedApiKey: finalEncryptedKey,
-        baseUrl: draftEnableLocalAi ? (draftOllamaUrl || import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434/api') : undefined,
-        proxyUrl: import.meta.env.VITE_AI_PROXY_URL,
-        ollamaModel: draftOllamaModel || import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
+      const { settings: preparedAi, isReachable } = await validateAndPrepareAiSettings({
+        providerPreference: draftProvider,
+        enableLocalAi: draftEnableLocalAi,
+        rawApiKey: draftProvider === 'byok' ? apiKey : undefined,
+        existingEncryptedApiKey: settings.encryptedApiKey,
         byokProvider: draftByokProvider || 'google',
-        enableLocalAi: draftEnableLocalAi
-      };
-
-      const tempProvider = await AiProviderFactory.createProvider(config, getAuthToken as any);
-      const isAvailable = await tempProvider.checkAvailability();
+        ollamaBaseUrl: draftOllamaUrl || import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434/api',
+        ollamaModel: draftOllamaModel || import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:0.5b',
+        proxyUrl: import.meta.env.VITE_AI_PROXY_URL || 'http://localhost:8788',
+        getAuthToken: getAuthToken as any,
+      });
 
       const newSettings = {
         ...settings,
-        encryptedApiKey: finalEncryptedKey,
+        encryptedApiKey: preparedAi.encryptedApiKey,
         preferences: {
           ...settings.preferences,
-          aiProvider: draftProvider as any,
+          aiProvider: preparedAi.providerPreference as any,
           ollamaBaseUrl: draftOllamaUrl,
           ollamaModel: draftOllamaModel,
-          byokProvider: draftByokProvider,
-          enableLocalAi: draftEnableLocalAi
+          byokProvider: preparedAi.byokProvider,
+          enableLocalAi: preparedAi.enableLocalAi
         }
       };
 
@@ -206,7 +198,7 @@ export default function Profile() {
         setApiKey("");
       }
 
-      if (!isAvailable) {
+      if (!isReachable) {
         toast({
           title: t("common.error"),
           description: "Settings saved, but provider is unreachable.",
@@ -485,6 +477,7 @@ export default function Profile() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">{t("profile.aiAuto")}</SelectItem>
+                  <SelectItem value="cloud">{t("profile.aiCloud")}</SelectItem>
                   <SelectItem value="byok">{t("profile.aiByok")}</SelectItem>
                   <SelectItem value="local-browser">{t("profile.aiLocal")}</SelectItem>
                   <SelectItem value="local">Local Ollama</SelectItem>

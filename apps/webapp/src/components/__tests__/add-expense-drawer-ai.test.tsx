@@ -1,15 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import AddExpenseDrawer from "../add-expense-drawer";
 import { Ledger } from "@quozen/core";
-import { LlmIntentEscalator } from "@quozen/ai-services";
-import { getAuthToken } from "@/lib/tokenStore";
 
-const { mockSetExpenseDraft, mockSetIsAddExpenseOpen, mockToast, mockEscalateCommand } = vi.hoisted(() => ({
+const { mockSetExpenseDraft, mockSetIsAddExpenseOpen, mockToast } = vi.hoisted(() => ({
     mockSetExpenseDraft: vi.fn(),
     mockSetIsAddExpenseOpen: vi.fn(),
     mockToast: vi.fn(),
-    mockEscalateCommand: vi.fn(),
 }));
 
 vi.mock("@/context/app-context", () => ({
@@ -53,36 +50,6 @@ vi.mock("@/hooks/use-auto-sync", () => ({
 vi.mock("@/hooks/use-groups", () => ({
     useGroups: () => ({
         groups: [{ id: "group-1", name: "Trip Group" }],
-    }),
-}));
-
-vi.mock("@/hooks/use-settings", () => ({
-    useSettings: () => ({
-        settings: {
-            preferences: {
-                aiProvider: "cloud",
-                byokProvider: "google",
-                enableLocalAi: false,
-                locale: "en",
-            },
-        },
-    }),
-}));
-
-vi.mock("@/features/agent/AiFeatureContext", () => ({
-    useAiFeature: () => ({
-        status: "available",
-    }),
-}));
-
-vi.mock("@/lib/tokenStore", () => ({
-    getAuthToken: vi.fn(() => "google-access-token"),
-}));
-
-vi.mock("@quozen/ai-services", () => ({
-    LlmIntentEscalator: vi.fn().mockImplementation(function (this: any) {
-        this.escalateCommand = mockEscalateCommand;
-        return this;
     }),
 }));
 
@@ -153,36 +120,16 @@ vi.mock("@/components/ui/select", () => ({
     SelectItem: ({ value }: any) => <option value={value}>{value}</option>,
 }));
 
-describe("AddExpenseDrawer — AI Refinement Auth", () => {
+describe("AddExpenseDrawer — Transparent Draft Confirmation UI", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockEscalateCommand.mockResolvedValue({
-            intent: "expense",
-            intentConfidence: "high",
-            amount: 50,
-            description: "Refined Dinner",
-            splitStrategy: "equally_everyone",
-            participantTokens: [],
-            excludedTokens: [],
-            exactAmountTokens: [],
-            dateOffsetDays: 0,
-        });
     });
 
-    it("passes getAuthToken and byokProvider to LlmIntentEscalator when refining with AI", async () => {
+    it("renders draft confirmation banner cleanly without manual Refine with AI buttons", () => {
         render(<AddExpenseDrawer />);
 
-        const refineButton = screen.getByTestId("button-refine-with-ai");
-        fireEvent.click(refineButton);
-
-        await waitFor(() => {
-            expect(LlmIntentEscalator).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    getAuthToken,
-                    byokProvider: "google",
-                })
-            );
-        });
-        expect(mockEscalateCommand).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId("draft-confirmation-banner")).toBeInTheDocument();
+        expect(screen.getByTestId("input-expense-description")).toHaveValue("Dinner");
+        expect(screen.queryByTestId("button-refine-with-ai")).toBeNull();
     });
 });

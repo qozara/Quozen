@@ -1,20 +1,23 @@
 import {
-  type AuthTokenGetter
+  LruMemoryCache,
+  createGenAiToolResolver,
+  normalizeProviderPreference,
+  type AuthTokenGetter,
+  type AiFactoryConfig,
+  type GenAiToolResolver,
+  type GenAiProviderPreference,
+  type LegacyAiProviderPreference
 } from '@qozara/ai-client';
-import {
-  AiProviderFactory,
-  type QuozenAiFactoryConfig,
-  type IIntentEscalator,
-  type ParsedRawCommand,
-  type ExpenseCategory,
-  type SplitStrategyKind
+import type {
+  IIntentEscalator,
+  ParsedRawCommand,
+  ExpenseCategory,
+  SplitStrategyKind
 } from '@quozen/core';
-import { LruMemoryCache } from './cache/LruMemoryCache';
-import { classifyAiError } from './errors';
 
 export interface LlmIntentEscalatorConfig {
   proxyUrl: string;
-  provider?: 'qozara-intelligence' | 'byok' | 'ollama' | 'window.ai' | 'auto';
+  provider?: GenAiProviderPreference | LegacyAiProviderPreference;
   ciphertext?: string;
   byokProvider?: string;
   enableLocalAi?: boolean;
@@ -22,6 +25,14 @@ export interface LlmIntentEscalatorConfig {
   ollamaModel?: string;
   getAuthToken?: AuthTokenGetter;
   cache?: LruMemoryCache<string, Partial<ParsedRawCommand>> | null;
+}
+
+export interface EscalateCommandOptions {
+  input: string;
+  locale: string;
+  meName: string;
+  memberNames: string[];
+  categories: Pick<ExpenseCategory, 'id' | 'name' | 'description'>[];
 }
 
 const defaultGlobalCommandCache = new LruMemoryCache<string, Partial<ParsedRawCommand>>(50);
@@ -82,108 +93,69 @@ export function buildAgentTools(categories: Pick<ExpenseCategory, 'id' | 'name' 
 }
 
 export class LlmIntentEscalator implements IIntentEscalator {
-  private readonly cache: LruMemoryCache<string, Partial<ParsedRawCommand>> | null;
+  private readonly resolver: GenAiToolResolver<EscalateCommandOptions, Partial<ParsedRawCommand>>;
 
-  constructor(private readonly config: LlmIntentEscalatorConfig) {
-    this.cache = config.cache === null ? null : (config.cache ?? defaultGlobalCommandCache);
-  }
-
-  clearCache(): void {
-    this.cache?.clear();
-  }
-
-  private mapPreference(provider?: string): QuozenAiFactoryConfig['providerPreference'] {
-    switch (provider) {
-      case 'byok':
-        return 'byok';
-      case 'ollama':
-      case 'local':
-        return 'local';
-      case 'window.ai':
-      case 'local-browser':
-        return 'local-browser';
-      case 'auto':
-        return 'auto';
-      case 'qozara-intelligence':
-      case 'cloud':
-      default:
-        return 'cloud';
-    }
-  }
-
-  async escalateCommand(options: {
-    input: string;
-    locale: string;
-    meName: string;
-    memberNames: string[];
-    categories: Pick<ExpenseCategory, 'id' | 'name' | 'description'>[];
-  }): Promise<Partial<ParsedRawCommand> | null> {
-    const { input, locale, meName, memberNames, categories } = options;
-    const cleanInput = input.trim();
-    if (!cleanInput) return null;
-
-    const cacheKey = `${cleanInput.toLowerCase()}|${locale}|${memberNames.join(',')}`;
-    if (this.cache) {
-      const cached = this.cache.get(cacheKey);
-      if (cached) return cached;
-    }
-
-    const isLocalAllowed = Boolean(this.config.enableLocalAi);
-    let pref = this.mapPreference(this.config.provider);
-    // If local was requested but not explicitly enabled, fall back to cloud to avoid probing localhost
+  constructor(config: LlmIntentEscalatorConfig) {
+    const isLocalAllowed = Boolean(config.enableLocalAi);
+    let pref = normalizeProviderPreference(config.provider);
+    // If local was requested without explicit Local Network opt-in, fall back to cloud to avoid probing localhost
     if (pref === 'local' && !isLocalAllowed) {
       pref = 'cloud';
     }
 
-    const factoryConfig: QuozenAiFactoryConfig = {
+    const factoryConfig: AiFactoryConfig = {
       providerPreference: pref,
       enableLocalAi: isLocalAllowed,
-      proxyUrl: this.config.proxyUrl,
-      encryptedApiKey: this.config.ciphertext,
-      byokProvider: this.config.byokProvider,
-      baseUrl: isLocalAllowed ? this.config.ollamaBaseUrl : undefined,
-      ollamaModel: this.config.ollamaModel
+      proxyUrl: config.proxyUrl,
+      encryptedApiKey: config.ciphertext,
+      byokProvider: config.byokProvider,
+      baseUrl: isLocalAllowed ? config.ollamaBaseUrl : undefined,
+      ollamaModel: config.ollamaModel
     };
 
-    try {
-      const provider = await AiProviderFactory.createProvider(factoryConfig, this.config.getAuthToken);
+    const cache = config.cache === null ? null : (config.cache ?? defaultGlobalCommandCache);
 
-      const systemPrompt = `You are Quozen AI, an intent extraction assistant for an expense-sharing application.
+    this.resolver = createGenAiToolResolver<EscalateCommandOptions, Partial<ParsedRawCommand>>({
+      factoryConfig,
+      getAuthToken: config.getAuthToken,
+      cache,
+      getCacheKey: (opts) =>
+        `${opts.input.trim().toLowerCase()}|${opts.locale}|${opts.memberNames.join(',')}`,
+      buildRequest: (opts) => {
+        const systemPrompt = `You are Quozen AI, an intent extraction assistant for an expense-sharing application.
 Translate the user input into tool arguments for addExpense or addSettlement.
 Members in this group:
-${memberNames.map(n => `- ${n}${n === meName ? ' (this is YOU)' : ''}`).join('\n')}
+${opts.memberNames.map(n => `- ${n}${n === opts.meName ? ' (this is YOU)' : ''}`).join('\n')}
 
 Categories:
-${categories.map(c => `- ${c.id}: ${c.name} (${c.description})`).join('\n')}
+${opts.categories.map(c => `- ${c.id}: ${c.name} (${c.description})`).join('\n')}
 
 RULES:
 1. Identify payer, amount, and item description. Do NOT perform penny math or split division.
-2. If the user says "I" or "me", paidByUserId should be "${meName}".
-3. Respect the user language: ${locale}.`;
+2. If the user says "I" or "me", paidByUserId should be "${opts.meName}".
+3. Respect the user language: ${opts.locale}.`;
 
-      const response = await provider.chat({
-        messages: [{ role: 'user', content: cleanInput }],
-        tools: buildAgentTools(categories),
-        systemPrompt
-      });
-
-      if (!response || response.error) {
-        throw new Error(response?.error || 'Empty AI response');
-      }
-
-      let result: Partial<ParsedRawCommand> | null = null;
-
-      if (response.type === 'tool_call' && response.tool && response.arguments) {
-        let args = response.arguments;
-        if (typeof args === 'string') {
-          try { args = JSON.parse(args); } catch { return null; }
+        return {
+          messages: [{ role: 'user', content: opts.input.trim() }],
+          tools: buildAgentTools(opts.categories),
+          systemPrompt
+        };
+      },
+      parseResponse: (extracted) => {
+        if (!extracted || !extracted.toolName || !extracted.args) {
+          return null;
         }
 
-        const toolName = response.tool.toLowerCase();
+        const args = extracted.args;
+        const toolName = extracted.toolName.toLowerCase();
+
         if (toolName === 'addexpense') {
           const splitStrategy: SplitStrategyKind =
-            args.splitStrategy === 'exact_amounts' ? 'exact_amounts' :
-            args.splitStrategy === 'equally_specific_members' ? 'equally_specific_members' : 'equally_everyone';
+            args.splitStrategy === 'exact_amounts'
+              ? 'exact_amounts'
+              : args.splitStrategy === 'equally_specific_members'
+              ? 'equally_specific_members'
+              : 'equally_everyone';
 
           const exactAmountTokens: Array<{ memberToken: string; amount: number }> = [];
           if (args.exactAmounts && typeof args.exactAmounts === 'object') {
@@ -192,7 +164,7 @@ RULES:
             }
           }
 
-          result = {
+          return {
             intent: 'expense',
             intentConfidence: 'high',
             amount: Number(args.amount) || 0,
@@ -203,8 +175,10 @@ RULES:
             participantTokens: Array.isArray(args.specificMembers) ? args.specificMembers : [],
             exactAmountTokens
           };
-        } else if (toolName === 'addsettlement') {
-          result = {
+        }
+
+        if (toolName === 'addsettlement') {
+          return {
             intent: 'settlement',
             intentConfidence: 'high',
             amount: Number(args.amount) || 0,
@@ -214,15 +188,20 @@ RULES:
             description: args.notes || 'Settlement'
           };
         }
-      }
 
-      if (result && this.cache) {
-        this.cache.set(cacheKey, result);
+        return null;
       }
+    });
+  }
 
-      return result;
-    } catch (err) {
-      throw classifyAiError(err);
+  clearCache(): void {
+    this.resolver.clearCache();
+  }
+
+  async escalateCommand(options: EscalateCommandOptions): Promise<Partial<ParsedRawCommand> | null> {
+    if (!options.input || !options.input.trim()) {
+      return null;
     }
+    return await this.resolver.resolve(options);
   }
 }

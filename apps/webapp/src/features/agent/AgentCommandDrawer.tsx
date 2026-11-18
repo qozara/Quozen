@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Zap, Send, Bot, Cpu } from 'lucide-react';
+import { Zap, Send, RefreshCw } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from 'react-i18next';
 import { useAgent } from './useAgent';
-import { useAiFeature } from './AiFeatureContext';
-import { RefreshCw } from 'lucide-react';
 
 export const AgentCommandDrawer: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -15,25 +13,6 @@ export const AgentCommandDrawer: React.FC = () => {
     const [isThinking, setIsThinking] = useState(false);
     const { t } = useTranslation();
     const { executeCommand } = useAgent();
-    const { provider, status } = useAiFeature();
-
-    const getBadgeInfo = () => {
-        const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
-        if (status !== 'available' || !isOnline) {
-            return {
-                icon: <Zap className="w-3 h-3 text-emerald-500" />,
-                label: t('agent.offlineSmartParser', 'Offline Support')
-            };
-        }
-
-        const mode = provider?.mode || 'cloud';
-        if (mode === 'local-browser') return { icon: <Cpu className="w-3 h-3" />, label: t('agent.onDevice') };
-        if (mode === 'local-ollama') return { icon: <Cpu className="w-3 h-3" />, label: 'Local Ollama' };
-        if (mode === 'byok') return { icon: <Zap className="w-3 h-3" />, label: t('agent.poweredByYourKey') };
-        return { icon: <Bot className="w-3 h-3" />, label: t('agent.poweredByTeamKey') };
-    };
-
-    const badge = getBadgeInfo();
 
     const handleSubmit = async () => {
         if (!prompt.trim() || isThinking) return;
@@ -77,7 +56,7 @@ export const AgentCommandDrawer: React.FC = () => {
                         </DrawerDescription>
                     </DrawerHeader>
 
-                    <div className="px-4 py-2 space-y-4">
+                    <div className="px-4 pt-2 pb-6">
                         <div className="relative">
                             <Textarea
                                 autoFocus
@@ -99,13 +78,6 @@ export const AgentCommandDrawer: React.FC = () => {
                                     <Send className="w-4 h-4" />
                                 )}
                             </Button>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 px-1 pb-6">
-                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-muted text-[10px] font-medium text-muted-foreground animate-in fade-in duration-500">
-                                {badge.icon}
-                                <span>{badge.label}</span>
-                            </div>
                         </div>
                     </div>
                 </DrawerContent>

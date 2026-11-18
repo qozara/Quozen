@@ -24,10 +24,7 @@ export { formatCurrency } from "./finance/format-currency";
 export * from "./auth/google";
 export * from "./errors";
 
-// 5. Agent
-export * from "./agent";
-
-// 6. Schema
+// 5. Schema
 export * from "./schema/ValidationService";
 
 // 7. Local RxDB & Composite Cloud Sync

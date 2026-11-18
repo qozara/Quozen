@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import { AiProvider } from '@quozen/core';
+import type { AiProvider } from '@quozen/ai-services';
 
 export type AiAvailabilityStatus = 'checking' | 'available' | 'unavailable';
 

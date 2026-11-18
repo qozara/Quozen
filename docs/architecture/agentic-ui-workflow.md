@@ -1,53 +1,50 @@
-# Agentic UI & Command Parsing Architecture
+# Agentic UI & Composite AI Command Architecture
 
-## Philosophy: Deterministic First, AI on Escalation
+## Philosophy: Transparent Composite AI (Symbolic First, GenAI Escalation)
 
-Quozen employs a **hybrid architecture** that combines instant, offline-first deterministic parsing with optional hexagonal LLM escalation and human-in-the-loop confirmation:
+Quozen employs a **Neuro-Symbolic / Composite AI architecture** that combines instant, offline-first deterministic parsing (**Symbolic AI**) with optional **Generative AI (GenAI)** escalation and human-in-the-loop confirmation—completely transparently to the end user:
 
-1. **Everyday Commands (< 1ms, 0 Network Calls)**: Standard expense logs and debt settlements are parsed 100% deterministically using localized pattern grammars (`StandardCommandParser`) and member gazetteers (`CommandDraftService`).
-2. **Human-in-the-Loop (Never Auto-Commit)**: The system never writes directly to the ledger. It opens an interactive **Draft Confirmation Dialog** (`AddExpenseDrawer` or `SettlementModal`) pre-populated with parsed values and warnings for user review.
-3. **Pragmatic AI Escalation**: We leverage generative LLMs and multimodal vision strictly when genuinely necessary—such as scanning paper receipts/bills, parsing complex unstructured multi-party notes, or when the user explicitly clicks **"Refine with AI"**.
+1. **Everyday Commands (< 1ms, 0 Network Calls)**: Standard expense logs and debt settlements are parsed deterministically using localized pattern grammars (`StandardCommandParser`) and member gazetteers (`CommandDraftService`).
+2. **Transparent GenAI Escalation**: When an input has low confidence or unresolved member ambiguities—and GenAI is enabled and online—`CommandDraftService` automatically escalates to `LlmIntentEscalator` (backed by `GenAiToolResolver` from `@qozara/ai-client`). If GenAI is disabled or unreachable, the UI renders identically and gracefully opens the editable draft.
+3. **Human-in-the-Loop (Never Auto-Commit)**: Neither deterministic AI nor GenAI writes directly to the ledger. Quozen opens an interactive **Draft Confirmation Dialog** (`AddExpenseDrawer` or `SettlementModal`) pre-populated for user review before committing.
 
 ## Request Execution Flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant App as WebApp UI
+    participant App as WebApp UI (Same UI Always)
     participant Parser as StandardCommandParser (@quozen/core)
     participant Draft as CommandDraftService (@quozen/core)
     participant Escalator as LlmIntentEscalator (@quozen/ai-services)
-    participant Proxy as Edge AI Proxy (Qozara / BYOK)
+    participant Client as GenAiToolResolver (@qozara/ai-client)
     participant RxDB as Local Persistence (RxDB)
 
-    User->>App: "Split a $50 Uber with Bob" (Voice / Text)
+    User->>App: Voice / Text Command
     
-    %% Deterministic Parse Phase (< 1ms, Offline)
-    App->>Draft: createDraft(input, ledger, activeAccountId, locale)
+    %% Tier 1: Symbolic AI (< 1ms, Offline)
+    App->>Draft: createDraft(input, ledger, activeAccountId, locale, genAiEnabled)
     Draft->>Parser: parse(input, locale)
-    Parser-->>Draft: ParsedCommand { description: "Uber", amount: 50, participants: ["Bob"] }
-    Draft-->>App: CommandDraftResult { expenseDraft, ambiguities: [] }
+    Parser-->>Draft: ParsedRawCommand + confidence
     
-    %% Draft Review Phase (Human-in-the-Loop)
-    App->>User: Open AddExpenseDrawer (Prefilled Draft Review Banner)
-    
-    alt Optional AI Escalation ("Refine with AI" or Bill Scan)
-        User->>App: Clicks "Refine with AI" / Scans Bill
-        App->>Escalator: escalateCommand(rawInput, ledger, locale)
-        Escalator->>Proxy: POST /api/v1/agent/chat (Prompt, Schema, Ciphertext?)
-        Proxy-->>Escalator: Refined Intent JSON
-        Escalator-->>App: Refined Draft Fields
-        App->>User: Update Draft in Drawer
+    alt Needs Escalation (low confidence or ambiguities) AND GenAI Enabled
+        Draft->>Escalator: escalateCommand(input, ledger, locale)
+        Escalator->>Client: resolve (LruMemoryCache -> AiProviderFactory waterfall)
+        Client-->>Escalator: Extracted tool call JSON
+        Escalator-->>Draft: Refined ParsedRawCommand fields
     end
+    
+    Draft-->>App: CommandDraftResult (expenseDraft / settlementDraft)
+    App->>User: Open AddExpenseDrawer / SettlementModal (Draft Review Banner)
 
     %% Explicit Human Confirmation
-    User->>App: Clicks "Save Expense"
-    App->>RxDB: ledger.addExpense(draft) (0ms local write)
-    App-->>User: Drawer Closes, Reactive UI Updates (No Toast)
+    User->>App: Clicks "Save Expense" / "Record Payment"
+    App->>RxDB: ledger.addExpense / addSettlement (0ms local write)
+    App-->>User: Drawer Closes, Reactive UI Updates
 ```
 
 ## Key Architectural Decisions
 
-- **Decoupled Monorepo Structure**: Core logic (`@quozen/core`) contains pure TypeScript parsing algorithms without any AI runtime dependencies. External LLM bindings live in `@quozen/ai-services`.
-- **Zero Localhost Probing**: Ollama (`localhost:11434`) is never probed in auto mode unless `enableLocalAi` is explicitly toggled by the user in settings, eliminating browser Private Network Access security popups.
+- **Pure Domain Core**: `@quozen/core` has zero external GenAI dependencies. External LLM bindings live in `@quozen/ai-services`, built on shared `@qozara/ai-client` primitives (`LruMemoryCache`, `AiError`, `GenAiToolResolver`, `AiProviderFactory`).
+- **Zero Localhost Probing**: Ollama (`localhost:11434`) is never probed in `auto` or `local` mode unless `enableLocalAi` is explicitly toggled on in Profile settings, eliminating browser Private Network Access prompts.
 - **Multilingual Support**: Pattern grammars support English (`en`) and Spanish (`es`) locale packs, handling currency symbols, relative dates, exclusions, and itemized splits.

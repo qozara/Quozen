@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyAiError, AiCommandError } from '../src/errors';
+import { classifyAiError, AiCommandError } from '../src';
 
 describe('classifyAiError', () => {
   it('returns same instance if already an AiCommandError', () => {
