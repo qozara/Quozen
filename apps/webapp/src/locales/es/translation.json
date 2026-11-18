@@ -476,6 +476,7 @@
         "checkingForUpdates": "Buscando...",
         "upToDateTitle": "Actualizado",
         "upToDateDesc": "Tienes instalada la última versión ({{version}}).",
-        "offlineCheckDesc": "Conéctate a Internet para buscar actualizaciones."
+        "offlineCheckDesc": "Conéctate a Internet para buscar actualizaciones.",
+        "checkErrorDesc": "No se pudo verificar si hay actualizaciones. Intenta de nuevo."
     }
 }
