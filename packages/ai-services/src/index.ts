@@ -23,6 +23,7 @@ export {
   type AiProvider,
   type AiFactoryConfig,
   type AuthTokenGetter,
+  type AuthTokenRefresher,
   type AgentChatMessage,
   type AgentChatTool,
   type AgentChatRequest,

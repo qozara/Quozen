@@ -26,9 +26,10 @@ describe('classifyAiError', () => {
     expect(classified.code).toBe('NETWORK_ERROR');
   });
 
-  it('classifies authentication errors including invalid token variations without ReDoS', () => {
+  it('classifies authentication and authorization errors including invalid token variations without ReDoS', () => {
     expect(classifyAiError(new Error('401 Unauthorized')).code).toBe('AUTHENTICATION_REQUIRED');
-    expect(classifyAiError(new Error('403 Forbidden')).code).toBe('AUTHENTICATION_REQUIRED');
+    expect(classifyAiError(new Error('403 Forbidden')).code).toBe('FORBIDDEN_NOT_REGISTERED');
+    expect(classifyAiError(new Error('FORBIDDEN_403')).code).toBe('FORBIDDEN_NOT_REGISTERED');
     expect(classifyAiError(new Error('expired Google token')).code).toBe('AUTHENTICATION_REQUIRED');
     expect(classifyAiError(new Error('Invalid access token provided')).code).toBe('AUTHENTICATION_REQUIRED');
     expect(classifyAiError(new Error('The provided token is invalid')).code).toBe('AUTHENTICATION_REQUIRED');

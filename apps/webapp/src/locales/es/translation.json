@@ -401,7 +401,9 @@
         "proxyRequestFailed": "Error en el proxy de AI",
         "localAiInvalidJson": "La AI local no pudo generar un JSON válido",
         "quotaExceeded": "La cuota diaria de Qozara Intelligence se ha agotado. Inténtalo más tarde, o cambia a AI Local o usa tu propia llave en tu Perfil.",
-        "rateLimitExceeded": "Has excedido tu límite diario de solicitudes de AI. Por favor, inténtalo de nuevo mañana."
+        "rateLimitExceeded": "Has excedido tu límite diario de solicitudes de AI. Por favor, inténtalo de nuevo mañana.",
+        "sessionExpired": "Tu sesión de Google ha expirado o no es válida. Inicia sesión nuevamente para usar Qozara Intelligence.",
+        "accountNotRegistered": "Tu cuenta de Google no está registrada para la cuota gratuita de Qozara Intelligence. Contacta al administrador o agrega tu propia llave de Gemini en tu Perfil."
     },
     "schemaRemediation": {
         "upgradeRequiredTitle": "Actualización de Formato Requerida",

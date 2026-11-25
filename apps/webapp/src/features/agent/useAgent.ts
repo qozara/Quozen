@@ -82,12 +82,20 @@ export const useAgent = () => {
             return { success: false };
         } catch (error: any) {
             console.error('Agent execution error:', error.stack || error);
+            let description = error.message || t('agent.errorGeneric');
+            if (error?.code === 'FORBIDDEN_NOT_REGISTERED') {
+                description = t('agent.accountNotRegistered');
+            } else if (error?.code === 'AUTHENTICATION_REQUIRED') {
+                description = t('agent.sessionExpired');
+            } else if (error?.code === 'RATE_LIMIT_EXCEEDED') {
+                description = t('agent.quotaExceeded');
+            }
             toast({
                 title: t('agent.errorTitle'),
-                description: error.message || t('agent.errorGeneric'),
+                description,
                 variant: "destructive"
             });
-            return { success: false, message: error.message };
+            return { success: false, message: description };
         }
     };
 

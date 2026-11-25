@@ -16,6 +16,7 @@
     },
     "dependencies": {
         "@hookform/resolvers": "^3.10.0",
+        "@qozara/google-auth": "^1.0.1",
         "@qozara/pwa-update": "^1.0.2",
         "@quozen/core": "*",
         "@quozen/ai-services": "*",
