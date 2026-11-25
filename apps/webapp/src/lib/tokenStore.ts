@@ -17,26 +17,13 @@ export interface SetAuthTokenOptions {
   user?: GoogleUserProfile;
 }
 
-export function migrateLegacyQuozenSession(): GoogleSession | null {
-  if (typeof localStorage === 'undefined') return null;
-
-  const existing = quozenGoogleSessionStore.getSession();
-  if (existing && !quozenGoogleSessionStore.isExpired(existing)) {
-    return existing;
-  }
-
-  const legacyToken = localStorage.getItem(LEGACY_TOKEN_KEY);
-  if (!legacyToken || !legacyToken.trim()) {
-    return existing;
-  }
-
-  let legacyUser: GoogleUserProfile | undefined;
+function parseLegacyUser(): GoogleUserProfile | undefined {
   try {
     const rawUser = localStorage.getItem(LEGACY_USER_STORAGE_KEY);
     if (rawUser) {
       const parsed = JSON.parse(rawUser) as Record<string, unknown>;
       if (parsed && typeof parsed.email === 'string' && parsed.email.trim()) {
-        legacyUser = {
+        return {
           email: parsed.email.trim().toLowerCase(),
           ...(typeof parsed.id === 'string' && parsed.id ? { id: parsed.id } : {}),
           ...(typeof parsed.name === 'string' && parsed.name ? { name: parsed.name } : {}),
@@ -47,20 +34,71 @@ export function migrateLegacyQuozenSession(): GoogleSession | null {
   } catch {
     // Ignore malformed legacy user JSON
   }
+  return undefined;
+}
+
+function setMirroredLegacyToken(token: string | null): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    if (token) {
+      localStorage.setItem(LEGACY_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
+    }
+  } catch {
+    // Ignore storage quota/access errors
+  }
+}
+
+export function migrateLegacyQuozenSession(): GoogleSession | null {
+  if (typeof localStorage === 'undefined') return null;
+
+  const legacyToken = localStorage.getItem(LEGACY_TOKEN_KEY)?.trim() || null;
+  const existing = quozenGoogleSessionStore.getSession();
+
+  if (existing) {
+    const expired = quozenGoogleSessionStore.isExpired(existing);
+    if (!expired) {
+      if (legacyToken && legacyToken !== existing.accessToken) {
+        return quozenGoogleSessionStore.setSession({
+          accessToken: legacyToken,
+          scopes: existing.scopes.length > 0 ? existing.scopes : GOOGLE_IDENTITY_AND_DRIVE_SCOPES,
+          user: parseLegacyUser() ?? existing.user,
+        });
+      }
+      setMirroredLegacyToken(existing.accessToken);
+      return existing;
+    }
+
+    // Existing session is expired: only accept legacyToken if an external caller replaced it with a new token
+    if (legacyToken && legacyToken !== existing.accessToken) {
+      return quozenGoogleSessionStore.setSession({
+        accessToken: legacyToken,
+        scopes: existing.scopes.length > 0 ? existing.scopes : GOOGLE_IDENTITY_AND_DRIVE_SCOPES,
+        user: parseLegacyUser() ?? existing.user,
+      });
+    }
+
+    setMirroredLegacyToken(null);
+    return existing;
+  }
+
+  if (!legacyToken) {
+    return null;
+  }
 
   const migrated = quozenGoogleSessionStore.migrateFromLegacyCredentials(
     {
-      accessToken: legacyToken.trim(),
-      user: legacyUser,
+      accessToken: legacyToken,
+      user: parseLegacyUser(),
     },
     GOOGLE_IDENTITY_AND_DRIVE_SCOPES
   );
 
-  // Remove legacy raw token key once migrated so expired legacy tokens cannot resurrect on reload
-  try {
-    localStorage.removeItem(LEGACY_TOKEN_KEY);
-  } catch {
-    // Ignore storage removal errors
+  if (migrated && !quozenGoogleSessionStore.isExpired(migrated)) {
+    setMirroredLegacyToken(migrated.accessToken);
+  } else {
+    setMirroredLegacyToken(null);
   }
 
   return migrated;
@@ -68,25 +106,26 @@ export function migrateLegacyQuozenSession(): GoogleSession | null {
 
 export const setAuthToken = (token: string | null, options?: SetAuthTokenOptions): void => {
   if (token && token.trim()) {
-    quozenGoogleSessionStore.setSession({
-      accessToken: token.trim(),
+    const trimmed = token.trim();
+    const saved = quozenGoogleSessionStore.setSession({
+      accessToken: trimmed,
       expiresInSeconds: options?.expiresInSeconds,
       expiresAt: options?.expiresAt,
       scopes: options?.scopes ?? GOOGLE_IDENTITY_AND_DRIVE_SCOPES,
       user: options?.user,
     });
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(LEGACY_TOKEN_KEY);
-    }
+    setMirroredLegacyToken(quozenGoogleSessionStore.isExpired(saved) ? null : trimmed);
   } else {
     quozenGoogleSessionStore.clearSession();
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(LEGACY_TOKEN_KEY);
-    }
+    setMirroredLegacyToken(null);
   }
 };
 
 export const getAuthToken = (): string | null => {
   migrateLegacyQuozenSession();
-  return quozenGoogleSessionStore.getValidAccessToken();
+  const valid = quozenGoogleSessionStore.getValidAccessToken();
+  if (!valid) {
+    setMirroredLegacyToken(null);
+  }
+  return valid;
 };
