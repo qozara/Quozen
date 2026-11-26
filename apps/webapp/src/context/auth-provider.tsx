@@ -1,13 +1,21 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
-import axios from 'axios';
-import { setAuthToken, getAuthToken as getTokenFromStore } from '../lib/tokenStore';
+import {
+  fetchGoogleUserProfile,
+  formatScopeString,
+  GOOGLE_IDENTITY_AND_DRIVE_SCOPES,
+} from '@qozara/google-auth';
+import {
+  quozenGoogleSessionStore,
+  migrateLegacyQuozenSession,
+  setAuthToken,
+  getAuthToken as getTokenFromStore,
+} from '../lib/tokenStore';
 import { quozen, resetQuozenStorage } from '../lib/storage';
 import { User } from '@quozen/core';
 
-const USER_STORAGE_KEY = "quozen_user_profile";
-
-// User type imported from ../lib/storage/types
+const USER_STORAGE_KEY = 'quozen_user_profile';
+const QUOZEN_OAUTH_SCOPE = formatScopeString(GOOGLE_IDENTITY_AND_DRIVE_SCOPES);
 
 interface AuthState {
   user: User | null;
@@ -20,26 +28,49 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  // Initialize user from localStorage if available
-  const [user, setUserState] = useState<User | null>(() => {
-    const savedUser = localStorage.getItem(USER_STORAGE_KEY);
-    try {
-      return savedUser ? JSON.parse(savedUser) : null;
-    } catch (e) {
-      return null;
-    }
-  });
+function readInitialUser(): User | null {
+  const session = migrateLegacyQuozenSession() ?? quozenGoogleSessionStore.getSession();
+  if (session?.user?.email) {
+    return {
+      id: session.user.id || session.user.email,
+      username: session.user.email,
+      email: session.user.email,
+      name: session.user.name || session.user.email,
+      picture: session.user.picture,
+    };
+  }
+  const savedUser = localStorage.getItem(USER_STORAGE_KEY);
+  try {
+    return savedUser ? JSON.parse(savedUser) : null;
+  } catch {
+    return null;
+  }
+}
 
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUserState] = useState<User | null>(() => readInitialUser());
   const [token, _setToken] = useState<string | null>(() => getTokenFromStore());
   const [isLoading, setIsLoading] = useState(false);
 
-  const setToken = (newToken: string | null) => {
-    setAuthToken(newToken);
-    _setToken(newToken);
-  };
+  useEffect(() => {
+    return quozenGoogleSessionStore.subscribe((nextSession) => {
+      const validToken = quozenGoogleSessionStore.getValidAccessToken();
+      _setToken(validToken);
+      if (!nextSession) {
+        setUserState(null);
+      } else if (nextSession.user?.email) {
+        setUserState({
+          id: nextSession.user.id || nextSession.user.email,
+          username: nextSession.user.email,
+          email: nextSession.user.email,
+          name: nextSession.user.name || nextSession.user.email,
+          picture: nextSession.user.picture,
+        });
+      }
+    });
+  }, []);
 
-  const setUser = (newUser: User | null) => {
+  const persistUser = (newUser: User | null) => {
     if (newUser) {
       localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(newUser));
     } else {
@@ -51,23 +82,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
       const accessToken = tokenResponse.access_token;
-      setToken(accessToken);
       setIsLoading(true);
 
       try {
-        // Fetch user profile from Google
-        const userInfo = await axios.get(
-          'https://www.googleapis.com/oauth2/v3/userinfo',
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
+        const profile = await fetchGoogleUserProfile(accessToken);
+        const mappedUser: User = {
+          id: profile.id || profile.email,
+          username: profile.email,
+          email: profile.email,
+          name: profile.name || profile.email,
+          picture: profile.picture,
+        };
 
-        setUser({
-          id: userInfo.data.sub,
-          username: userInfo.data.email, // Use email as username
-          email: userInfo.data.email,
-          name: userInfo.data.name,
-          picture: userInfo.data.picture
+        setAuthToken(accessToken, {
+          expiresInSeconds: tokenResponse.expires_in,
+          scopes: tokenResponse.scope || GOOGLE_IDENTITY_AND_DRIVE_SCOPES,
+          user: profile,
         });
+        _setToken(accessToken);
+        persistUser(mappedUser);
+
         try {
           if (quozen.syncProvider) {
             await quozen.syncProvider.initialize();
@@ -76,32 +110,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Ignore sync provider init errors during login
         }
       } catch (error) {
-        console.error("Failed to fetch user info", error);
+        console.error('Failed to fetch user info', error);
         logout();
       } finally {
         setIsLoading(false);
       }
     },
-    onError: error => console.error('Login Failed:', error),
-    // Request scopes for Google Sheets and Drive (drive.file for spreadsheets, drive.appdata for private settings)
-    scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata',
+    onError: (error) => console.error('Login Failed:', error),
+    scope: QUOZEN_OAUTH_SCOPE,
+    include_granted_scopes: true,
   });
 
   const logout = () => {
-    setToken(null);
-    setUser(null);
+    setAuthToken(null);
+    _setToken(null);
+    persistUser(null);
     void resetQuozenStorage();
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      isAuthenticated: !!token && !!user,
-      isLoading,
-      token,
-      login,
-      logout
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isAuthenticated: !!token && !!user,
+        isLoading,
+        token,
+        login,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
