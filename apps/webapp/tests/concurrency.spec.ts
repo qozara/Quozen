@@ -93,8 +93,7 @@ test.describe('Feature: E2E Concurrency & Auto-Sync', () => {
 
         await page.getByTestId('input-expense-description').fill('Conflict Item');
         await page.getByTestId('input-expense-amount').fill('10');
-        await page.getByTestId('select-category').click();
-        await page.getByRole('option').nth(0).click();
+        await page.getByTestId('select-category').getByRole('radio').first().click();
 
         await page.getByTestId('button-submit-expense').click();
         await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible();

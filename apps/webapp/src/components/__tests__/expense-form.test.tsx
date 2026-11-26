@@ -143,9 +143,7 @@ describe("ExpenseForm — Amount Validation (U5)", () => {
             target: { value: "100" },
         });
 
-        const selects = screen.getAllByTestId("mock-select");
-        // paidBy is index 0, category is index 1
-        fireEvent.change(selects[1], { target: { value: "other" } });
+        fireEvent.click(screen.getByTestId("category-pill-other"));
 
         // Override the auto-split to a mismatched value
         const splitInput = screen.getByTestId("input-split-amount-test-user-id");
@@ -179,8 +177,7 @@ describe("ExpenseForm — Amount Validation (U5)", () => {
         });
 
         // Set category to avoid "missing info" toast
-        const selects = screen.getAllByTestId("mock-select");
-        fireEvent.change(selects[1], { target: { value: "other" } });
+        fireEvent.click(screen.getByTestId("category-pill-other"));
 
         const form = screen.getByTestId("form-expense");
         fireEvent.submit(form);

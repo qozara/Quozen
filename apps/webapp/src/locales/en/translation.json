@@ -185,6 +185,7 @@
         "date": "Date",
         "splitBetween": "Split Between",
         "selectCategory": "Select category",
+        "autoCategoryHint": "Auto-matched",
         "save": "Save Expense",
         "saving": "Saving...",
         "missingInfo": "Missing information",

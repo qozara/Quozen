@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,14 +11,19 @@ import {
   ExpenseCategory,
   DEFAULT_CATEGORIES,
   resolveCategory,
+  inferCategoryFromText,
   humanizeCategoryId,
   ExpenseDraft
 } from "@quozen/core";
-import { CategoryIcon } from "@/components/category-icon";
+import {
+  CategoryIcon,
+  getCategoryDisplayName,
+  getCategoryTheme
+} from "@/components/category-icon";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useOptionalAuth } from "@/context/auth-provider";
-import { Zap, AlertTriangle } from "lucide-react";
+import { Zap, AlertTriangle, Sparkles } from "lucide-react";
 
 const distributeAmount = (total: number, count: number): number[] => {
   if (count <= 0) return [];
@@ -55,6 +60,7 @@ interface ExpenseFormProps {
   categories?: ExpenseCategory[];
   currentUserId: string;
   onSubmit: (data: Partial<Expense>) => void;
+  onCategoryChange?: (categoryId: string) => void;
   isPending: boolean;
   onCancel?: () => void;
   isDrawer?: boolean;
@@ -68,6 +74,7 @@ export default function ExpenseForm({
   categories,
   currentUserId,
   onSubmit,
+  onCategoryChange,
   isPending,
   isDrawer
 }: ExpenseFormProps) {
@@ -116,6 +123,11 @@ export default function ExpenseForm({
     draft?.paidByUserId || initialData?.paidByUserId || (initialData as any)?.paidBy || resolvedDefaultPaidBy
   );
   const [category, setCategory] = useState(initialCatId);
+  const [hasManualCategory, setHasManualCategory] = useState(false);
+  const [isAutoDetected, setIsAutoDetected] = useState(false);
+  const pillRailRef = useRef<HTMLDivElement | null>(null);
+  const pillRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const isInitialMountRef = useRef(true);
   const [date, setDate] = useState(
     draft?.date
       ? new Date(draft.date).toISOString().split('T')[0]
@@ -153,10 +165,75 @@ export default function ExpenseForm({
     }
   }, [category, categories, initialData, draft]);
 
+  useEffect(() => {
+    if (category) {
+      onCategoryChange?.(category);
+      const rail = pillRailRef.current;
+      const pill = pillRefs.current[category];
+      if (rail && pill && rail.scrollWidth > rail.clientWidth) {
+        const reducedMotion =
+          isInitialMountRef.current ||
+          (typeof window !== "undefined" &&
+            window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+        pill.scrollIntoView?.({
+          behavior: reducedMotion ? "auto" : "smooth",
+          inline: "nearest",
+          block: "nearest",
+        });
+      }
+      isInitialMountRef.current = false;
+    }
+  }, [category, onCategoryChange]);
+
   const handleCategoryChange = (val: string) => {
     const resolved = resolveCategory(val, displayCategories);
-    setCategory(resolved ? resolved.id : val);
+    const nextId = resolved ? resolved.id : val;
+    setCategory(nextId);
   };
+
+  const handleManualCategorySelect = (val: string) => {
+    setHasManualCategory(true);
+    setIsAutoDetected(false);
+    handleCategoryChange(val);
+  };
+
+  const handleCategoryKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    if (displayCategories.length === 0) return;
+    let nextIndex = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % displayCategories.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + displayCategories.length) % displayCategories.length;
+    } else if (e.key === "Home") {
+      nextIndex = 0;
+    } else if (e.key === "End") {
+      nextIndex = displayCategories.length - 1;
+    }
+    if (nextIndex >= 0) {
+      e.preventDefault();
+      const nextCat = displayCategories[nextIndex];
+      handleManualCategorySelect(nextCat.id);
+      pillRefs.current[nextCat.id]?.focus();
+    }
+  };
+
+  const handleDescriptionChange = (value: string) => {
+    setDescription(value);
+    if (!initialData && !draft?.category && !hasManualCategory && categories && categories.length > 0) {
+      const inferred = inferCategoryFromText(value, displayCategories);
+      if (inferred) {
+        setCategory(inferred.id);
+        setIsAutoDetected(true);
+      } else if (!value.trim()) {
+        setIsAutoDetected(false);
+      }
+    }
+  };
+
+  const activeCategoryDisplayName = useMemo(
+    () => getCategoryDisplayName(category, displayCategories),
+    [category, displayCategories]
+  );
 
   useEffect(() => {
     if (!initialData && !draft && resolvedDefaultPaidBy) {
@@ -340,11 +417,71 @@ export default function ExpenseForm({
 
       <form onSubmit={handleSubmit} className="space-y-6" data-testid="form-expense">
         <div>
+          <div className="flex items-center justify-between mb-2">
+            <Label id="expense-category-label">{t("expenseForm.category")} *</Label>
+            {isAutoDetected && (
+              <span
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-primary"
+                data-testid="category-auto-badge"
+              >
+                <Sparkles className="w-3 h-3" aria-hidden="true" />
+                {t("expenseForm.autoCategoryHint", "Auto-matched")}
+              </span>
+            )}
+          </div>
+          <div
+            ref={pillRailRef}
+            role="radiogroup"
+            aria-labelledby="expense-category-label"
+            data-testid="select-category"
+            data-vaul-no-drag=""
+            className="flex gap-2 overflow-x-auto pb-1.5 pt-0.5 -mx-1 px-1 snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {displayCategories.map((c, idx) => {
+              const isSelected = category === c.id;
+              const pillTheme = getCategoryTheme(c.id);
+              return (
+                <button
+                  key={c.id}
+                  ref={(el) => {
+                    pillRefs.current[c.id] = el;
+                  }}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  tabIndex={isSelected || (!category && idx === 0) ? 0 : -1}
+                  data-testid={`category-pill-${c.id}`}
+                  onClick={() => handleManualCategorySelect(c.id)}
+                  onKeyDown={(e) => handleCategoryKeyDown(e, idx)}
+                  className={cn(
+                    "snap-start shrink-0 min-h-[44px] px-3.5 py-2 rounded-full text-sm inline-flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                    isSelected
+                      ? cn("font-semibold border-2 shadow-xs", pillTheme.activePill)
+                      : "font-medium border border-border/70 bg-muted/45 hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <CategoryIcon
+                    iconName={c.icon}
+                    categoryId={c.id}
+                    categories={displayCategories}
+                    aria-hidden="true"
+                    className={cn(
+                      "w-4 h-4 shrink-0",
+                      isSelected ? "opacity-100" : "text-muted-foreground"
+                    )}
+                  />
+                  <span>{c.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div>
           <Label htmlFor="description">{t("expenseForm.description")} *</Label>
           <Input
             id="description"
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={(e) => handleDescriptionChange(e.target.value)}
             required
             data-testid="input-expense-description"
           />
@@ -371,22 +508,6 @@ export default function ExpenseForm({
             <SelectTrigger data-testid="select-paid-by"><SelectValue /></SelectTrigger>
             <SelectContent>
               {users.map((u) => <SelectItem key={u.userId} value={u.userId}>{formatUserLabel(u)}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label htmlFor="category">{t("expenseForm.category")} *</Label>
-          <Select value={category} onValueChange={handleCategoryChange}>
-            <SelectTrigger data-testid="select-category"><SelectValue placeholder={t("expenseForm.selectCategory")} /></SelectTrigger>
-            <SelectContent>
-              {displayCategories.map(c => (
-                <SelectItem key={c.id} value={c.id}>
-                  <div className="flex items-center gap-2">
-                    <CategoryIcon iconName={c.icon} categoryId={c.id} categories={displayCategories} className="w-4 h-4 text-muted-foreground" />
-                    <span>{c.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
             </SelectContent>
           </Select>
         </div>
@@ -457,11 +578,25 @@ export default function ExpenseForm({
         )}>
           <Button
             type="submit"
-            className="w-full h-12"
+            className="w-full h-12 flex items-center justify-center gap-2.5"
             disabled={isPending}
             data-testid="button-submit-expense"
           >
-            {isPending ? t("expenseForm.saving") : t("expenseForm.save")}
+            <span>{isPending ? t("expenseForm.saving") : t("expenseForm.save")}</span>
+            {!isPending && activeCategoryDisplayName && (
+              <span
+                data-testid="submit-category-badge"
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary-foreground/15 px-2.5 py-0.5 text-xs font-medium text-primary-foreground"
+              >
+                <CategoryIcon
+                  categoryId={category}
+                  categories={displayCategories}
+                  aria-hidden="true"
+                  className="w-3.5 h-3.5"
+                />
+                <span className="truncate max-w-[140px]">{`• ${activeCategoryDisplayName}`}</span>
+              </span>
+            )}
           </Button>
         </div>
       </form>

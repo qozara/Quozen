@@ -3,12 +3,15 @@ import { useAppContext } from "@/context/app-context";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
 import ExpenseForm from "@/components/expense-form";
+import { CategoryIcon, getCategoryTheme } from "@/components/category-icon";
+import { DEFAULT_CATEGORIES, resolveCategory } from "@quozen/core";
+import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import { useGroups } from "@/hooks/use-groups";
 import { WifiOff } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function AddExpenseDrawer() {
     const {
@@ -47,6 +50,21 @@ export default function AddExpenseDrawer() {
         queryFn: () => quozen.ledger(activeGroupId, currentUserId).getLedger(),
         enabled: !!activeGroupId && isAddExpenseOpen,
     });
+
+    const availableCategories = ledger?.categories ?? DEFAULT_CATEGORIES;
+    const defaultCategoryId = expenseDraft?.category
+        ? resolveCategory(expenseDraft.category, availableCategories)?.id || expenseDraft.category
+        : availableCategories[0]?.id || "";
+
+    const [activeCategoryId, setActiveCategoryId] = useState(defaultCategoryId);
+
+    useEffect(() => {
+        if (isAddExpenseOpen) {
+            setActiveCategoryId(defaultCategoryId);
+        }
+    }, [isAddExpenseOpen, defaultCategoryId]);
+
+    const categoryTheme = getCategoryTheme(activeCategoryId);
 
     const users = ledger?.members || [];
     const effectiveAccountId = (() => {
@@ -102,22 +120,51 @@ export default function AddExpenseDrawer() {
             else setIsAddExpenseOpen(true);
         }}>
             <DrawerContent
+                className={cn(
+                    "overflow-hidden transition-colors duration-300 motion-reduce:transition-none",
+                    categoryTheme.topBorder
+                )}
                 onCloseAutoFocus={(event) => {
                     if (event.defaultPrevented) return;
                 }}
             >
-                <DrawerHeader>
-                    <DrawerTitle data-testid="drawer-title-add-expense">
-                        {expenseDraft ? t("expenseForm.reviewDraftTitle", "Review Expense") : t("expenseForm.addTitle")}
-                    </DrawerTitle>
-                    <DrawerDescription>
-                        {expenseDraft
-                            ? t("expenseForm.reviewDraftDesc", "Confirm or adjust details before saving.")
-                            : t("expenseForm.missingInfoDesc")}
-                    </DrawerDescription>
+                <div
+                    aria-hidden="true"
+                    data-testid="drawer-category-aura"
+                    data-category-id={activeCategoryId}
+                    className={cn(
+                        "pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b blur-2xl opacity-90 transition-all duration-300 motion-reduce:transition-none",
+                        categoryTheme.ambientGlow
+                    )}
+                />
+                <DrawerHeader className="relative z-10 flex items-center gap-3 text-left">
+                    <div
+                        data-testid="drawer-category-hero-icon"
+                        className={cn(
+                            "w-11 h-11 rounded-2xl border flex items-center justify-center shrink-0 transition-colors duration-300 motion-reduce:transition-none",
+                            categoryTheme.iconContainer
+                        )}
+                    >
+                        <CategoryIcon
+                            categoryId={activeCategoryId}
+                            categories={availableCategories}
+                            aria-hidden="true"
+                            className="w-5 h-5"
+                        />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                        <DrawerTitle data-testid="drawer-title-add-expense">
+                            {expenseDraft ? t("expenseForm.reviewDraftTitle", "Review Expense") : t("expenseForm.addTitle")}
+                        </DrawerTitle>
+                        <DrawerDescription>
+                            {expenseDraft
+                                ? t("expenseForm.reviewDraftDesc", "Confirm or adjust details before saving.")
+                                : t("expenseForm.missingInfoDesc")}
+                        </DrawerDescription>
+                    </div>
                 </DrawerHeader>
 
-                <div className="flex-1 overflow-y-auto px-4 pb-0">
+                <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-0">
                     {isUnhydratedOffline ? (
                         <div className="py-8 px-4 my-4 rounded-xl border border-dashed border-muted-foreground/30 bg-muted/20 flex flex-col items-center text-center space-y-4" data-testid="unhydrated-group-offline">
                             <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400 flex items-center justify-center">
@@ -140,6 +187,7 @@ export default function AddExpenseDrawer() {
                             categories={ledger?.categories}
                             currentUserId={effectiveAccountId}
                             isPending={expenseMutation.isPending}
+                            onCategoryChange={setActiveCategoryId}
                             onSubmit={(data) => expenseMutation.mutate(data)}
                             onCancel={handleClose}
                             isDrawer

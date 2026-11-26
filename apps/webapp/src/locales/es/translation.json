@@ -185,6 +185,7 @@
         "date": "Fecha",
         "splitBetween": "Dividir Entre",
         "selectCategory": "Seleccionar categoría",
+        "autoCategoryHint": "Detectada",
         "save": "Guardar Gasto",
         "saving": "Guardando...",
         "missingInfo": "Información faltante",

@@ -41,8 +41,7 @@ test.describe('Functional Flow', () => {
 
         await page.getByTestId('input-expense-description').fill('Dinner');
         await page.getByTestId('input-expense-amount').fill('50');
-        await page.getByTestId('select-category').click();
-        await page.getByRole('option').nth(0).click();
+        await page.getByTestId('select-category').getByRole('radio').first().click();
         await page.getByTestId('button-submit-expense').click();
 
         // Wait for drawer to close after submission
@@ -159,8 +158,7 @@ test.describe('Functional Flow', () => {
         await expect(page.getByTestId('drawer-title-add-expense')).toBeVisible();
         await page.getByTestId('input-expense-description').fill('Hotel');
         await page.getByTestId('input-expense-amount').fill('100');
-        await page.getByTestId('select-category').click();
-        await page.getByRole('option').nth(0).click();
+        await page.getByTestId('select-category').getByRole('radio').first().click();
         await page.getByTestId('button-submit-expense').click();
         await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible();
 

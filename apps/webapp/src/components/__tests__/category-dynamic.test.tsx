@@ -152,13 +152,15 @@ describe("Dynamic Categories UI", () => {
         />
       );
 
-      const selects = screen.getAllByTestId("mock-category-select");
-      // selects[0] is paidBy, selects[1] is category
-      const select = selects[1];
-      const options = select.querySelectorAll("option");
-      const optionValues = Array.from(options).map((opt) => opt.value);
+      const categoryGroup = screen.getByTestId("select-category");
+      const pills = categoryGroup.querySelectorAll('[role="radio"]');
+      const pillTestIds = Array.from(pills).map((pill) => pill.getAttribute("data-testid"));
 
-      expect(optionValues).toEqual(["office_supplies", "coffee_runs", "team_travel"]);
+      expect(pillTestIds).toEqual([
+        "category-pill-office_supplies",
+        "category-pill-coffee_runs",
+        "category-pill-team_travel",
+      ]);
       expect(screen.getByText("Coffee & Snacks")).toBeInTheDocument();
       expect(screen.getByText("Office Supplies")).toBeInTheDocument();
       expect(screen.getByText("Team Travel")).toBeInTheDocument();
@@ -179,11 +181,8 @@ describe("Dynamic Categories UI", () => {
         />
       );
 
-      const selects = screen.getAllByTestId("mock-category-select");
-      const categorySelect = selects[1] as HTMLSelectElement;
-
-      // Must not be empty string
-      expect(categorySelect.value).toBe("office_supplies");
+      const defaultPill = screen.getByTestId("category-pill-office_supplies");
+      expect(defaultPill).toHaveAttribute("aria-checked", "true");
     });
 
     it("allows immediate submission of a new expense without touching category dropdown", () => {

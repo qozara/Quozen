@@ -4,6 +4,7 @@ import {
     DEFAULT_CATEGORY_ID,
     normalizeLegacyCategory,
     resolveCategory,
+    inferCategoryFromText,
     isValidCategoryId,
     humanizeCategoryId,
     ExpenseCategory
@@ -118,6 +119,45 @@ describe("Domain: Categories", () => {
             expect(resolveCategory("", DEFAULT_CATEGORIES)).toBeUndefined();
             expect(resolveCategory(null, DEFAULT_CATEGORIES)).toBeUndefined();
             expect(resolveCategory("unknown_category", DEFAULT_CATEGORIES)).toBeUndefined();
+        });
+    });
+
+    describe("inferCategoryFromText", () => {
+        it("infers default categories from multi-word English and Spanish descriptions", () => {
+            expect(inferCategoryFromText("Uber to airport", DEFAULT_CATEGORIES)?.id).toBe("transportation");
+            expect(inferCategoryFromText("Cena en restaurante", DEFAULT_CATEGORIES)?.id).toBe("food_dining");
+            expect(inferCategoryFromText("Hotel check-in Madrid", DEFAULT_CATEGORIES)?.id).toBe("accommodation");
+            expect(inferCategoryFromText("Entradas cine viernes", DEFAULT_CATEGORIES)?.id).toBe("entertainment");
+            expect(inferCategoryFromText("Ropa en tienda", DEFAULT_CATEGORIES)?.id).toBe("shopping");
+        });
+
+        it("infers custom categories when an unambiguous keyword matches", () => {
+            const customCategories: ExpenseCategory[] = [
+                { id: "office_supplies", name: "Office Supplies", icon: "briefcase", description: "Paper, pens, toner" },
+                { id: "coffee_runs", name: "Coffee & Snacks", icon: "coffee", description: "Espresso, snacks, fruit" },
+                { id: "team_travel", name: "Team Travel", icon: "plane", description: "Flights, taxis, trains" }
+            ];
+
+            expect(inferCategoryFromText("Morning espresso", customCategories)?.id).toBe("coffee_runs");
+            expect(inferCategoryFromText("Printer toner refill", customCategories)?.id).toBe("office_supplies");
+        });
+
+        it("returns undefined when keywords ambiguously match multiple categories", () => {
+            const customCategories: ExpenseCategory[] = [
+                { id: "office_supplies", name: "Office Supplies", icon: "briefcase", description: "Paper, pens, toner" },
+                { id: "coffee_runs", name: "Coffee & Snacks", icon: "coffee", description: "Espresso, snacks, fruit" },
+                { id: "team_travel", name: "Team Travel", icon: "plane", description: "Flights, taxis, trains" }
+            ];
+
+            expect(inferCategoryFromText("Team Coffee", customCategories)).toBeUndefined();
+            expect(inferCategoryFromText("Uber and Hotel", DEFAULT_CATEGORIES)).toBeUndefined();
+        });
+
+        it("returns undefined for empty, non-string, or unrecognized descriptions", () => {
+            expect(inferCategoryFromText("", DEFAULT_CATEGORIES)).toBeUndefined();
+            expect(inferCategoryFromText("   ", DEFAULT_CATEGORIES)).toBeUndefined();
+            expect(inferCategoryFromText(null, DEFAULT_CATEGORIES)).toBeUndefined();
+            expect(inferCategoryFromText("Quarterly balance adjustment", DEFAULT_CATEGORIES)).toBeUndefined();
         });
     });
 

@@ -238,6 +238,146 @@ export function resolveCategory(
     return undefined;
 }
 
+const EXTRA_INFERENCE_KEYWORDS: Record<string, ExpenseCategoryId> = {
+    // Food & Dining
+    'breakfast': 'food_dining',
+    'desayuno': 'food_dining',
+    'lunch': 'food_dining',
+    'almuerzo': 'food_dining',
+    'dinner': 'food_dining',
+    'cena': 'food_dining',
+    'brunch': 'food_dining',
+    'coffee': 'food_dining',
+    'bakery': 'food_dining',
+    'panaderia': 'food_dining',
+    'pizza': 'food_dining',
+    'sushi': 'food_dining',
+    'burger': 'food_dining',
+    'tacos': 'food_dining',
+    'snacks': 'food_dining',
+    'beer': 'food_dining',
+    'cerveza': 'food_dining',
+    'wine': 'food_dining',
+    'vino': 'food_dining',
+
+    // Transportation
+    'airport': 'transportation',
+    'aeropuerto': 'transportation',
+    'lyft': 'transportation',
+    'cabify': 'transportation',
+    'train': 'transportation',
+    'tren': 'transportation',
+    'parking': 'transportation',
+    'estacionamiento': 'transportation',
+    'peaje': 'transportation',
+    'toll': 'transportation',
+    'ferry': 'transportation',
+
+    // Accommodation
+    'booking': 'accommodation',
+    'resort': 'accommodation',
+    'motel': 'accommodation',
+    'cabin': 'accommodation',
+    'cabana': 'accommodation',
+
+    // Entertainment
+    'concert': 'entertainment',
+    'concierto': 'entertainment',
+    'museum': 'entertainment',
+    'museo': 'entertainment',
+    'theater': 'entertainment',
+    'theatre': 'entertainment',
+    'teatro': 'entertainment',
+    'bowling': 'entertainment',
+    'club': 'entertainment',
+
+    // Shopping
+    'pharmacy': 'shopping',
+    'farmacia': 'shopping',
+    'gift': 'shopping',
+    'regalo': 'shopping',
+    'mall': 'shopping',
+    'amazon': 'shopping',
+    'market': 'shopping',
+    'mercado': 'shopping'
+};
+
+const INFERENCE_STOPWORDS = new Set([
+    'the', 'and', 'for', 'with', 'from', 'into', 'out', 'our', 'per', 'all',
+    'con', 'para', 'por', 'del', 'las', 'los', 'una', 'uno', 'unos', 'unas',
+    'general', 'anything', 'else', 'other', 'others', 'otro', 'otros', 'misc'
+]);
+
+/**
+ * Infers an unambiguous ExpenseCategory from a free-text expense description.
+ * Returns undefined if no keywords match or if multiple distinct categories match.
+ */
+export function inferCategoryFromText(
+    input: unknown,
+    availableCategories: ExpenseCategory[] = DEFAULT_CATEGORIES
+): ExpenseCategory | undefined {
+    if (typeof input !== 'string') return undefined;
+    const trimmed = input.trim();
+    if (!trimmed) return undefined;
+
+    const list = Array.isArray(availableCategories) ? availableCategories : DEFAULT_CATEGORIES;
+    if (list.length === 0) return undefined;
+
+    const direct = resolveCategory(trimmed, list);
+    if (direct) return direct;
+
+    const clean = stripAccents(trimmed.toLowerCase());
+    const tokens = clean.split(/[^a-z0-9]+/).filter(Boolean);
+    if (tokens.length === 0) return undefined;
+
+    const matchedIds = new Set<ExpenseCategoryId>();
+
+    const recordDefaultKeywordMatch = (phrase: string) => {
+        if (INFERENCE_STOPWORDS.has(phrase)) return;
+        const targetId = SYNONYMS[phrase] ?? EXTRA_INFERENCE_KEYWORDS[phrase];
+        if (!targetId || targetId === DEFAULT_CATEGORY_ID) return;
+        const found = list.find(c => c.id === targetId);
+        if (found) {
+            matchedIds.add(found.id);
+        }
+    };
+
+    for (let i = 0; i < tokens.length; i++) {
+        if (i + 1 < tokens.length) {
+            recordDefaultKeywordMatch(`${tokens[i]} ${tokens[i + 1]}`);
+        }
+        recordDefaultKeywordMatch(tokens[i]);
+    }
+
+    const meaningfulInputTokens = tokens.filter(
+        t => t.length >= 3 && !INFERENCE_STOPWORDS.has(t) && !/^\d+$/.test(t)
+    );
+
+    if (meaningfulInputTokens.length > 0) {
+        for (const cat of list) {
+            if (cat.id === DEFAULT_CATEGORY_ID) continue;
+            const catCorpus = stripAccents(
+                `${cat.id} ${cat.name} ${cat.description || ''}`.toLowerCase()
+            );
+            const catWords = new Set(
+                catCorpus
+                    .split(/[^a-z0-9]+/)
+                    .filter(w => w.length >= 3 && !INFERENCE_STOPWORDS.has(w))
+            );
+            if (meaningfulInputTokens.some(tok => catWords.has(tok))) {
+                matchedIds.add(cat.id);
+            }
+        }
+    }
+
+    if (matchedIds.size === 1) {
+        const [onlyId] = Array.from(matchedIds);
+        return list.find(c => c.id === onlyId);
+    }
+
+    return undefined;
+}
+
 export function isValidCategoryId(id: string): boolean {
     if (!id || typeof id !== 'string') return false;
     return /^[a-zA-Z0-9_-]+$/.test(id.trim());
