@@ -3,12 +3,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAppContext } from "@/context/app-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   Trash2, Receipt, Plus, MoreVertical, Edit
 } from "lucide-react";
-import { CategoryIcon, getCategoryBadgeColor, getCategoryDisplayName } from "@/components/category-icon";
+import { CategoryIconBadge, CategoryBadge } from "@/components/category-icon";
 import { quozen } from "@/lib/storage";
 import { useNavigate } from "react-router-dom";
 import {
@@ -92,7 +91,11 @@ export default function ExpensesList({ expenses = [], members = [], categories =
 
   const getUserById = (id: string) => members.find(u => u.userId === id);
 
-  const ledgerObj = useMemo(() => new Ledger({ expenses, members, settlements: [], categories }), [expenses, members, categories]);
+  const effectiveCategories = categories && categories.length > 0 ? categories : undefined;
+  const ledgerObj = useMemo(
+    () => new Ledger({ expenses, members, settlements: [], categories: effectiveCategories }),
+    [expenses, members, effectiveCategories]
+  );
 
   if (isLoading) {
     return (
@@ -133,18 +136,25 @@ export default function ExpensesList({ expenses = [], members = [], categories =
             <CardContent className="p-4 cursor-pointer" onClick={() => navigate(`/edit-expense/${expense.id}`)}>
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-3">
-                  <div className="w-12 h-12 bg-secondary/50 rounded-xl flex items-center justify-center border border-border shrink-0">
-                    <CategoryIcon categoryId={expense.category} categories={categories} className="w-6 h-6 text-muted-foreground" />
-                  </div>
+                  <CategoryIconBadge
+                    categoryId={expense.category}
+                    categories={effectiveCategories}
+                    size="lg"
+                    shape="rounded"
+                    data-testid={`expense-list-category-icon-${expense.id}`}
+                  />
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-foreground line-clamp-1 text-sm">{expense.description}</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {paidByUser?.name || 'Unknown'} • {formatDate(expense.date)}
                     </p>
                     <div className="flex flex-wrap gap-1 mt-2">
-                      <Badge variant="secondary" className={`font-normal text-[10px] px-1.5 py-0 border-0 ${getCategoryBadgeColor(expense.category)}`}>
-                        {getCategoryDisplayName(expense.category, categories)}
-                      </Badge>
+                      <CategoryBadge
+                        categoryId={expense.category}
+                        categories={effectiveCategories}
+                        showIcon
+                        data-testid={`expense-list-category-badge-${expense.id}`}
+                      />
                     </div>
                   </div>
                 </div>

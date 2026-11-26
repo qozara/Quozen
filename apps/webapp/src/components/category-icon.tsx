@@ -1,8 +1,15 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import * as LucideIcons from "lucide-react";
 import { Tag, type LucideProps } from "lucide-react";
-import type { ExpenseCategory } from "@quozen/core";
-import { humanizeCategoryId } from "@quozen/core";
+import {
+  DEFAULT_CATEGORIES,
+  humanizeCategoryId,
+  resolveCategory,
+  type ExpenseCategory,
+} from "@quozen/core";
+import { Badge } from "@/components/ui/badge";
+import { DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { cn } from "@/lib/utils";
 
 function resolveLucideIcon(name?: string): React.ComponentType<LucideProps> | null {
   if (!name || typeof name !== "string") return null;
@@ -43,33 +50,21 @@ function resolveLucideIcon(name?: string): React.ComponentType<LucideProps> | nu
   return null;
 }
 
-export function getCategoryIconComponent(iconName?: string, categoryId?: string): React.ComponentType<LucideProps> {
+export function getCategoryIconComponent(
+  iconName?: string,
+  categoryId?: string,
+  fallbackName?: string
+): React.ComponentType<LucideProps> {
   const fromIconName = resolveLucideIcon(iconName);
   if (fromIconName) return fromIconName;
 
   const fromCategoryId = resolveLucideIcon(categoryId);
   if (fromCategoryId) return fromCategoryId;
 
+  const fromFallbackName = resolveLucideIcon(fallbackName);
+  if (fromFallbackName) return fromFallbackName;
+
   return Tag;
-}
-
-export interface CategoryIconProps extends LucideProps {
-  categoryId?: string;
-  iconName?: string;
-  categories?: ExpenseCategory[];
-}
-
-export function CategoryIcon({ categoryId, iconName, categories, ...props }: CategoryIconProps) {
-  let resolvedIcon = iconName;
-  if (!resolvedIcon && categoryId && categories && categories.length > 0) {
-    const cat = categories.find(c => c.id === categoryId);
-    if (cat?.icon) {
-      resolvedIcon = cat.icon;
-    }
-  }
-
-  const IconComponent = getCategoryIconComponent(resolvedIcon, categoryId);
-  return <IconComponent {...props} />;
 }
 
 export interface CategoryTheme {
@@ -235,30 +230,323 @@ const SEMANTIC_DEFAULT_THEME_INDEX: Record<string, number> = {
   other: 5,
 };
 
-export function getCategoryTheme(categoryId?: string): CategoryTheme {
-  if (!categoryId || !categoryId.trim()) {
+function resolveCanonicalCategoryId(
+  categoryId?: string,
+  categories?: ExpenseCategory[]
+): string {
+  if (!categoryId || !categoryId.trim()) return "";
+  const trimmed = categoryId.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower in SEMANTIC_DEFAULT_THEME_INDEX) return lower;
+
+  const effectiveCategories =
+    categories && categories.length > 0 ? categories : DEFAULT_CATEGORIES;
+  const matched =
+    resolveCategory(trimmed, effectiveCategories) ??
+    resolveCategory(trimmed, DEFAULT_CATEGORIES);
+  return matched ? matched.id.trim().toLowerCase() : lower;
+}
+
+export function getCategoryTheme(
+  categoryId?: string,
+  categories?: ExpenseCategory[]
+): CategoryTheme {
+  const canonical = resolveCanonicalCategoryId(categoryId, categories);
+  if (!canonical) {
     return NEUTRAL_CATEGORY_THEME;
   }
-  const str = categoryId.trim().toLowerCase();
-  if (str in SEMANTIC_DEFAULT_THEME_INDEX) {
-    return CATEGORY_THEME_PALETTES[SEMANTIC_DEFAULT_THEME_INDEX[str]];
+  if (canonical in SEMANTIC_DEFAULT_THEME_INDEX) {
+    return CATEGORY_THEME_PALETTES[SEMANTIC_DEFAULT_THEME_INDEX[canonical]];
   }
   let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
+  for (let i = 0; i < canonical.length; i++) {
+    hash = (hash << 5) - hash + canonical.charCodeAt(i);
     hash |= 0;
   }
   const index = Math.abs(hash) % CATEGORY_THEME_PALETTES.length;
   return CATEGORY_THEME_PALETTES[index];
 }
 
-export function getCategoryBadgeColor(categoryId?: string): string {
-  return getCategoryTheme(categoryId).badge;
+export function getCategoryBadgeColor(
+  categoryId?: string,
+  categories?: ExpenseCategory[]
+): string {
+  return getCategoryTheme(categoryId, categories).badge;
 }
 
-export function getCategoryDisplayName(categoryId?: string, categories?: ExpenseCategory[]): string {
+export interface ResolvedCategoryMeta {
+  canonicalId: string;
+  displayName: string;
+  iconName?: string;
+  IconComponent: React.ComponentType<LucideProps>;
+  theme: CategoryTheme;
+  category?: ExpenseCategory;
+}
+
+/**
+ * Single source of truth resolving an expense category's ID, display name,
+ * Lucide icon component, and coordinated color theme across default, edited,
+ * custom imported, and legacy free-text categories.
+ */
+export function resolveCategoryMeta(
+  categoryId?: string,
+  categories?: ExpenseCategory[],
+  explicitIconName?: string
+): ResolvedCategoryMeta {
+  const raw = categoryId?.trim() || "";
+  if (!raw && !explicitIconName) {
+    return {
+      canonicalId: "",
+      displayName: "",
+      IconComponent: Tag,
+      theme: NEUTRAL_CATEGORY_THEME,
+    };
+  }
+
+  const effectiveCategories =
+    categories && categories.length > 0 ? categories : DEFAULT_CATEGORIES;
+
+  // Prefer exact/case-insensitive match in passed categories first so custom or edited
+  // categories from imported spreadsheets always take precedence.
+  const matchedInProvided =
+    categories && categories.length > 0
+      ? resolveCategory(raw, categories)
+      : undefined;
+  const matchedInDefaults =
+    !matchedInProvided && raw ? resolveCategory(raw, DEFAULT_CATEGORIES) : undefined;
+  const matched = matchedInProvided ?? matchedInDefaults;
+
+  const canonicalId = matched?.id || raw;
+  const defaultFallback = canonicalId
+    ? DEFAULT_CATEGORIES.find(d => d.id.toLowerCase() === canonicalId.toLowerCase())
+    : undefined;
+
+  const resolvedIconName =
+    (explicitIconName && explicitIconName.trim()) ||
+    (matched?.icon && matched.icon.trim()) ||
+    defaultFallback?.icon ||
+    undefined;
+
+  const IconComponent = getCategoryIconComponent(
+    resolvedIconName,
+    canonicalId,
+    matched?.name
+  );
+
+  const displayName = matched?.name || (canonicalId ? humanizeCategoryId(canonicalId) : "");
+  const theme = getCategoryTheme(canonicalId, effectiveCategories);
+
+  return {
+    canonicalId,
+    displayName,
+    iconName: resolvedIconName,
+    IconComponent,
+    theme,
+    category: matched,
+  };
+}
+
+export function getCategoryDisplayName(
+  categoryId?: string,
+  categories?: ExpenseCategory[]
+): string {
   if (!categoryId || !categoryId.trim()) return "";
-  const found = categories?.find(c => c.id === categoryId);
-  if (found) return found.name;
-  return humanizeCategoryId(categoryId);
+  return resolveCategoryMeta(categoryId, categories).displayName;
+}
+
+export interface CategoryIconProps extends LucideProps {
+  categoryId?: string;
+  iconName?: string;
+  categories?: ExpenseCategory[];
+}
+
+export function CategoryIcon({
+  categoryId,
+  iconName,
+  categories,
+  ...props
+}: CategoryIconProps) {
+  const { IconComponent } = resolveCategoryMeta(categoryId, categories, iconName);
+  return <IconComponent {...props} />;
+}
+
+const ICON_BADGE_SIZE_CLASSES = {
+  sm: { container: "w-10 h-10", icon: "w-5 h-5" },
+  md: { container: "w-11 h-11", icon: "w-5 h-5" },
+  lg: { container: "w-12 h-12", icon: "w-6 h-6" },
+} as const;
+
+export interface CategoryIconBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
+  categoryId?: string;
+  iconName?: string;
+  categories?: ExpenseCategory[];
+  size?: keyof typeof ICON_BADGE_SIZE_CLASSES;
+  shape?: "circle" | "rounded";
+  iconClassName?: string;
+}
+
+/**
+ * Reusable themed category icon container used across Dashboard, Activity (ExpensesList),
+ * and Add/Edit Expense Drawer headers so every screen renders identical icon + color styling.
+ */
+export function CategoryIconBadge({
+  categoryId,
+  iconName,
+  categories,
+  size = "md",
+  shape = "rounded",
+  className,
+  iconClassName,
+  ...props
+}: CategoryIconBadgeProps) {
+  const { IconComponent, theme } = resolveCategoryMeta(categoryId, categories, iconName);
+  const sizeSpec = ICON_BADGE_SIZE_CLASSES[size];
+  const radiusClass =
+    shape === "circle"
+      ? "rounded-full"
+      : size === "md"
+        ? "rounded-2xl"
+        : "rounded-xl";
+
+  return (
+    <div
+      className={cn(
+        "border flex items-center justify-center shrink-0 transition-colors duration-300 motion-reduce:transition-none",
+        sizeSpec.container,
+        radiusClass,
+        theme.iconContainer,
+        className
+      )}
+      {...props}
+    >
+      <IconComponent aria-hidden="true" className={cn(sizeSpec.icon, iconClassName)} />
+    </div>
+  );
+}
+
+export interface CategoryBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
+  categoryId?: string;
+  iconName?: string;
+  categories?: ExpenseCategory[];
+  showIcon?: boolean;
+}
+
+/**
+ * Reusable themed category label pill used in Activity / Expense cards and summaries.
+ */
+export function CategoryBadge({
+  categoryId,
+  iconName,
+  categories,
+  showIcon = false,
+  className,
+  ...props
+}: CategoryBadgeProps) {
+  const { IconComponent, displayName, theme } = resolveCategoryMeta(
+    categoryId,
+    categories,
+    iconName
+  );
+  if (!displayName) return null;
+
+  return (
+    <Badge
+      variant="secondary"
+      className={cn(
+        "font-normal text-[10px] px-1.5 py-0 border-0 inline-flex items-center gap-1",
+        theme.badge,
+        className
+      )}
+      {...props}
+    >
+      {showIcon && <IconComponent aria-hidden="true" className="w-3 h-3 shrink-0" />}
+      <span>{displayName}</span>
+    </Badge>
+  );
+}
+
+/**
+ * Hook managing synchronized active category state for Add & Edit Expense drawers.
+ */
+export function useActiveCategoryState(
+  targetCategory?: string,
+  categories?: ExpenseCategory[],
+  isOpen: boolean = true
+) {
+  const availableCategories =
+    categories && categories.length > 0 ? categories : DEFAULT_CATEGORIES;
+  const defaultCategoryId = targetCategory
+    ? resolveCategoryMeta(targetCategory, availableCategories).canonicalId
+    : availableCategories[0]?.id || "";
+
+  const [activeCategoryId, setActiveCategoryId] = useState(defaultCategoryId);
+
+  useEffect(() => {
+    if (isOpen && defaultCategoryId) {
+      setActiveCategoryId(defaultCategoryId);
+    }
+  }, [isOpen, defaultCategoryId]);
+
+  const meta = resolveCategoryMeta(activeCategoryId, availableCategories);
+  return {
+    activeCategoryId: meta.canonicalId || activeCategoryId,
+    setActiveCategoryId,
+    availableCategories,
+    categoryMeta: meta,
+    categoryTheme: meta.theme,
+  };
+}
+
+export interface CategoryDrawerHeaderProps {
+  categoryId?: string;
+  categories?: ExpenseCategory[];
+  title: React.ReactNode;
+  titleTestId?: string;
+  description?: React.ReactNode;
+  descriptionClassName?: string;
+}
+
+/**
+ * Shared ambient blurred category aura + hero icon DrawerHeader for Add & Edit Expense drawers.
+ */
+export function CategoryDrawerHeader({
+  categoryId,
+  categories,
+  title,
+  titleTestId,
+  description,
+  descriptionClassName,
+}: CategoryDrawerHeaderProps) {
+  const meta = resolveCategoryMeta(categoryId, categories);
+
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        data-testid="drawer-category-aura"
+        data-category-id={meta.canonicalId}
+        className={cn(
+          "pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b blur-2xl opacity-90 transition-all duration-300 motion-reduce:transition-none",
+          meta.theme.ambientGlow
+        )}
+      />
+      <DrawerHeader className="relative z-10 flex items-center gap-3 text-left">
+        <CategoryIconBadge
+          categoryId={meta.canonicalId}
+          categories={categories}
+          size="md"
+          shape="rounded"
+          data-testid="drawer-category-hero-icon"
+        />
+        <div className="min-w-0 flex-1 space-y-1">
+          <DrawerTitle data-testid={titleTestId}>{title}</DrawerTitle>
+          {description !== undefined && (
+            <DrawerDescription className={descriptionClassName}>
+              {description}
+            </DrawerDescription>
+          )}
+        </div>
+      </DrawerHeader>
+    </>
+  );
 }

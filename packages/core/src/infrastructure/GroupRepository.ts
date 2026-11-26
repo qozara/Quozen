@@ -1236,6 +1236,30 @@ export class GroupRepository {
                 }
             }
 
+            if (this.db) {
+                try {
+                    const catRes = await this.storage.batchGetValues(spreadsheetId, ["Categories!A1:Z"]);
+                    const catRows = catRes[0]?.values || [];
+                    const mappedCategories = SheetDataMapper.mapCategoriesTable(catRows);
+                    if (mappedCategories.length > 0) {
+                        const importedCatIds = new Set(mappedCategories.map(({ entity }) => entity.id));
+                        const existingCatDocs = await this.db.collections.categories
+                            .find({ selector: { groupId: spreadsheetId } })
+                            .exec();
+                        for (const existingDoc of existingCatDocs) {
+                            if (!importedCatIds.has(existingDoc.categoryId) && !existingDoc.deletedAt) {
+                                await existingDoc.patch({ deletedAt: nowIso, updatedAt: nowIso });
+                            }
+                        }
+                        const catDocs = mappedCategories.map(({ entity }) => categoryToDoc(entity, spreadsheetId));
+                        await this.db.collections.categories.bulkUpsert(catDocs);
+                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, catDocs);
+                    }
+                } catch {
+                    // Legacy v1 spreadsheets may not have a Categories tab yet; migration/hydration handles fallback
+                }
+            }
+
             const isCloudOwner = Boolean(
                 (this.user.email && groupOwnerEmail && groupOwnerEmail.toLowerCase() === this.user.email.toLowerCase()) ||
                 (meta.owners?.some((o: any) => o.emailAddress === this.user.email)) ||

@@ -1,6 +1,6 @@
 import type { RxJsonSchema, DeepReadonlyObject } from "rxdb";
 import type { Expense, Settlement, Member, UserSettings, ExpenseSplit, CachedGroup } from "../../domain/models";
-import { type ExpenseCategory, normalizeLegacyCategory } from "../../domain/categories";
+import { DEFAULT_CATEGORIES, type ExpenseCategory, normalizeLegacyCategory } from "../../domain/categories";
 
 export interface UserSettingsDocType {
     id: string;
@@ -476,14 +476,21 @@ export function docToUserSettings(doc: UserSettingsDocType | DeepReadonlyObject<
 export function categoryToDoc(category: ExpenseCategory, groupId: string): CategoryDocType {
     const nowIso = new Date().toISOString();
     const updatedIso = category.updatedAt ? safeIsoString(category.updatedAt, nowIso) : nowIso;
+    const defaultCat = DEFAULT_CATEGORIES.find(d => d.id === category.id);
+    const resolvedIcon = category.icon && category.icon.trim()
+        ? category.icon.trim()
+        : (defaultCat?.icon ?? "");
+    const resolvedSortOrder = typeof category.sortOrder === "number"
+        ? category.sortOrder
+        : (defaultCat?.sortOrder ?? DEFAULT_CATEGORIES.length);
     return {
         id: `${groupId}_${category.id}`,
         groupId,
         categoryId: category.id,
-        name: category.name || "",
-        icon: category.icon || "tag",
+        name: category.name || defaultCat?.name || "",
+        icon: resolvedIcon,
         description: category.description || "",
-        sortOrder: typeof category.sortOrder === "number" ? category.sortOrder : 0,
+        sortOrder: resolvedSortOrder,
         updatedAt: updatedIso,
         deletedAt: category.deletedAt ? safeIsoString(category.deletedAt, updatedIso) : null
     };

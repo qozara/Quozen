@@ -9,7 +9,7 @@ import { useState, useMemo } from "react";
 import {
   Wallet, Handshake, ChevronDown, ArrowRight, Banknote, User, Check, Pencil, WifiOff
 } from "lucide-react";
-import { CategoryIcon } from "@/components/category-icon";
+import { CategoryIconBadge } from "@/components/category-icon";
 import { quozen } from "@/lib/storage";
 import { useNavigate } from "react-router-dom";
 import {
@@ -561,9 +561,13 @@ export default function Dashboard() {
                         <div key={e.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => navigate(`/edit-expense/${e.id}`)} data-testid={`expense-item-${e.id}`}>
                           <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center space-x-3">
-                              <div className="w-10 h-10 bg-secondary rounded-full flex items-center justify-center border border-border">
-                                <CategoryIcon categoryId={e.category} categories={ledger?.categories} className="w-5 h-5 text-muted-foreground" />
-                              </div>
+                              <CategoryIconBadge
+                                categoryId={e.category}
+                                categories={ledger?.categories}
+                                size="sm"
+                                shape="circle"
+                                data-testid={`dashboard-category-icon-${e.id}`}
+                              />
                               <div>
                                 <p className="font-medium text-foreground text-sm">{e.description}</p>
                                 <p className="text-xs text-muted-foreground">

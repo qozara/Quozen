@@ -363,6 +363,30 @@ export class SheetDataMapper {
         return { entity: category, rowIndex };
     }
 
+    static mapCategoriesTable(rows: any[][]): SheetRow<ExpenseCategory>[] {
+        if (!Array.isArray(rows) || rows.length <= 1) return [];
+        const headers = rows[0].map((h: any) => String(h ?? "").trim());
+        const headerMap = SheetDataMapper.buildHeaderMap(headers);
+        const nonEmptyRow = (r: any[]) =>
+            Array.isArray(r) && r.some(cell => String(cell ?? "").trim() !== "");
+
+        return rows
+            .slice(1)
+            .map((r: any[], idx: number) => ({ row: r, rowIndex: idx + 2 }))
+            .filter(({ row }) => nonEmptyRow(row))
+            .map(({ row, rowIndex }, orderIdx) => {
+                const mapped = SheetDataMapper.mapToCategory(row, rowIndex, headerMap);
+                return {
+                    rowIndex: mapped.rowIndex,
+                    entity: {
+                        ...mapped.entity,
+                        sortOrder: orderIdx
+                    }
+                };
+            })
+            .filter(item => Boolean(item.entity.id));
+    }
+
     static mapFromCategory(category: ExpenseCategory, headerMap: HeaderMap = DEFAULT_CATEGORY_MAP): any[] {
         let maxIdx = 0;
         for (const idx of Object.values(headerMap)) {

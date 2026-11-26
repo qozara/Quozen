@@ -18,7 +18,7 @@ import {
 import {
   CategoryIcon,
   getCategoryDisplayName,
-  getCategoryTheme
+  resolveCategoryMeta
 } from "@/components/category-icon";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
@@ -439,7 +439,7 @@ export default function ExpenseForm({
           >
             {displayCategories.map((c, idx) => {
               const isSelected = category === c.id;
-              const pillTheme = getCategoryTheme(c.id);
+              const pillMeta = resolveCategoryMeta(c.id, displayCategories, c.icon);
               return (
                 <button
                   key={c.id}
@@ -456,21 +456,18 @@ export default function ExpenseForm({
                   className={cn(
                     "snap-start shrink-0 min-h-[44px] px-3.5 py-2 rounded-full text-sm inline-flex items-center gap-2 transition-all duration-150 motion-reduce:transition-none active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                     isSelected
-                      ? cn("font-semibold border-2 shadow-xs", pillTheme.activePill)
+                      ? cn("font-semibold border-2 shadow-xs", pillMeta.theme.activePill)
                       : "font-medium border border-border/70 bg-muted/45 hover:bg-muted/80 text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  <CategoryIcon
-                    iconName={c.icon}
-                    categoryId={c.id}
-                    categories={displayCategories}
+                  <pillMeta.IconComponent
                     aria-hidden="true"
                     className={cn(
                       "w-4 h-4 shrink-0",
                       isSelected ? "opacity-100" : "text-muted-foreground"
                     )}
                   />
-                  <span>{c.name}</span>
+                  <span>{pillMeta.displayName || c.name}</span>
                 </button>
               );
             })}

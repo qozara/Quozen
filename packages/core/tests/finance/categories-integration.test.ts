@@ -41,18 +41,109 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
         }
     });
 
-    it("seeds Categories tab and local RxDB categories collection when creating a group", async () => {
+    it("seeds Categories tab and local RxDB categories collection when creating a group in canonical sortOrder", async () => {
         const categories = await repo.getCategories();
         expect(categories).toHaveLength(DEFAULT_CATEGORIES.length);
-        expect(categories.map(c => c.id)).toEqual(
-            expect.arrayContaining(["food_dining", "transportation", "accommodation", "entertainment", "shopping", "other"])
-        );
+        // Must preserve exact canonical sortOrder (food_dining first, other last), not alphabetical RxDB key order
+        expect(categories.map(c => c.id)).toEqual([
+            "food_dining",
+            "transportation",
+            "accommodation",
+            "entertainment",
+            "shopping",
+            "other"
+        ]);
+        expect(categories.map(c => c.icon)).toEqual([
+            "utensils",
+            "car",
+            "bed",
+            "gamepad-2",
+            "shopping-bag",
+            "more-horizontal"
+        ]);
 
         // Verify spreadsheet values in memory adapter
         const res = await storage.batchGetValues(groupId, ["Categories!A1:F7"]);
         const rows = res[0]?.values || [];
         expect(rows.length).toBeGreaterThanOrEqual(7); // 1 header + 6 categories
         expect(rows[0]).toEqual(["id", "name", "icon", "description", "updatedAt", "deletedAt"]);
+    });
+
+    it("preserves custom and edited categories, row order, and icon fallbacks when importing a spreadsheet", async () => {
+        const importedStorage = new InMemoryAdapter();
+        const importedDb = await createQuozenDatabase({
+            name: `test_import_cat_${Date.now()}_${Math.random().toString(36).slice(2)}`
+        });
+
+        try {
+            const sheetId = await importedStorage.createSpreadsheet("Quozen - Surf Trip", [
+                "Expenses",
+                "Settlements",
+                "Members",
+                "Categories",
+                "_meta"
+            ]);
+            const nowIso = new Date().toISOString();
+
+            await importedStorage.batchUpdateValues(sheetId, [
+                { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
+                { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
+                {
+                    range: "Members!A1",
+                    values: [
+                        ["userId", "email", "name", "role", "joinedAt", "updatedAt"],
+                        [user.id, user.email!, user.name, "owner", nowIso, nowIso]
+                    ]
+                },
+                {
+                    range: "Categories!A1",
+                    values: [
+                        ["id", "name", "icon", "description", "updatedAt", "deletedAt"],
+                        ["surf_lessons", "Surf & Beach", "waves", "Board rentals and lessons", nowIso, ""],
+                        ["food_dining", "Gastronomía", "pizza", "Edited default category", nowIso, ""],
+                        ["transportation", "Movilidad", "", "Edited default with blank icon", nowIso, ""],
+                        ["coffee", "Morning Coffee", "", "Custom category with blank icon", nowIso, ""]
+                    ]
+                }
+            ]);
+
+            const importGroupRepo = new GroupRepository(importedStorage, user, undefined, importedDb);
+            await importGroupRepo.importGroup(sheetId);
+
+            const importedLedgerRepo = new LedgerRepository(importedStorage, sheetId, importedDb);
+            const categories = await importedLedgerRepo.getCategories();
+
+            expect(categories.map(c => c.id)).toEqual([
+                "surf_lessons",
+                "food_dining",
+                "transportation",
+                "coffee"
+            ]);
+            expect(categories[0]).toMatchObject({
+                id: "surf_lessons",
+                name: "Surf & Beach",
+                icon: "waves"
+            });
+            expect(categories[1]).toMatchObject({
+                id: "food_dining",
+                name: "Gastronomía",
+                icon: "pizza"
+            });
+            // Blank icon on a default category ID falls back to canonical default icon ("car"), not generic "tag"
+            expect(categories[2]).toMatchObject({
+                id: "transportation",
+                name: "Movilidad",
+                icon: "car"
+            });
+            // Blank icon on a custom category stays empty "" instead of being overwritten with "tag"
+            expect(categories[3]).toMatchObject({
+                id: "coffee",
+                name: "Morning Coffee",
+                icon: ""
+            });
+        } finally {
+            await destroyQuozenDatabase(importedDb);
+        }
     });
 
     it("adds expense with valid category ID", async () => {
