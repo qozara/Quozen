@@ -78,7 +78,8 @@ const V0_BASELINE = {
 
 const MIGRATION_STRATEGIES_BY_TITLE = {
     user_settings: schemas.userSettingsMigrationStrategies,
-    expenses: schemas.expenseMigrationStrategies
+    expenses: schemas.expenseMigrationStrategies,
+    categories: schemas.categoryMigrationStrategies
 };
 
 const allSchemas = [

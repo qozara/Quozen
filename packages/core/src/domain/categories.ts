@@ -1,10 +1,14 @@
 export type ExpenseCategoryId = string;
 
+export type CategoryTranslations = Record<string, string>;
+
 export interface ExpenseCategory {
     id: ExpenseCategoryId;
     name: string;
+    translations?: CategoryTranslations;
     icon: string;
     description: string;
+    descriptionTranslations?: CategoryTranslations;
     sortOrder?: number;
     updatedAt?: Date;
     deletedAt?: Date;
@@ -16,43 +20,55 @@ export const DEFAULT_CATEGORIES: ExpenseCategory[] = [
     {
         id: 'food_dining',
         name: 'Food & Dining',
+        translations: { es: 'Comida y bebida' },
         icon: 'utensils',
         description: 'Restaurants, groceries, drinks',
+        descriptionTranslations: { es: 'Restaurantes, supermercado, bebidas' },
         sortOrder: 0
     },
     {
         id: 'transportation',
         name: 'Transportation',
+        translations: { es: 'Transporte' },
         icon: 'car',
         description: 'Taxis, fuel, public transit, flights',
+        descriptionTranslations: { es: 'Taxis, combustible, transporte público, vuelos' },
         sortOrder: 1
     },
     {
         id: 'accommodation',
         name: 'Accommodation',
+        translations: { es: 'Alojamiento' },
         icon: 'bed',
         description: 'Hotels, rentals, lodging',
+        descriptionTranslations: { es: 'Hoteles, alquileres, hospedaje' },
         sortOrder: 2
     },
     {
         id: 'entertainment',
         name: 'Entertainment',
+        translations: { es: 'Entretenimiento' },
         icon: 'gamepad-2',
         description: 'Activities, tickets, leisure',
+        descriptionTranslations: { es: 'Actividades, entradas, ocio' },
         sortOrder: 3
     },
     {
         id: 'shopping',
         name: 'Shopping',
+        translations: { es: 'Compras' },
         icon: 'shopping-bag',
         description: 'General purchases',
+        descriptionTranslations: { es: 'Compras generales' },
         sortOrder: 4
     },
     {
         id: 'other',
         name: 'Other',
+        translations: { es: 'Otros' },
         icon: 'more-horizontal',
         description: 'Anything else',
+        descriptionTranslations: { es: 'Cualquier otro gasto' },
         sortOrder: 5
     }
 ];
@@ -227,6 +243,17 @@ export function resolveCategory(
     );
     if (byNameClean) return byNameClean;
 
+    // 3b. Case-insensitive & accent-stripped match against localized category names
+    const byTranslatedName = list.find(c => {
+        if (!c.translations) return false;
+        return Object.values(c.translations).some(val => {
+            if (!val) return false;
+            const norm = val.trim().toLowerCase();
+            return norm === lower || stripAccents(norm) === cleanInput;
+        });
+    });
+    if (byTranslatedName) return byTranslatedName;
+
     // 4. Fallback to synonym match
     if (cleanInput in SYNONYMS) {
         const synonymId = SYNONYMS[cleanInput];
@@ -356,8 +383,10 @@ export function inferCategoryFromText(
     if (meaningfulInputTokens.length > 0) {
         for (const cat of list) {
             if (cat.id === DEFAULT_CATEGORY_ID) continue;
+            const translatedNames = cat.translations ? Object.values(cat.translations).join(' ') : '';
+            const translatedDescs = cat.descriptionTranslations ? Object.values(cat.descriptionTranslations).join(' ') : '';
             const catCorpus = stripAccents(
-                `${cat.id} ${cat.name} ${cat.description || ''}`.toLowerCase()
+                `${cat.id} ${cat.name} ${translatedNames} ${cat.description || ''} ${translatedDescs}`.toLowerCase()
             );
             const catWords = new Set(
                 catCorpus
@@ -391,4 +420,126 @@ export function humanizeCategoryId(id: string): string {
         .filter(Boolean)
         .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
         .join(' ');
+}
+
+function parseLocaleCodes(locale?: string): { full: string; base: string } {
+    if (!locale || typeof locale !== 'string') {
+        return { full: 'en', base: 'en' };
+    }
+    const cleaned = locale.trim().toLowerCase().replace(/_/g, '-');
+    if (!cleaned) {
+        return { full: 'en', base: 'en' };
+    }
+    const base = cleaned.split('-')[0] || 'en';
+    return { full: cleaned, base };
+}
+
+function lookupTranslation(
+    map: CategoryTranslations | undefined,
+    full: string,
+    base: string
+): string | undefined {
+    if (!map) return undefined;
+    const exactVal = map[full];
+    if (typeof exactVal === 'string' && exactVal.trim()) {
+        return exactVal.trim();
+    }
+    const baseVal = map[base];
+    if (typeof baseVal === 'string' && baseVal.trim()) {
+        return baseVal.trim();
+    }
+    for (const [k, v] of Object.entries(map)) {
+        const normKey = k.trim().toLowerCase().replace(/_/g, '-');
+        if ((normKey === full || normKey === base) && typeof v === 'string' && v.trim()) {
+            return v.trim();
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Resolves the localized display name of a category without hardcoding category branches.
+ * Priority:
+ * 1. Explicit translation on the category (`translations[full]` -> `translations[base]`)
+ * 2. Canonical `category.name` when locale is English (`en*`)
+ * 3. Default catalog / fallback dictionary ONLY if the category is an untouched default
+ * 4. Canonical `category.name` (user-entered value applies to all languages when untranslated)
+ */
+export function getLocalizedCategoryName(
+    category: Pick<ExpenseCategory, 'id' | 'name' | 'translations'>,
+    locale?: string,
+    fallbackCatalog?: Record<string, string>
+): string {
+    const { full, base } = parseLocaleCodes(locale);
+
+    const directTranslation = lookupTranslation(category.translations, full, base);
+    if (directTranslation) {
+        return directTranslation;
+    }
+
+    if (base === 'en') {
+        return category.name || humanizeCategoryId(category.id);
+    }
+
+    const canonicalDefault = DEFAULT_CATEGORIES.find(
+        d => d.id.toLowerCase() === category.id.trim().toLowerCase()
+    );
+    const isUntouchedDefault = Boolean(
+        canonicalDefault &&
+            (!category.name || category.name.trim() === canonicalDefault.name)
+    );
+
+    if (isUntouchedDefault && canonicalDefault) {
+        const defaultTranslation = lookupTranslation(canonicalDefault.translations, full, base);
+        if (defaultTranslation) {
+            return defaultTranslation;
+        }
+        const dictFallback = fallbackCatalog?.[canonicalDefault.id];
+        if (typeof dictFallback === 'string' && dictFallback.trim()) {
+            return dictFallback.trim();
+        }
+    }
+
+    return category.name || humanizeCategoryId(category.id);
+}
+
+/**
+ * Resolves the localized description of a category following the same fallback rules as name.
+ */
+export function getLocalizedCategoryDescription(
+    category: Pick<ExpenseCategory, 'id' | 'description' | 'descriptionTranslations'>,
+    locale?: string,
+    fallbackCatalog?: Record<string, string>
+): string {
+    const { full, base } = parseLocaleCodes(locale);
+
+    const directTranslation = lookupTranslation(category.descriptionTranslations, full, base);
+    if (directTranslation) {
+        return directTranslation;
+    }
+
+    if (base === 'en') {
+        return category.description || '';
+    }
+
+    const canonicalDefault = DEFAULT_CATEGORIES.find(
+        d => d.id.toLowerCase() === category.id.trim().toLowerCase()
+    );
+    const isUntouchedDefault = Boolean(
+        canonicalDefault &&
+            (!category.description || category.description.trim() === canonicalDefault.description)
+    );
+
+    if (isUntouchedDefault && canonicalDefault) {
+        const defaultTranslation = lookupTranslation(canonicalDefault.descriptionTranslations, full, base);
+        if (defaultTranslation) {
+            return defaultTranslation;
+        }
+        const dictFallback = fallbackCatalog?.[canonicalDefault.id];
+        if (typeof dictFallback === 'string' && dictFallback.trim()) {
+            return dictFallback.trim();
+        }
+    }
+
+    return category.description || '';
 }

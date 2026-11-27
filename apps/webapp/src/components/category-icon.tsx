@@ -3,13 +3,22 @@ import * as LucideIcons from "lucide-react";
 import { Tag, type LucideProps } from "lucide-react";
 import {
   DEFAULT_CATEGORIES,
+  getLocalizedCategoryDescription,
+  getLocalizedCategoryName,
   humanizeCategoryId,
   resolveCategory,
   type ExpenseCategory,
 } from "@quozen/core";
+import { useTranslation } from "react-i18next";
+import globalI18n from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
 import { DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
+
+export function useCurrentLocale(): string {
+  const translation = useTranslation();
+  return translation?.i18n?.language || globalI18n?.language || "en";
+}
 
 function resolveLucideIcon(name?: string): React.ComponentType<LucideProps> | null {
   if (!name || typeof name !== "string") return null;
@@ -277,6 +286,7 @@ export function getCategoryBadgeColor(
 export interface ResolvedCategoryMeta {
   canonicalId: string;
   displayName: string;
+  description: string;
   iconName?: string;
   IconComponent: React.ComponentType<LucideProps>;
   theme: CategoryTheme;
@@ -284,20 +294,24 @@ export interface ResolvedCategoryMeta {
 }
 
 /**
- * Single source of truth resolving an expense category's ID, display name,
- * Lucide icon component, and coordinated color theme across default, edited,
- * custom imported, and legacy free-text categories.
+ * Single source of truth resolving an expense category's ID, localized display name,
+ * localized description, Lucide icon component, and coordinated color theme across
+ * default, edited, custom imported, and legacy free-text categories.
  */
 export function resolveCategoryMeta(
   categoryId?: string,
   categories?: ExpenseCategory[],
-  explicitIconName?: string
+  explicitIconName?: string,
+  locale?: string
 ): ResolvedCategoryMeta {
   const raw = categoryId?.trim() || "";
+  const activeLocale = locale || globalI18n?.language || "en";
+
   if (!raw && !explicitIconName) {
     return {
       canonicalId: "",
       displayName: "",
+      description: "",
       IconComponent: Tag,
       theme: NEUTRAL_CATEGORY_THEME,
     };
@@ -333,12 +347,20 @@ export function resolveCategoryMeta(
     matched?.name
   );
 
-  const displayName = matched?.name || (canonicalId ? humanizeCategoryId(canonicalId) : "");
+  const displayName = matched
+    ? getLocalizedCategoryName(matched, activeLocale)
+    : canonicalId
+      ? humanizeCategoryId(canonicalId)
+      : "";
+  const description = matched
+    ? getLocalizedCategoryDescription(matched, activeLocale)
+    : "";
   const theme = getCategoryTheme(canonicalId, effectiveCategories);
 
   return {
     canonicalId,
     displayName,
+    description,
     iconName: resolvedIconName,
     IconComponent,
     theme,
@@ -348,10 +370,11 @@ export function resolveCategoryMeta(
 
 export function getCategoryDisplayName(
   categoryId?: string,
-  categories?: ExpenseCategory[]
+  categories?: ExpenseCategory[],
+  locale?: string
 ): string {
   if (!categoryId || !categoryId.trim()) return "";
-  return resolveCategoryMeta(categoryId, categories).displayName;
+  return resolveCategoryMeta(categoryId, categories, undefined, locale).displayName;
 }
 
 export interface CategoryIconProps extends LucideProps {
@@ -399,7 +422,13 @@ export function CategoryIconBadge({
   iconClassName,
   ...props
 }: CategoryIconBadgeProps) {
-  const { IconComponent, theme } = resolveCategoryMeta(categoryId, categories, iconName);
+  const locale = useCurrentLocale();
+  const { IconComponent, theme } = resolveCategoryMeta(
+    categoryId,
+    categories,
+    iconName,
+    locale
+  );
   const sizeSpec = ICON_BADGE_SIZE_CLASSES[size];
   const radiusClass =
     shape === "circle"
@@ -442,10 +471,12 @@ export function CategoryBadge({
   className,
   ...props
 }: CategoryBadgeProps) {
+  const locale = useCurrentLocale();
   const { IconComponent, displayName, theme } = resolveCategoryMeta(
     categoryId,
     categories,
-    iconName
+    iconName,
+    locale
   );
   if (!displayName) return null;
 
@@ -473,10 +504,11 @@ export function useActiveCategoryState(
   categories?: ExpenseCategory[],
   isOpen: boolean = true
 ) {
+  const locale = useCurrentLocale();
   const availableCategories =
     categories && categories.length > 0 ? categories : DEFAULT_CATEGORIES;
   const defaultCategoryId = targetCategory
-    ? resolveCategoryMeta(targetCategory, availableCategories).canonicalId
+    ? resolveCategoryMeta(targetCategory, availableCategories, undefined, locale).canonicalId
     : availableCategories[0]?.id || "";
 
   const [activeCategoryId, setActiveCategoryId] = useState(defaultCategoryId);
@@ -487,7 +519,7 @@ export function useActiveCategoryState(
     }
   }, [isOpen, defaultCategoryId]);
 
-  const meta = resolveCategoryMeta(activeCategoryId, availableCategories);
+  const meta = resolveCategoryMeta(activeCategoryId, availableCategories, undefined, locale);
   return {
     activeCategoryId: meta.canonicalId || activeCategoryId,
     setActiveCategoryId,
@@ -517,7 +549,8 @@ export function CategoryDrawerHeader({
   description,
   descriptionClassName,
 }: CategoryDrawerHeaderProps) {
-  const meta = resolveCategoryMeta(categoryId, categories);
+  const locale = useCurrentLocale();
+  const meta = resolveCategoryMeta(categoryId, categories, undefined, locale);
 
   return (
     <>

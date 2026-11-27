@@ -773,5 +773,106 @@ describe("WP3: RxDB Schema, Categories Collection, v0->v1 Migration & Self-Heali
             });
             expect(doc.version).toBe(4);
         });
+
+        it("migrates v0 categories collection to v1 backfilling default translations while preserving custom/renamed categories", async () => {
+            const storage = getRxStorageMemory();
+            const dbName = `test_rxdb_categories_v0_v1_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+            const v0CategorySchema = {
+                title: "categories",
+                version: 0,
+                primaryKey: "id",
+                type: "object",
+                properties: {
+                    id: { type: "string", maxLength: 200 },
+                    groupId: { type: "string", maxLength: 100 },
+                    categoryId: { type: "string", maxLength: 100 },
+                    name: { type: "string" },
+                    icon: { type: "string" },
+                    description: { type: "string" },
+                    sortOrder: { type: "number" },
+                    updatedAt: { type: "string" },
+                    deletedAt: { type: ["string", "null"] }
+                },
+                required: ["id", "groupId", "categoryId", "name", "icon", "description", "sortOrder", "updatedAt"]
+            };
+
+            const dbV0 = await createRxDatabase({
+                name: dbName,
+                storage
+            });
+
+            await dbV0.addCollections({
+                categories: {
+                    schema: v0CategorySchema
+                }
+            });
+
+            const nowIso = "2026-03-01T00:00:00.000Z";
+            // 1. Untouched canonical default category -> receives Spanish translations
+            await dbV0.categories.insert({
+                id: "g1_food_dining",
+                groupId: "g1",
+                categoryId: "food_dining",
+                name: "Food & Dining",
+                icon: "utensils",
+                description: "Restaurants, groceries, drinks",
+                sortOrder: 0,
+                updatedAt: nowIso,
+                deletedAt: null
+            });
+
+            // 2. Renamed default category -> preserves empty translations so custom name wins
+            await dbV0.categories.insert({
+                id: "g1_shopping",
+                groupId: "g1",
+                categoryId: "shopping",
+                name: "Work Supplies",
+                icon: "shopping-bag",
+                description: "Office supplies only",
+                sortOrder: 1,
+                updatedAt: nowIso,
+                deletedAt: null
+            });
+
+            // 3. Custom category -> preserves empty translations
+            await dbV0.categories.insert({
+                id: "g1_pets",
+                groupId: "g1",
+                categoryId: "pets",
+                name: "Pets",
+                icon: "tag",
+                description: "Vet and kibble",
+                sortOrder: 2,
+                updatedAt: nowIso,
+                deletedAt: null
+            });
+
+            await dbV0.close();
+
+            db = await createQuozenDatabase({
+                name: dbName,
+                storage
+            });
+
+            const foodDoc = await db.categories.findOne("g1_food_dining").exec();
+            expect(foodDoc).not.toBeNull();
+            const foodCat = docToCategory(foodDoc!.toJSON());
+            expect(foodCat.translations).toEqual({ es: "Comida y bebida" });
+            expect(foodCat.descriptionTranslations).toEqual({ es: "Restaurantes, supermercado, bebidas" });
+
+            const shoppingDoc = await db.categories.findOne("g1_shopping").exec();
+            expect(shoppingDoc).not.toBeNull();
+            const shoppingCat = docToCategory(shoppingDoc!.toJSON());
+            expect(shoppingCat.name).toBe("Work Supplies");
+            expect(shoppingCat.translations).toBeUndefined();
+            expect(shoppingCat.descriptionTranslations).toBeUndefined();
+
+            const petsDoc = await db.categories.findOne("g1_pets").exec();
+            expect(petsDoc).not.toBeNull();
+            const petsCat = docToCategory(petsDoc!.toJSON());
+            expect(petsCat.name).toBe("Pets");
+            expect(petsCat.translations).toBeUndefined();
+        });
     });
 });

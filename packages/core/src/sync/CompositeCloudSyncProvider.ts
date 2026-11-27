@@ -118,7 +118,7 @@ const tabularSerializers: Record<string, GroupTabularSerializer> = {
         },
     },
     categories: {
-        defaultHeaders: ["id", "name", "icon", "description", "updatedAt"],
+        defaultHeaders: ["id", "name", "name_es", "icon", "description", "description_es", "updatedAt", "deletedAt"],
         rowToDoc(row: TabularRow, groupId: string) {
             const headerMap = row.headers ? SheetDataMapper.buildHeaderMap(row.headers) : DEFAULT_CATEGORY_MAP;
             const mapped = SheetDataMapper.mapToCategory(row.values, 2, headerMap);

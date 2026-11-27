@@ -175,6 +175,14 @@
             "recoverHint": "O busca un archivo existente en Drive"
         }
     },
+    "categories": {
+        "food_dining": "Comida y bebida",
+        "transportation": "Transporte",
+        "accommodation": "Alojamiento",
+        "entertainment": "Entretenimiento",
+        "shopping": "Compras",
+        "other": "Otros"
+    },
     "expenseForm": {
         "addTitle": "Añadir Gasto",
         "editTitle": "Editar Gasto",

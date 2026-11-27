@@ -19,6 +19,7 @@ import {
     settlementSchema,
     memberSchema,
     categorySchema,
+    categoryMigrationStrategies,
     type UserSettingsDocType,
     type ExpenseDocType,
     type SettlementDocType,
@@ -78,7 +79,8 @@ export async function createQuozenDatabase(options?: QuozenDatabaseOptions): Pro
                 schema: memberSchema
             },
             categories: {
-                schema: categorySchema
+                schema: categorySchema,
+                migrationStrategies: categoryMigrationStrategies
             }
         });
     } catch (err) {

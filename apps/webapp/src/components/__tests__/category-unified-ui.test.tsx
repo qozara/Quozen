@@ -12,7 +12,8 @@ import Dashboard from "@/pages/dashboard";
 import ExpensesList from "@/pages/expenses";
 import AddExpenseDrawer from "../add-expense-drawer";
 import type { ExpenseCategory, Member, Expense } from "@quozen/core";
-import { Ledger } from "@quozen/core";
+import i18n from "@/lib/i18n";
+import { DEFAULT_CATEGORIES, Ledger } from "@quozen/core";
 import { useAppContext } from "@/context/app-context";
 import { useQuery } from "@tanstack/react-query";
 import { useSettings } from "@/hooks/use-settings";
@@ -227,5 +228,48 @@ describe("Unified Category UI Across Dashboard, Activity, and Drawers", () => {
     expect(iconBadge.className).toContain(foodTheme.iconContainer.split(" ")[0]);
     expect(pillBadge.className).toContain(foodTheme.badge.split(" ")[0]);
     expect(pillBadge).toHaveTextContent("Food & Dining");
+  });
+
+  it("localizes default and custom translated categories in Spanish while falling back to canonical name when untranslated", async () => {
+    const localizedCategories: ExpenseCategory[] = [
+      ...DEFAULT_CATEGORIES,
+      {
+        id: "pet_care",
+        name: "Pet Care",
+        translations: { es: "Mascotas" },
+        icon: "dog",
+        description: "Vet visits",
+        descriptionTranslations: { es: "Visitas al veterinario" },
+      },
+      {
+        id: "surf_club",
+        name: "Surf & Beach",
+        icon: "waves",
+        description: "Untranslated custom category",
+      },
+    ];
+
+    await i18n.changeLanguage("es");
+    try {
+      expect(resolveCategoryMeta("food_dining", localizedCategories, undefined, "es").displayName).toBe("Comida y bebida");
+      expect(resolveCategoryMeta("pet_care", localizedCategories, undefined, "es").displayName).toBe("Mascotas");
+      expect(resolveCategoryMeta("surf_club", localizedCategories, undefined, "es").displayName).toBe("Surf & Beach");
+
+      render(
+        <MemoryRouter>
+          <div>
+            <CategoryBadge categoryId="food_dining" categories={localizedCategories} data-testid="es-default-badge" />
+            <CategoryBadge categoryId="pet_care" categories={localizedCategories} data-testid="es-custom-badge" />
+            <CategoryBadge categoryId="surf_club" categories={localizedCategories} data-testid="es-fallback-badge" />
+          </div>
+        </MemoryRouter>
+      );
+
+      expect(screen.getByTestId("es-default-badge")).toHaveTextContent("Comida y bebida");
+      expect(screen.getByTestId("es-custom-badge")).toHaveTextContent("Mascotas");
+      expect(screen.getByTestId("es-fallback-badge")).toHaveTextContent("Surf & Beach");
+    } finally {
+      await i18n.changeLanguage("en");
+    }
   });
 });

@@ -13,6 +13,7 @@ import {
 } from "../../src/db";
 import { SheetDataMapper } from "../../src/infrastructure/SheetDataMapper";
 import { ValidationService } from "../../src/schema/ValidationService";
+import { QuozenSchema } from "../../src/schema/SchemaDefinition";
 import { migrations } from "../../src/schema/migrations";
 import { GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
 
@@ -212,7 +213,7 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
             batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) => {
                 if (ranges && ranges[0] && ranges[0].includes("_migrations")) {
                     return Promise.resolve({
-                        valueRanges: [{ values: [["version", "migrated_at"], ["3", "2026-01-01T00:00:00Z"]] }]
+                        valueRanges: [{ values: [["version", "migrated_at"], [String(QuozenSchema.version), "2026-01-01T00:00:00Z"]] }]
                     });
                 }
                 const expenseHeaders = repaired
@@ -223,7 +224,7 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
                         { values: [expenseHeaders] },
                         { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
                         { values: [["userId", "email", "name", "role", "joinedAt"]] },
-                        { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] },
+                        { values: [["id", "name", "name_es", "icon", "description", "description_es", "updatedAt", "deletedAt"]] },
                         { values: [["key", "value", "updatedAt"]] }
                     ]
                 });

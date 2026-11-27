@@ -18,7 +18,8 @@ import {
 import {
   CategoryIcon,
   getCategoryDisplayName,
-  resolveCategoryMeta
+  resolveCategoryMeta,
+  useCurrentLocale
 } from "@/components/category-icon";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
@@ -80,6 +81,7 @@ export default function ExpenseForm({
 }: ExpenseFormProps) {
   const { toast } = useToast();
   const { t } = useTranslation();
+  const activeLocale = useCurrentLocale();
   const auth = useOptionalAuth();
   const authUser = auth?.user;
 
@@ -231,8 +233,8 @@ export default function ExpenseForm({
   };
 
   const activeCategoryDisplayName = useMemo(
-    () => getCategoryDisplayName(category, displayCategories),
-    [category, displayCategories]
+    () => getCategoryDisplayName(category, displayCategories, activeLocale),
+    [category, displayCategories, activeLocale]
   );
 
   useEffect(() => {
@@ -439,7 +441,7 @@ export default function ExpenseForm({
           >
             {displayCategories.map((c, idx) => {
               const isSelected = category === c.id;
-              const pillMeta = resolveCategoryMeta(c.id, displayCategories, c.icon);
+              const pillMeta = resolveCategoryMeta(c.id, displayCategories, c.icon, activeLocale);
               return (
                 <button
                   key={c.id}

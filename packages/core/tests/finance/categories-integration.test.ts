@@ -63,10 +63,23 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
         ]);
 
         // Verify spreadsheet values in memory adapter
-        const res = await storage.batchGetValues(groupId, ["Categories!A1:F7"]);
+        const res = await storage.batchGetValues(groupId, ["Categories!A1:H7"]);
         const rows = res[0]?.values || [];
         expect(rows.length).toBeGreaterThanOrEqual(7); // 1 header + 6 categories
-        expect(rows[0]).toEqual(["id", "name", "icon", "description", "updatedAt", "deletedAt"]);
+        expect(rows[0]).toEqual([
+            "id",
+            "name",
+            "name_es",
+            "icon",
+            "description",
+            "description_es",
+            "updatedAt",
+            "deletedAt"
+        ]);
+        expect(rows[1][1]).toBe("Food & Dining");
+        expect(rows[1][2]).toBe("Comida y bebida");
+        expect(rows[1][4]).toBe("Restaurants, groceries, drinks");
+        expect(rows[1][5]).toBe("Restaurantes, supermercado, bebidas");
     });
 
     it("preserves custom and edited categories, row order, and icon fallbacks when importing a spreadsheet", async () => {
@@ -98,11 +111,11 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
                 {
                     range: "Categories!A1",
                     values: [
-                        ["id", "name", "icon", "description", "updatedAt", "deletedAt"],
-                        ["surf_lessons", "Surf & Beach", "waves", "Board rentals and lessons", nowIso, ""],
-                        ["food_dining", "Gastronomía", "pizza", "Edited default category", nowIso, ""],
-                        ["transportation", "Movilidad", "", "Edited default with blank icon", nowIso, ""],
-                        ["coffee", "Morning Coffee", "", "Custom category with blank icon", nowIso, ""]
+                        ["id", "name", "name_es", "name_pt", "icon", "description", "description_es", "updatedAt", "deletedAt"],
+                        ["surf_lessons", "Surf & Beach", "Clases de surf", "Aulas de surf", "waves", "Board rentals and lessons", "Alquiler de tablas y clases", nowIso, ""],
+                        ["food_dining", "Gastronomía", "", "", "pizza", "Edited default category", "", nowIso, ""],
+                        ["transportation", "Movilidad", "Movilidad local", "", "", "Edited default with blank icon", "Taxis locales", nowIso, ""],
+                        ["coffee", "Morning Coffee", "", "", "", "Custom category with blank icon", "", nowIso, ""]
                     ]
                 }
             ]);
@@ -122,7 +135,10 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
             expect(categories[0]).toMatchObject({
                 id: "surf_lessons",
                 name: "Surf & Beach",
-                icon: "waves"
+                translations: { es: "Clases de surf", pt: "Aulas de surf" },
+                icon: "waves",
+                description: "Board rentals and lessons",
+                descriptionTranslations: { es: "Alquiler de tablas y clases" }
             });
             expect(categories[1]).toMatchObject({
                 id: "food_dining",
@@ -133,6 +149,8 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
             expect(categories[2]).toMatchObject({
                 id: "transportation",
                 name: "Movilidad",
+                translations: { es: "Movilidad local" },
+                descriptionTranslations: { es: "Taxis locales" },
                 icon: "car"
             });
             // Blank icon on a custom category stays empty "" instead of being overwritten with "tag"

@@ -820,14 +820,10 @@ export class GroupRepository {
             }
         }
 
-        const initialCategories = DEFAULT_CATEGORIES.map(c => [
-            c.id,
-            c.name,
-            c.icon || "",
-            c.description || "",
-            nowIso,
-            ""
-        ]);
+        const defaultCatHeaderMap = SheetDataMapper.buildHeaderMap([...SCHEMAS.Categories]);
+        const initialCategories = DEFAULT_CATEGORIES.map(c =>
+            SheetDataMapper.mapFromCategory({ ...c, updatedAt: new Date(nowIso) }, defaultCatHeaderMap)
+        );
 
         const metaRows: string[][] = [
             ["key", "value", "updatedAt"]

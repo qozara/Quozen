@@ -175,6 +175,14 @@
             "recoverHint": "Or find an existing file in Drive"
         }
     },
+    "categories": {
+        "food_dining": "Food & Dining",
+        "transportation": "Transportation",
+        "accommodation": "Accommodation",
+        "entertainment": "Entertainment",
+        "shopping": "Shopping",
+        "other": "Other"
+    },
     "expenseForm": {
         "addTitle": "Add Expense",
         "editTitle": "Edit Expense",
