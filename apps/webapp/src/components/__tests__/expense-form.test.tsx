@@ -37,6 +37,12 @@ vi.mock("react-i18next", () => ({
                 "expenseForm.splitMismatchDesc": en.expenseForm.splitMismatchDesc,
                 "expenseForm.invalidAmount": "Invalid amount",
                 "expenseForm.invalidAmountDesc": "Please enter a valid numeric value for the amount.",
+                "expenseForm.errors.categoryRequired": en.expenseForm.errors.categoryRequired,
+                "expenseForm.errors.descriptionRequired": en.expenseForm.errors.descriptionRequired,
+                "expenseForm.errors.amountRequired": en.expenseForm.errors.amountRequired,
+                "expenseForm.errors.amountInvalid": en.expenseForm.errors.amountInvalid,
+                "expenseForm.errors.paidByRequired": en.expenseForm.errors.paidByRequired,
+                "expenseForm.errors.dateRequired": en.expenseForm.errors.dateRequired,
                 "expenseForm.you": "You",
             };
             return keys[key] ?? key;
@@ -228,6 +234,113 @@ describe("ExpenseForm — Amount Validation (U5)", () => {
         );
 
         expect(screen.getAllByText("You (Garcia Family)").length).toBeGreaterThan(0);
+    });
+});
+
+describe("ExpenseForm — Unified Mobile Inline Validation & Accessibility", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it("disables native browser validation popups via noValidate and starts all fields with aria-invalid=false", () => {
+        render(<ExpenseForm {...defaultProps} />);
+
+        const form = screen.getByTestId("form-expense");
+        expect(form).toHaveAttribute("novalidate");
+
+        const categoryGroup = screen.getByTestId("select-category");
+        const descInput = screen.getByTestId("input-expense-description");
+        const amountInput = screen.getByTestId("input-expense-amount");
+        const dateInput = screen.getByTestId("input-expense-date");
+
+        expect(categoryGroup).toHaveAttribute("aria-invalid", "false");
+        expect(descInput).toHaveAttribute("aria-invalid", "false");
+        expect(amountInput).toHaveAttribute("aria-invalid", "false");
+        expect(dateInput).toHaveAttribute("aria-invalid", "false");
+
+        // No premature inline errors on initial render
+        expect(screen.queryByTestId("error-category")).toBeNull();
+        expect(screen.queryByTestId("error-description")).toBeNull();
+        expect(screen.queryByTestId("error-amount")).toBeNull();
+    });
+
+    it("shows consistent inline errors for all missing mandatory fields on submit, links aria-describedby, and clears each error once fixed", () => {
+        render(<ExpenseForm {...defaultProps} />);
+
+        fireEvent.submit(screen.getByTestId("form-expense"));
+
+        // Every missing required field displays an inline error with accessible linkage
+        const categoryGroup = screen.getByTestId("select-category");
+        const descInput = screen.getByTestId("input-expense-description");
+        const amountInput = screen.getByTestId("input-expense-amount");
+
+        expect(screen.getByTestId("error-category")).toHaveTextContent(en.expenseForm.errors.categoryRequired);
+        expect(screen.getByTestId("error-description")).toHaveTextContent(en.expenseForm.errors.descriptionRequired);
+        expect(screen.getByTestId("error-amount")).toHaveTextContent(en.expenseForm.errors.amountRequired);
+
+        expect(categoryGroup).toHaveAttribute("aria-invalid", "true");
+        expect(categoryGroup).toHaveAttribute("aria-describedby", "expense-error-category");
+        expect(descInput).toHaveAttribute("aria-invalid", "true");
+        expect(descInput).toHaveAttribute("aria-describedby", "expense-error-description");
+        expect(amountInput).toHaveAttribute("aria-invalid", "true");
+        expect(amountInput).toHaveAttribute("aria-describedby", "expense-error-amount");
+
+        // Fixing each field clears its error and aria-invalid immediately
+        fireEvent.click(screen.getByTestId("category-pill-food_dining"));
+        expect(screen.queryByTestId("error-category")).toBeNull();
+        expect(categoryGroup).toHaveAttribute("aria-invalid", "false");
+        expect(categoryGroup).not.toHaveAttribute("aria-describedby");
+
+        fireEvent.change(descInput, { target: { value: "Lunch" } });
+        expect(screen.queryByTestId("error-description")).toBeNull();
+        expect(descInput).toHaveAttribute("aria-invalid", "false");
+
+        fireEvent.change(amountInput, { target: { value: "25" } });
+        expect(screen.queryByTestId("error-amount")).toBeNull();
+        expect(amountInput).toHaveAttribute("aria-invalid", "false");
+
+        // Submitting now succeeds cleanly
+        fireEvent.submit(screen.getByTestId("form-expense"));
+        expect(defaultProps.onSubmit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                category: "food_dining",
+                description: "Lunch",
+                amount: 25,
+            })
+        );
+    });
+
+    it("validates edited fields on blur (not prematurely while typing) and moves focus to the first invalid field on submit", () => {
+        render(<ExpenseForm {...defaultProps} />);
+
+        const descInput = screen.getByTestId("input-expense-description");
+
+        // Typing whitespace does not show error until blur
+        fireEvent.change(descInput, { target: { value: "   " } });
+        expect(screen.queryByTestId("error-description")).toBeNull();
+
+        // Blurring after editing shows inline error
+        fireEvent.blur(descInput);
+        expect(screen.getByTestId("error-description")).toHaveTextContent(en.expenseForm.errors.descriptionRequired);
+
+        // Select category first, leave description invalid -> submit should focus description input
+        fireEvent.click(screen.getByTestId("category-pill-food_dining"));
+        fireEvent.submit(screen.getByTestId("form-expense"));
+        expect(document.activeElement).toBe(descInput);
+    });
+
+    it("shows inline split error when split amounts do not match expense amount", () => {
+        render(<ExpenseForm {...defaultProps} />);
+
+        fireEvent.click(screen.getByTestId("category-pill-other"));
+        fireEvent.change(screen.getByTestId("input-expense-description"), { target: { value: "Dinner" } });
+        fireEvent.change(screen.getByTestId("input-expense-amount"), { target: { value: "100" } });
+        fireEvent.change(screen.getByTestId("input-split-amount-test-user-id"), { target: { value: "10" } });
+
+        fireEvent.submit(screen.getByTestId("form-expense"));
+
+        expect(screen.getByTestId("error-splits")).toHaveTextContent(en.expenseForm.splitMismatchDesc);
+        expect(defaultProps.onSubmit).not.toHaveBeenCalled();
     });
 });
 

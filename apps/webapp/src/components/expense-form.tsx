@@ -24,7 +24,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useOptionalAuth } from "@/context/auth-provider";
-import { Zap, AlertTriangle, Sparkles } from "lucide-react";
+import { Zap, AlertTriangle, AlertCircle, Sparkles } from "lucide-react";
 
 const distributeAmount = (total: number, count: number): number[] => {
   if (count <= 0) return [];
@@ -48,6 +48,9 @@ interface ExpenseSplit {
   amount: number;
   selected: boolean;
 }
+
+type ExpenseFormField = "category" | "description" | "amount" | "paidBy" | "date" | "splits";
+type ExpenseFormErrors = Partial<Record<ExpenseFormField, string>>;
 
 interface ExpenseFormProps {
   initialData?: Partial<Expense>;
@@ -127,8 +130,16 @@ export default function ExpenseForm({
   const [category, setCategory] = useState(initialCatId);
   const [hasManualCategory, setHasManualCategory] = useState(false);
   const [isAutoDetected, setIsAutoDetected] = useState(false);
+  const [errors, setErrors] = useState<ExpenseFormErrors>({});
+  const [editedFields, setEditedFields] = useState<Partial<Record<ExpenseFormField, boolean>>>({});
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const pillRailRef = useRef<HTMLDivElement | null>(null);
   const pillRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const descriptionInputRef = useRef<HTMLInputElement | null>(null);
+  const amountInputRef = useRef<HTMLInputElement | null>(null);
+  const paidByTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const dateInputRef = useRef<HTMLInputElement | null>(null);
+  const splitsSectionRef = useRef<HTMLDivElement | null>(null);
   const isInitialMountRef = useRef(true);
   const [date, setDate] = useState(
     draft?.date
@@ -190,10 +201,100 @@ export default function ExpenseForm({
     isInitialMountRef.current = false;
   }, [category, onCategoryChange]);
 
+  const clearFieldError = (field: ExpenseFormField) => {
+    setErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+    setLiveAnnouncement("");
+  };
+
+  const markFieldEdited = (field: ExpenseFormField) => {
+    setEditedFields(prev => (prev[field] ? prev : { ...prev, [field]: true }));
+  };
+
+  const getFieldValidationError = (
+    field: ExpenseFormField,
+    overrides?: {
+      category?: string;
+      description?: string;
+      amount?: string;
+      paidBy?: string;
+      date?: string;
+      splits?: ExpenseSplit[];
+    }
+  ): string | undefined => {
+    const valCategory = overrides?.category ?? category;
+    const valDescription = overrides?.description ?? description;
+    const valAmount = overrides?.amount ?? amount;
+    const valPaidBy = overrides?.paidBy ?? paidBy;
+    const valDate = overrides?.date ?? date;
+    const valSplits = overrides?.splits ?? splits;
+
+    switch (field) {
+      case "category":
+        return !valCategory.trim()
+          ? t("expenseForm.errors.categoryRequired", "Please select a category.")
+          : undefined;
+      case "description":
+        return !valDescription.trim()
+          ? t("expenseForm.errors.descriptionRequired", "Please enter a description.")
+          : undefined;
+      case "amount": {
+        if (!valAmount || !valAmount.trim()) {
+          return t("expenseForm.errors.amountRequired", "Please enter an amount.");
+        }
+        const parsed = parseFloat(String(valAmount).replace(",", "."));
+        if (isNaN(parsed) || parsed <= 0) {
+          return t("expenseForm.errors.amountInvalid", "Please enter a valid amount greater than 0.");
+        }
+        return undefined;
+      }
+      case "paidBy":
+        return !valPaidBy
+          ? t("expenseForm.errors.paidByRequired", "Please select who paid.")
+          : undefined;
+      case "date":
+        return !valDate
+          ? t("expenseForm.errors.dateRequired", "Please select a date.")
+          : undefined;
+      case "splits": {
+        const selected = valSplits.filter(s => s.selected);
+        if (selected.length === 0) {
+          return t("expenseForm.invalidSplitDesc");
+        }
+        const parsed = parseFloat(String(valAmount).replace(",", "."));
+        if (!isNaN(parsed) && parsed > 0) {
+          const totalSplit = valSplits.reduce((sum, s) => sum + (s.selected ? s.amount : 0), 0);
+          if (Math.abs(totalSplit - parsed) > 0.05) {
+            return t("expenseForm.splitMismatchDesc");
+          }
+        }
+        return undefined;
+      }
+    }
+  };
+
+  const handleFieldBlur = (field: ExpenseFormField, label: string) => {
+    if (!editedFields[field]) return;
+    const error = getFieldValidationError(field);
+    if (error) {
+      setErrors(prev => ({ ...prev, [field]: error }));
+      setLiveAnnouncement(`${label}: ${error}`);
+    } else {
+      clearFieldError(field);
+    }
+  };
+
   const handleCategoryChange = (val: string) => {
     const resolved = resolveCategory(val, displayCategories);
     const nextId = resolved ? resolved.id : val;
     setCategory(nextId);
+    if (nextId) {
+      clearFieldError("category");
+    }
   };
 
   const handleManualCategorySelect = (val: string) => {
@@ -224,11 +325,16 @@ export default function ExpenseForm({
 
   const handleDescriptionChange = (value: string) => {
     setDescription(value);
+    markFieldEdited("description");
+    if (errors.description && value.trim()) {
+      clearFieldError("description");
+    }
     if (!initialData && !draft?.category && !hasManualCategory && categories && categories.length > 0) {
       const inferred = inferCategoryFromText(value, displayCategories);
       if (inferred) {
         setCategory(inferred.id);
         setIsAutoDetected(true);
+        clearFieldError("category");
       } else if (isAutoDetected) {
         setCategory("");
         setIsAutoDetected(false);
@@ -325,81 +431,150 @@ export default function ExpenseForm({
 
   const handleAmountChange = (value: string) => {
     setAmount(value);
+    markFieldEdited("amount");
     updateSplitEqually(value, splits);
+    if (errors.amount && !getFieldValidationError("amount", { amount: value })) {
+      clearFieldError("amount");
+    }
+    if (errors.splits) {
+      clearFieldError("splits");
+    }
   };
 
   const handleSplitSelection = (userId: string, selected: boolean) => {
     const newSplits = splits.map(s => s.userId === userId ? { ...s, selected } : s);
     updateSplitEqually(amount, newSplits);
+    if (errors.splits && newSplits.some(s => s.selected)) {
+      clearFieldError("splits");
+    }
   };
 
   const handleSplitAmountChange = (userId: string, newAmount: string) => {
     const value = parseFloat(String(newAmount).replace(',', '.')) || 0;
-    setSplits(prev =>
-      prev.map(split =>
-        split.userId === userId ? { ...split, amount: value } : split
-      )
+    const nextSplits = splits.map(split =>
+      split.userId === userId ? { ...split, amount: value } : split
     );
+    setSplits(nextSplits);
+    if (errors.splits && !getFieldValidationError("splits", { splits: nextSplits })) {
+      clearFieldError("splits");
+    }
+  };
+
+  const focusFirstInvalidField = (nextErrors: ExpenseFormErrors) => {
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const scrollBehavior: ScrollBehavior = reducedMotion ? "auto" : "smooth";
+
+    if (nextErrors.category) {
+      pillRailRef.current?.scrollIntoView?.({ behavior: scrollBehavior, block: "center" });
+      if (displayCategories.length > 0) {
+        pillRefs.current[displayCategories[0].id]?.focus();
+      }
+      return;
+    }
+    if (nextErrors.description) {
+      descriptionInputRef.current?.scrollIntoView?.({ behavior: scrollBehavior, block: "center" });
+      descriptionInputRef.current?.focus();
+      return;
+    }
+    if (nextErrors.amount) {
+      amountInputRef.current?.scrollIntoView?.({ behavior: scrollBehavior, block: "center" });
+      amountInputRef.current?.focus();
+      return;
+    }
+    if (nextErrors.paidBy) {
+      paidByTriggerRef.current?.scrollIntoView?.({ behavior: scrollBehavior, block: "center" });
+      paidByTriggerRef.current?.focus();
+      return;
+    }
+    if (nextErrors.date) {
+      dateInputRef.current?.scrollIntoView?.({ behavior: scrollBehavior, block: "center" });
+      dateInputRef.current?.focus();
+      return;
+    }
+    if (nextErrors.splits) {
+      splitsSectionRef.current?.scrollIntoView?.({ behavior: scrollBehavior, block: "center" });
+      splitsSectionRef.current?.focus();
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!description || !paidBy || !category || !date) {
-      if (!category && displayCategories.length > 0) {
-        pillRefs.current[displayCategories[0].id]?.focus();
+    const fieldsInOrder: ExpenseFormField[] = [
+      "category",
+      "description",
+      "amount",
+      "paidBy",
+      "date",
+      "splits",
+    ];
+    const nextErrors: ExpenseFormErrors = {};
+    for (const field of fieldsInOrder) {
+      const err = getFieldValidationError(field);
+      if (err) {
+        nextErrors[field] = err;
       }
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      focusFirstInvalidField(nextErrors);
+
+      const firstErrorField = fieldsInOrder.find(f => nextErrors[f])!;
+      const firstErrorMessage = nextErrors[firstErrorField]!;
+      const selectedSplits = splits.filter(s => s.selected);
+
+      let toastTitle = t("expenseForm.missingInfo");
+      if (nextErrors.category || nextErrors.description || nextErrors.paidBy || nextErrors.date) {
+        toastTitle = t("expenseForm.missingInfo");
+      } else if (nextErrors.amount) {
+        toastTitle = t("expenseForm.invalidAmount");
+      } else if (nextErrors.splits) {
+        toastTitle =
+          selectedSplits.length === 0
+            ? t("expenseForm.invalidSplit")
+            : t("expenseForm.splitMismatch");
+      }
+
       toast({
-        title: t("expenseForm.missingInfo"),
-        description: t("expenseForm.missingInfoDesc"),
+        title: toastTitle,
+        description: firstErrorMessage,
         variant: "destructive",
       });
       return;
     }
 
-    const selectedSplits = splits.filter(s => s.selected);
-    if (selectedSplits.length === 0) {
-      toast({
-        title: t("expenseForm.invalidSplit"),
-        description: t("expenseForm.invalidSplitDesc"),
-        variant: "destructive",
-      });
-      return;
-    }
-
+    setErrors({});
     const expenseAmount = parseFloat(String(amount).replace(',', '.'));
-    if (!amount || isNaN(expenseAmount)) {
-      toast({
-        title: t("expenseForm.invalidAmount"),
-        description: t("expenseForm.invalidAmountDesc"),
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const totalSplit = splits.reduce((sum, s) => sum + (s.selected ? s.amount : 0), 0);
-
-    if (Math.abs(totalSplit - expenseAmount) > 0.05) {
-      toast({
-        title: t("expenseForm.splitMismatch"),
-        description: t("expenseForm.splitMismatchDesc"),
-        variant: "destructive",
-      });
-      return;
-    }
-
     const finalSplits = splits
       .filter(s => s.selected && s.amount > 0)
       .map(s => ({ userId: s.userId, amount: s.amount }));
 
     onSubmit({
-      description,
+      description: description.trim(),
       amount: expenseAmount,
       paidByUserId: paidBy,
       category,
       date: new Date(date),
       splits: finalSplits,
     });
+  };
+
+  const renderFieldError = (field: ExpenseFormField) => {
+    const message = errors[field];
+    if (!message) return null;
+    return (
+      <p
+        id={`expense-error-${field}`}
+        data-testid={`error-${field}`}
+        className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-destructive"
+      >
+        <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+        <span>{message}</span>
+      </p>
+    );
   };
 
   return (
@@ -424,10 +599,18 @@ export default function ExpenseForm({
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6" data-testid="form-expense">
+      <form onSubmit={handleSubmit} noValidate className="space-y-6" data-testid="form-expense">
+        <div aria-live="polite" className="sr-only">
+          {liveAnnouncement}
+        </div>
         <div>
           <div className="flex items-center justify-between mb-2">
-            <Label id="expense-category-label">{t("expenseForm.category")} *</Label>
+            <Label
+              id="expense-category-label"
+              className={cn(errors.category && "text-destructive")}
+            >
+              {t("expenseForm.category")} *
+            </Label>
             {isAutoDetected && (
               <span
                 className="inline-flex items-center gap-1 text-[11px] font-medium text-primary"
@@ -442,9 +625,15 @@ export default function ExpenseForm({
             ref={pillRailRef}
             role="radiogroup"
             aria-labelledby="expense-category-label"
+            aria-required="true"
+            aria-invalid={Boolean(errors.category)}
+            aria-describedby={errors.category ? "expense-error-category" : undefined}
             data-testid="select-category"
             data-vaul-no-drag=""
-            className="flex gap-2 overflow-x-auto pb-1.5 pt-0.5 -mx-1 px-1 snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className={cn(
+              "flex gap-2 overflow-x-auto pb-1.5 pt-0.5 -mx-1 px-1 snap-x snap-proximity [scrollbar-width:none] [&::-webkit-scrollbar]:hidden transition-colors",
+              errors.category && "rounded-xl ring-2 ring-destructive/60 bg-destructive/5 px-1.5 py-1.5"
+            )}
           >
             {displayCategories.map((c, idx) => {
               const isSelected = category === c.id;
@@ -481,55 +670,129 @@ export default function ExpenseForm({
               );
             })}
           </div>
+          {renderFieldError("category")}
         </div>
         <div>
-          <Label htmlFor="description">{t("expenseForm.description")} *</Label>
+          <Label
+            htmlFor="description"
+            className={cn(errors.description && "text-destructive")}
+          >
+            {t("expenseForm.description")} *
+          </Label>
           <Input
+            ref={descriptionInputRef}
             id="description"
             value={description}
             onChange={(e) => handleDescriptionChange(e.target.value)}
+            onBlur={() => handleFieldBlur("description", t("expenseForm.description"))}
             required
+            enterKeyHint="next"
+            aria-invalid={Boolean(errors.description)}
+            aria-describedby={errors.description ? "expense-error-description" : undefined}
+            className={cn(errors.description && "border-destructive focus-visible:ring-destructive")}
             data-testid="input-expense-description"
           />
+          {renderFieldError("description")}
         </div>
         <div>
-          <Label htmlFor="amount">{t("expenseForm.amount")} *</Label>
+          <Label
+            htmlFor="amount"
+            className={cn(errors.amount && "text-destructive")}
+          >
+            {t("expenseForm.amount")} *
+          </Label>
           <div className="relative">
             <span className="absolute left-3 top-3 text-muted-foreground">$</span>
             <Input
+              ref={amountInputRef}
               id="amount"
               type="number"
+              inputMode="decimal"
+              enterKeyHint="done"
               step="0.01"
-              className="pl-8"
+              className={cn("pl-8", errors.amount && "border-destructive focus-visible:ring-destructive")}
               value={amount}
               onChange={(e) => handleAmountChange(e.target.value)}
+              onBlur={() => handleFieldBlur("amount", t("expenseForm.amount"))}
               required
+              aria-invalid={Boolean(errors.amount)}
+              aria-describedby={errors.amount ? "expense-error-amount" : undefined}
               data-testid="input-expense-amount"
             />
           </div>
+          {renderFieldError("amount")}
         </div>
         <div>
-          <Label htmlFor="paidBy">{t("expenseForm.paidBy")} *</Label>
-          <Select value={paidBy} onValueChange={setPaidBy}>
-            <SelectTrigger data-testid="select-paid-by"><SelectValue /></SelectTrigger>
+          <Label
+            htmlFor="paidBy"
+            className={cn(errors.paidBy && "text-destructive")}
+          >
+            {t("expenseForm.paidBy")} *
+          </Label>
+          <Select
+            value={paidBy}
+            onValueChange={(val) => {
+              setPaidBy(val);
+              if (val) clearFieldError("paidBy");
+            }}
+          >
+            <SelectTrigger
+              ref={paidByTriggerRef}
+              aria-required="true"
+              aria-invalid={Boolean(errors.paidBy)}
+              aria-describedby={errors.paidBy ? "expense-error-paidBy" : undefined}
+              className={cn(errors.paidBy && "border-destructive focus:ring-destructive")}
+              data-testid="select-paid-by"
+            >
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
               {users.map((u) => <SelectItem key={u.userId} value={u.userId}>{formatUserLabel(u)}</SelectItem>)}
             </SelectContent>
           </Select>
+          {renderFieldError("paidBy")}
         </div>
         <div>
-          <Label htmlFor="date">{t("expenseForm.date")} *</Label>
+          <Label
+            htmlFor="date"
+            className={cn(errors.date && "text-destructive")}
+          >
+            {t("expenseForm.date")} *
+          </Label>
           <Input
+            ref={dateInputRef}
             id="date"
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => {
+              setDate(e.target.value);
+              markFieldEdited("date");
+              if (errors.date && e.target.value) clearFieldError("date");
+            }}
+            onBlur={() => handleFieldBlur("date", t("expenseForm.date"))}
+            required
+            aria-invalid={Boolean(errors.date)}
+            aria-describedby={errors.date ? "expense-error-date" : undefined}
+            className={cn(errors.date && "border-destructive focus-visible:ring-destructive")}
             data-testid="input-expense-date"
           />
+          {renderFieldError("date")}
         </div>
         <div>
-          <Label className="mb-3 block">{t("expenseForm.splitBetween")}</Label>
-          <div className="space-y-3 pb-24">
+          <Label className={cn("mb-3 block", errors.splits && "text-destructive")}>
+            {t("expenseForm.splitBetween")}
+          </Label>
+          <div
+            ref={splitsSectionRef}
+            tabIndex={-1}
+            aria-invalid={Boolean(errors.splits)}
+            aria-describedby={errors.splits ? "expense-error-splits" : undefined}
+            className={cn(
+              "space-y-3 pb-24 outline-none",
+              errors.splits && "rounded-xl ring-2 ring-destructive/60 bg-destructive/5 p-2 pb-24"
+            )}
+          >
+            {renderFieldError("splits")}
             {splits.map((split) => (
               <div
                 key={split.userId}
