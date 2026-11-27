@@ -21,6 +21,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import SettlementModal from "@/components/settlement-modal";
+import TransactionDetailDrawer, { type TransactionDetailItem } from "@/components/transaction-detail-drawer";
 import ExpensesList from "./expenses";
 import { Member, Settlement, formatCurrency } from "@quozen/core";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -49,6 +50,7 @@ export default function ActivityHub() {
     const [showAllSettlements, setShowAllSettlements] = useState(false); // false = Show Me Only
     const [editingSettlement, setEditingSettlement] = useState<Settlement | null>(null);
     const [deletingSettlement, setDeletingSettlement] = useState<Settlement | null>(null);
+    const [detailItem, setDetailItem] = useState<TransactionDetailItem | null>(null);
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
@@ -146,6 +148,7 @@ export default function ActivityHub() {
     const { groups } = useGroups();
     const activeGroup = groups.find(g => g.id === activeGroupId);
     const activeGroupName = activeGroup?.name || "";
+    const isClosed = Boolean(activeGroup?.status === "closed" || ledger?.isClosed);
 
     let autoSync: any;
     try {
@@ -249,6 +252,8 @@ export default function ActivityHub() {
                             members={members}
                             categories={ledger?.categories}
                             isLoading={isLoading}
+                            isClosed={isClosed}
+                            onSelectExpenseReadOnly={(expense) => setDetailItem({ type: "expense", data: expense })}
                         />
                     </div>
                 ) : (
@@ -327,7 +332,11 @@ export default function ActivityHub() {
                                                 isNeutral ? "opacity-80 bg-muted/10 border-l-muted" :
                                                     isMeSender ? "border-l-orange-500" : "border-l-green-500"
                                             )}
-                                            onClick={() => setEditingSettlement(settlement)}
+                                            onClick={() =>
+                                                isClosed
+                                                    ? setDetailItem({ type: "settlement", data: settlement })
+                                                    : setEditingSettlement(settlement)
+                                            }
                                         >
                                             <CardContent className="flex items-center justify-between p-4 py-3">
                                                 {/* Sender */}
@@ -368,29 +377,31 @@ export default function ActivityHub() {
                                                 </div>
 
                                                 {/* Meatball Menu */}
-                                                <div className="ml-2 shrink-0">
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                                                                <MoreVertical className="w-4 h-4" />
-                                                            </Button>
-                                                        </DropdownMenuTrigger>
-                                                        <DropdownMenuContent align="end">
-                                                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditingSettlement(settlement); }}>
-                                                                <Edit className="w-4 h-4 mr-2" />
-                                                                {t("common.edit")}
-                                                            </DropdownMenuItem>
-                                                            <DropdownMenuSeparator />
-                                                            <DropdownMenuItem
-                                                                className="text-destructive focus:text-destructive"
-                                                                onClick={(e) => { e.stopPropagation(); setDeletingSettlement(settlement); }}
-                                                            >
-                                                                <Trash2 className="w-4 h-4 mr-2" />
-                                                                {t("common.delete")}
-                                                            </DropdownMenuItem>
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
-                                                </div>
+                                                {!isClosed && (
+                                                    <div className="ml-2 shrink-0">
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                                                                    <MoreVertical className="w-4 h-4" />
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end">
+                                                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setEditingSettlement(settlement); }}>
+                                                                    <Edit className="w-4 h-4 mr-2" />
+                                                                    {t("common.edit")}
+                                                                </DropdownMenuItem>
+                                                                <DropdownMenuSeparator />
+                                                                <DropdownMenuItem
+                                                                    className="text-destructive focus:text-destructive"
+                                                                    onClick={(e) => { e.stopPropagation(); setDeletingSettlement(settlement); }}
+                                                                >
+                                                                    <Trash2 className="w-4 h-4 mr-2" />
+                                                                    {t("common.delete")}
+                                                                </DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </div>
+                                                )}
                                             </CardContent>
                                         </Card>
                                     );
@@ -401,14 +412,19 @@ export default function ActivityHub() {
                 )}
             </div>
 
-            {editingSettlement && (
-                <SettlementModal
-                    isOpen={!!editingSettlement}
-                    onClose={() => setEditingSettlement(null)}
-                    initialData={editingSettlement}
-                    users={members}
-                />
-            )}
+            <SettlementModal
+                isOpen={!!editingSettlement}
+                onClose={() => setEditingSettlement(null)}
+                initialData={editingSettlement || undefined}
+                users={members}
+            />
+
+            <TransactionDetailDrawer
+                item={detailItem}
+                onClose={() => setDetailItem(null)}
+                members={members}
+                categories={ledger?.categories}
+            />
 
             <AlertDialog open={!!deletingSettlement} onOpenChange={(open) => !open && setDeletingSettlement(null)}>
                 <AlertDialogContent>

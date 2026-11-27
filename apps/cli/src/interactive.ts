@@ -1,7 +1,8 @@
 import prompts from 'prompts';
 import chalk from 'chalk';
-import { formatCurrency, CommandDraftService } from '@quozen/core';
+import { formatCurrency, CommandDraftService, resolveGroupState } from '@quozen/core';
 import { getQuozenCliClient } from './quozen.js';
+import { buildInteractiveActionChoices, runCloseGroupCommand, runReopenGroupCommand } from './group-lifecycle.js';
 
 export async function startInteractive() {
     console.log(chalk.cyan("Initializing Quozen CLI..."));
@@ -16,7 +17,9 @@ export async function startInteractive() {
 
     while (true) {
         const activeGroup = settings.groupCache.find((g: any) => g.id === activeGroupId);
-        const groupName = activeGroup ? activeGroup.name : 'None';
+        const groupStatus = activeGroup?.status || 'open';
+        const groupState = resolveGroupState(groupStatus);
+        const groupName = activeGroup ? `${activeGroup.name}${groupState.isClosed ? ' [CLOSED]' : ''}` : 'None';
         const activeAccountId = activeGroup?.accountId || quozen.user.id;
         const activeAccountLabel = activeGroup?.accountId && activeGroup.accountId !== quozen.user.id
             ? activeGroup.accountId
@@ -25,17 +28,8 @@ export async function startInteractive() {
         const { action } = await prompts({
             type: 'select',
             name: 'action',
-            message: `Quozen CLI - Select an action (Current Group: ${chalk.green(groupName)} | Account: ${chalk.cyan(activeAccountLabel)})`,
-            choices: [
-                { title: 'View Dashboard', value: 'dashboard' },
-                { title: 'Ask AI 🤖', value: 'ask_ai' },
-                { title: 'Switch Group', value: 'switch_group' },
-                { title: 'Switch / Rename Account', value: 'manage_account' },
-                { title: 'Add Expense', value: 'add_expense' },
-                { title: 'Record Settlement', value: 'record_settlement' },
-                { title: 'Log out', value: 'logout' },
-                { title: 'Exit', value: 'exit' }
-            ]
+            message: `Quozen CLI - Select an action (Current Group: ${groupState.isClosed ? chalk.yellow(groupName) : chalk.green(groupName)} | Account: ${chalk.cyan(activeAccountLabel)})`,
+            choices: buildInteractiveActionChoices(groupStatus)
         });
 
         if (!action || action === 'exit') break;
@@ -113,8 +107,22 @@ export async function startInteractive() {
                         });
 
                         if (confirm) {
+                            const willZero = ledger.wouldSettlementZeroAllBalances(draft);
                             await ledgerSvc.addSettlement(draft);
                             console.log(chalk.green("✨ Settlement recorded successfully!"));
+                            if (willZero) {
+                                const { closeNow } = await prompts({
+                                    type: 'confirm',
+                                    name: 'closeNow',
+                                    message: 'All balances in this group are now zero! Would you like to close the group?',
+                                    initial: true
+                                });
+                                if (closeNow) {
+                                    await runCloseGroupCommand(quozen, activeGroupId);
+                                    settings = await quozen.groups.getSettings();
+                                    console.log(chalk.green("Group closed (read-only)."));
+                                }
+                            }
                         } else {
                             console.log(chalk.yellow("Draft cancelled."));
                         }
@@ -155,7 +163,10 @@ export async function startInteractive() {
                     type: 'select',
                     name: 'newGroupId',
                     message: 'Select a group',
-                    choices: settings.groupCache.map((g: any) => ({ title: g.name, value: g.id }))
+                    choices: settings.groupCache.map((g: any) => ({
+                        title: g.status === 'closed' ? `${g.name} [CLOSED]` : g.name,
+                        value: g.id
+                    }))
                 });
                 if (newGroupId) {
                     activeGroupId = newGroupId;
@@ -177,7 +188,7 @@ export async function startInteractive() {
                     message: `Manage Account (Current: ${currentMember?.name || activeAccountId})`,
                     choices: [
                         { title: 'Switch Active Account (Personal / Shared / Offline)', value: 'switch' },
-                        { title: 'Rename Active Account', value: 'rename' },
+                        ...(groupState.canManageRoster ? [{ title: 'Rename Active Account', value: 'rename' }] : []),
                         { title: 'Back', value: 'back' }
                     ]
                 });
@@ -297,6 +308,11 @@ export async function startInteractive() {
                         continue;
                     }
                     console.log(chalk.cyan("Recording settlement..."));
+                    const willZero = ledger.wouldSettlementZeroAllBalances({
+                        fromUserId: response.fromUserId,
+                        toUserId: response.toUserId,
+                        amount: response.amount
+                    });
                     await quozen.ledger(activeGroupId, activeAccountId).addSettlement({
                         fromUserId: response.fromUserId,
                         toUserId: response.toUserId,
@@ -305,7 +321,49 @@ export async function startInteractive() {
                         date: new Date()
                     });
                     console.log(chalk.green("Settlement recorded successfully!"));
+                    if (willZero) {
+                        const { closeNow } = await prompts({
+                            type: 'confirm',
+                            name: 'closeNow',
+                            message: 'All balances in this group are now zero! Would you like to close the group?',
+                            initial: true
+                        });
+                        if (closeNow) {
+                            await runCloseGroupCommand(quozen, activeGroupId);
+                            settings = await quozen.groups.getSettings();
+                            console.log(chalk.green("Group closed (read-only)."));
+                        }
+                    }
                 }
+            } else if (action === 'close_group') {
+                if (!activeGroupId) continue;
+                try {
+                    await runCloseGroupCommand(quozen, activeGroupId);
+                    settings = await quozen.groups.getSettings();
+                    console.log(chalk.green("Group is now closed (read-only)."));
+                } catch (err: any) {
+                    if (err?.name === 'GroupNotSettledError') {
+                        console.log(chalk.yellow("Warning: This group still has non-zero account balances."));
+                        const { confirmForce } = await prompts({
+                            type: 'confirm',
+                            name: 'confirmForce',
+                            message: 'Close this group anyway?',
+                            initial: false
+                        });
+                        if (confirmForce) {
+                            await runCloseGroupCommand(quozen, activeGroupId, { force: true });
+                            settings = await quozen.groups.getSettings();
+                            console.log(chalk.green("Group force-closed (read-only)."));
+                        }
+                    } else {
+                        throw err;
+                    }
+                }
+            } else if (action === 'reopen_group') {
+                if (!activeGroupId) continue;
+                await runReopenGroupCommand(quozen, activeGroupId);
+                settings = await quozen.groups.getSettings();
+                console.log(chalk.green("Group re-opened for editing."));
             } else if (action === 'logout') {
                 const fs = await import('fs/promises');
                 const path = await import('path');

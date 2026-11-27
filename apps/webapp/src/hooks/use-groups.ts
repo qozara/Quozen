@@ -13,6 +13,7 @@ export function useGroups() {
         participants: [], // Cache doesn't store participants details for performance
         createdAt: cg.lastAccessed ? new Date(cg.lastAccessed) : new Date(),
         isOwner: cg.role === "owner",
+        status: cg.status || "open",
         ...(cg.icon !== undefined ? { icon: cg.icon } : {})
     })) || [];
 
@@ -24,6 +25,7 @@ export function useGroups() {
         participants: [],
         createdAt: cg.lastAccessed ? new Date(cg.lastAccessed) : new Date(),
         isOwner: cg.role === "owner",
+        status: cg.status || "open",
         ...(cg.icon !== undefined ? { icon: cg.icon } : {})
     })) || [];
 

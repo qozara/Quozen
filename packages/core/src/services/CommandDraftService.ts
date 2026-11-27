@@ -77,6 +77,9 @@ export class CommandDraftService {
       forceAi = false
     } = options;
     const isGenAiActive = genAiEnabled ?? aiEnabled;
+    if (ledger.state && typeof ledger.state.assertCanCreateDraft === 'function') {
+      ledger.state.assertCanCreateDraft();
+    }
     const members = ledger.members || [];
     const meMember = members.find(m => m.userId === activeAccountId);
     const meName = meMember ? meMember.name : 'Me';

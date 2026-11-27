@@ -108,7 +108,8 @@ export class QuozenClient {
             async () => {
                 const settings = await this.groups.getSettings();
                 return settings.archivedGroupCache?.some(g => g.id === groupId) ?? false;
-            }
+            },
+            () => this.groups.getGroupLifecycleState(groupId)
         );
     }
 

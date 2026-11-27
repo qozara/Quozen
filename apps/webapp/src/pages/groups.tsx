@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2, Archive, ArchiveRestore } from "lucide-react";
+import { Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2, Archive, ArchiveRestore, Lock, LockOpen } from "lucide-react";
 import { MemberInput, Group, Member, GroupFileUnavailableError } from "@quozen/core";
 import { GroupIcon } from "@/components/group-icon";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +57,7 @@ export default function Groups() {
 
   const [alertState, setAlertState] = useState<{
     open: boolean;
-    type: "delete" | "leave" | "archive";
+    type: "delete" | "leave" | "archive" | "forceClose";
     group?: Group;
   }>({ open: false, type: "delete" });
 
@@ -166,6 +166,33 @@ export default function Groups() {
   const handleArchiveClick = (e: React.MouseEvent, group: Group) => {
     e.stopPropagation();
     setAlertState({ open: true, type: "archive", group });
+  };
+
+  const handleCloseGroupClick = async (e: React.MouseEvent, group: Group) => {
+    e.stopPropagation();
+    if (loadingGroupId) return;
+    setLoadingGroupId(group.id);
+    try {
+      const ledger = await quozen.ledger(group.id).getLedger();
+      if (ledger.areAllBalancesZero()) {
+        closeGroupMutation.mutate({ groupId: group.id, force: false });
+      } else {
+        setAlertState({ open: true, type: "forceClose", group });
+      }
+    } catch (err) {
+      toast({
+        title: t("common.error"),
+        description: err instanceof Error ? err.message : t("common.genericError"),
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingGroupId(null);
+    }
+  };
+
+  const handleReopenGroupClick = (e: React.MouseEvent, group: Group) => {
+    e.stopPropagation();
+    reopenGroupMutation.mutate(group.id);
   };
 
   const handleUnarchiveClick = (e: React.MouseEvent, group: Group) => {
@@ -324,6 +351,42 @@ export default function Groups() {
     }
   });
 
+  const closeGroupMutation = useMutation({
+    mutationFn: async ({ groupId, force }: { groupId: string; force?: boolean }) => {
+      return await quozen.groups.closeGroup(groupId, { force });
+    },
+    onSuccess: (_, { groupId }) => {
+      queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      queryClient.invalidateQueries({ queryKey: ["drive", "group", groupId] });
+      setAlertState(prev => ({ ...prev, open: false }));
+    },
+    onError: (error: any) => {
+      toast({
+        title: t("common.error"),
+        description: error instanceof Error ? error.message : t("common.genericError"),
+        variant: "destructive",
+      });
+      setAlertState(prev => ({ ...prev, open: false }));
+    },
+  });
+
+  const reopenGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      return await quozen.groups.reopenGroup(groupId);
+    },
+    onSuccess: (_, groupId) => {
+      queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      queryClient.invalidateQueries({ queryKey: ["drive", "group", groupId] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: t("common.error"),
+        description: error instanceof Error ? error.message : t("common.genericError"),
+        variant: "destructive",
+      });
+    },
+  });
+
   return (
     <div className="mx-4 mt-4 pb-20">
       <div className="flex items-center justify-between mb-6">
@@ -479,6 +542,16 @@ export default function Groups() {
                                   {t("groups.current")}
                                 </Badge>
                               )}
+                              {group.status === "closed" && (
+                                <Badge
+                                  variant="outline"
+                                  data-testid="badge-group-closed"
+                                  className="text-[10px] px-1.5 py-0 h-5 font-normal text-muted-foreground"
+                                >
+                                  <Lock className="w-3 h-3 mr-1" />
+                                  {t("groups.closedBadge", "Closed")}
+                                </Badge>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -506,9 +579,20 @@ export default function Groups() {
                                   <DropdownMenuItem onClick={(e) => handleShareClick(e, group)}>
                                     <Share2 className="w-4 h-4 mr-2" /> {t("common.share")}
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={(e) => handleEditClick(e, group)} data-testid="menuitem-edit">
-                                    <Pencil className="w-4 h-4 mr-2" /> {t("common.edit")}
-                                  </DropdownMenuItem>
+                                  {group.status !== "closed" && (
+                                    <DropdownMenuItem onClick={(e) => handleEditClick(e, group)} data-testid="menuitem-edit">
+                                      <Pencil className="w-4 h-4 mr-2" /> {t("common.edit")}
+                                    </DropdownMenuItem>
+                                  )}
+                                  {group.status === "closed" ? (
+                                    <DropdownMenuItem onClick={(e) => handleReopenGroupClick(e, group)} data-testid="menuitem-reopen">
+                                      <LockOpen className="w-4 h-4 mr-2" /> {t("groups.reopenAction", "Re-open Group")}
+                                    </DropdownMenuItem>
+                                  ) : (
+                                    <DropdownMenuItem onClick={(e) => handleCloseGroupClick(e, group)} data-testid="menuitem-close">
+                                      <Lock className="w-4 h-4 mr-2" /> {t("groups.closeAction", "Close Group")}
+                                    </DropdownMenuItem>
+                                  )}
                                   <DropdownMenuItem onClick={(e) => handleArchiveClick(e, group)} data-testid="menuitem-archive">
                                     <Archive className="w-4 h-4 mr-2" /> {t("groups.archiveAction")}
                                   </DropdownMenuItem>
@@ -521,6 +605,15 @@ export default function Groups() {
                                 </>
                               ) : (
                                 <>
+                                  {group.status === "closed" ? (
+                                    <DropdownMenuItem onClick={(e) => handleReopenGroupClick(e, group)} data-testid="menuitem-reopen">
+                                      <LockOpen className="w-4 h-4 mr-2" /> {t("groups.reopenAction", "Re-open Group")}
+                                    </DropdownMenuItem>
+                                  ) : (
+                                    <DropdownMenuItem onClick={(e) => handleCloseGroupClick(e, group)} data-testid="menuitem-close">
+                                      <Lock className="w-4 h-4 mr-2" /> {t("groups.closeAction", "Close Group")}
+                                    </DropdownMenuItem>
+                                  )}
                                   <DropdownMenuItem onClick={(e) => handleArchiveClick(e, group)} data-testid="menuitem-archive">
                                     <Archive className="w-4 h-4 mr-2" /> {t("groups.archiveAction")}
                                   </DropdownMenuItem>
@@ -658,20 +751,31 @@ export default function Groups() {
       <AlertDialog
         open={alertState.open}
         onOpenChange={(open) => {
-          if (deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending) return;
+          if (deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending || closeGroupMutation.isPending) return;
           if (!open) setAlertState(prev => ({ ...prev, open }));
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent data-testid={alertState.type === "forceClose" ? "alert-force-close-group" : undefined}>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {alertState.type === 'delete' ? t("groups.delete") : alertState.type === 'archive' ? t("groups.archive") : t("groups.leave")}
+              {alertState.type === 'delete'
+                ? t("groups.delete")
+                : alertState.type === 'archive'
+                ? t("groups.archive")
+                : alertState.type === 'forceClose'
+                ? t("groups.forceCloseTitle", "Close Group with Unsettled Balances?")
+                : t("groups.leave")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {alertState.type === 'delete'
                 ? t("groups.confirmDelete", { name: alertState.group?.name })
                 : alertState.type === 'archive'
                 ? t("groups.confirmArchive", { name: alertState.group?.name })
+                : alertState.type === 'forceClose'
+                ? t("groups.forceCloseDesc", {
+                    name: alertState.group?.name,
+                    defaultValue: `"${alertState.group?.name}" still has non-zero account balances. Closing it will make the group read-only for all members until someone re-opens it. Are you sure you want to close it anyway?`
+                  })
                 : (() => {
                     const cachedGroup = settings?.groupCache?.find(g => g.id === alertState.group?.id);
                     const isLinkedToDifferentAccount = cachedGroup?.accountId && user?.id && cachedGroup.accountId !== user.id;
@@ -684,32 +788,46 @@ export default function Groups() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending}>
+            <AlertDialogCancel disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending || closeGroupMutation.isPending}>
               {t("common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               data-testid="alert-action-confirm"
-              disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending}
+              disabled={deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending || closeGroupMutation.isPending}
               onClick={(e) => {
                 e.preventDefault();
-                if (!alertState.group || deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending) return;
+                if (!alertState.group || deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending || closeGroupMutation.isPending) return;
                 if (alertState.type === 'archive') {
                   archiveGroupMutation.mutate(alertState.group.id);
+                } else if (alertState.type === 'forceClose') {
+                  closeGroupMutation.mutate({ groupId: alertState.group.id, force: true });
                 } else if (alertState.type === 'delete') {
                   deleteGroupMutation.mutate(alertState.group.id);
                 } else {
                   leaveGroupMutation.mutate(alertState.group.id);
                 }
               }}
-              className={alertState.type === 'archive' ? "" : "bg-destructive text-destructive-foreground hover:bg-destructive/90"}
+              className={alertState.type === 'archive' || alertState.type === 'forceClose' ? "" : "bg-destructive text-destructive-foreground hover:bg-destructive/90"}
             >
-              {deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending ? (
+              {deleteGroupMutation.isPending || leaveGroupMutation.isPending || archiveGroupMutation.isPending || closeGroupMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {alertState.type === 'delete' ? t("groups.deleting") : alertState.type === 'archive' ? t("groups.archiving") : t("groups.leaving")}
+                  {alertState.type === 'delete'
+                    ? t("groups.deleting")
+                    : alertState.type === 'archive'
+                    ? t("groups.archiving")
+                    : alertState.type === 'forceClose'
+                    ? t("groups.closing", "Closing...")
+                    : t("groups.leaving")}
                 </>
               ) : (
-                alertState.type === 'delete' ? t("groups.deleteAction") : alertState.type === 'archive' ? t("groups.archiveAction") : t("groups.leaveAction")
+                alertState.type === 'delete'
+                  ? t("groups.deleteAction")
+                  : alertState.type === 'archive'
+                  ? t("groups.archiveAction")
+                  : alertState.type === 'forceClose'
+                  ? t("groups.forceCloseAction", "Close Anyway")
+                  : t("groups.leaveAction")
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

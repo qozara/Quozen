@@ -214,6 +214,70 @@ export function useSettings() {
     }
   });
 
+  const closeGroupMutation = useMutation({
+    mutationFn: ({ groupId, force }: { groupId: string; force?: boolean }) => {
+      return quozen.groups.closeGroup(groupId, { force });
+    },
+    onMutate: async ({ groupId }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousSettings = queryClient.getQueryData<UserSettings>(queryKey);
+      const nowIso = new Date().toISOString();
+
+      queryClient.setQueryData<UserSettings | undefined>(queryKey, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          groupCache: (old.groupCache || []).map(g =>
+            g.id === groupId ? { ...g, status: "closed" as const, statusUpdatedAt: nowIso, updatedAt: nowIso } : g
+          )
+        };
+      });
+
+      return { previousSettings };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(queryKey, context.previousSettings);
+      }
+    },
+    onSettled: (_data, _err, { groupId }) => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ["drive", "group", groupId] });
+    }
+  });
+
+  const reopenGroupMutation = useMutation({
+    mutationFn: (groupId: string) => {
+      return quozen.groups.reopenGroup(groupId);
+    },
+    onMutate: async (groupId: string) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previousSettings = queryClient.getQueryData<UserSettings>(queryKey);
+      const nowIso = new Date().toISOString();
+
+      queryClient.setQueryData<UserSettings | undefined>(queryKey, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          groupCache: (old.groupCache || []).map(g =>
+            g.id === groupId ? { ...g, status: "open" as const, statusUpdatedAt: nowIso, updatedAt: nowIso } : g
+          )
+        };
+      });
+
+      return { previousSettings };
+    },
+    onError: (_err, _groupId, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(queryKey, context.previousSettings);
+      }
+    },
+    onSettled: (_data, _err, groupId) => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ["drive", "group", groupId] });
+    }
+  });
+
   return {
     settings: query.data,
     isLoading: query.isLoading,
@@ -228,5 +292,11 @@ export function useSettings() {
     archiveGroupAsync: archiveGroupMutation.mutateAsync,
     unarchiveGroup: unarchiveGroupMutation.mutate,
     unarchiveGroupAsync: unarchiveGroupMutation.mutateAsync,
+    closeGroup: closeGroupMutation.mutate,
+    closeGroupAsync: closeGroupMutation.mutateAsync,
+    isClosingGroup: closeGroupMutation.isPending,
+    reopenGroup: reopenGroupMutation.mutate,
+    reopenGroupAsync: reopenGroupMutation.mutateAsync,
+    isReopeningGroup: reopenGroupMutation.isPending,
   };
 }

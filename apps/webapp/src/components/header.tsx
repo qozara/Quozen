@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, RefreshCw, ChevronLeft } from "lucide-react";
+import { ChevronDown, RefreshCw, ChevronLeft, Lock } from "lucide-react";
 import GroupSwitcherModal from "./group-switcher-modal";
 import { useState } from "react";
 import { quozen } from "@/lib/storage";
@@ -46,6 +46,7 @@ export default function Header() {
   const { data: participantsData } = useGroupParticipants(activeGroupId, false);
 
   const activeGroup = groups.find((g) => g.id === activeGroupId);
+  const isClosed = Boolean(activeGroup?.status === "closed" || ledger?.isClosed);
   const activeIcon = activeGroup?.icon || ledger?.icon;
   const memberCount = ledger?.members?.length || 0;
   const collaboratorCount = participantsData?.collaborators?.length;
@@ -148,12 +149,22 @@ export default function Header() {
                         {activeGroup?.name || t("header.selectGroup")}
                       </h1>
                       {activeGroup && (
-                        <span
-                          data-testid="active-group-badge"
-                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary shrink-0"
-                        >
-                          {t("header.activeGroup", "Active")}
-                        </span>
+                        isClosed ? (
+                          <span
+                            data-testid="closed-group-badge"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border shrink-0"
+                          >
+                            <Lock className="w-2.5 h-2.5" />
+                            {t("groups.closedBadge", "Closed")}
+                          </span>
+                        ) : (
+                          <span
+                            data-testid="active-group-badge"
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary shrink-0"
+                          >
+                            {t("header.activeGroup", "Active")}
+                          </span>
+                        )
                       )}
                     </div>
                     <div className="flex items-center text-sm text-muted-foreground">

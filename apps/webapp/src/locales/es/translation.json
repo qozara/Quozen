@@ -22,7 +22,8 @@
         "error": "Error",
         "success": "Éxito",
         "genericError": "Ocurrió un error inesperado.",
-        "share": "Compartir"
+        "share": "Compartir",
+        "close": "Cerrar"
     },
     "roles": {
         "owner": "Dueño",
@@ -117,6 +118,13 @@
         "unarchiveAction": "Desarchivar",
         "archiving": "Archivando...",
         "unarchiving": "Desarchivando...",
+        "closedBadge": "Cerrado",
+        "closeAction": "Cerrar Grupo",
+        "reopenAction": "Reabrir Grupo",
+        "closing": "Cerrando...",
+        "forceCloseTitle": "¿Cerrar grupo con saldos pendientes?",
+        "forceCloseDesc": "\"{{name}}\" todavía tiene cuentas con saldo distinto de cero. Al cerrarlo pasará a modo de solo lectura para todos los miembros hasta que alguien lo reabra. ¿Seguro que quieres cerrarlo de todos modos?",
+        "forceCloseAction": "Cerrar de todos modos",
         "confirmArchive": "¿Seguro que quieres archivar \"{{name}}\"? Se quitará de tus grupos activos y pasará a ser de solo lectura. Puedes desarchivarlo en cualquier momento desde la pestaña de Archivados.",
         "readOnlyBanner": "Este grupo está archivado y es de solo lectura. Desarchívalo para agregar gastos o editar miembros.",
         "noArchived": "No hay grupos archivados.",
@@ -242,7 +250,13 @@
         "deleteDesc": "Esto eliminará permanentemente el registro. No se puede deshacer.",
         "sameUser": "El pagador y el receptor no pueden ser el mismo.",
         "saveError": "Error al guardar el pago.",
-        "deleteError": "Error al eliminar el pago."
+        "deleteError": "Error al eliminar el pago.",
+        "autoCloseTitle": "¡Todos los saldos saldados!",
+        "autoCloseDesc": "Todos los saldos en \"{{name}}\" quedaron en cero. ¿Quieres cerrar este grupo para dejarlo en modo de solo lectura? Podrás reabrirlo en cualquier momento.",
+        "keepOpen": "Mantener abierto"
+    },
+    "transactionDetail": {
+        "splitsTitle": "Detalle de la División"
     },
     "login": {
         "welcome": "Bienvenido a Quozen",

@@ -71,7 +71,7 @@ export interface CategoryDocType {
 
 export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
     title: "user_settings",
-    version: 4,
+    version: 5,
     description: "Global user preferences and cached group metadata stored locally and in Drive appDataFolder",
     primaryKey: "id",
     type: "object",
@@ -94,7 +94,10 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     pendingRename: { type: "boolean" },
                     updatedAt: { type: "string" },
                     isArchived: { type: "boolean" },
-                    icon: { type: "string" }
+                    icon: { type: "string" },
+                    status: { type: "string", enum: ["open", "closed"] },
+                    statusUpdatedAt: { type: "string" },
+                    pendingStatusSync: { type: "boolean" }
                 },
                 required: ["id", "name", "role"]
             }
@@ -114,7 +117,10 @@ export const userSettingsSchema: RxJsonSchema<UserSettingsDocType> = {
                     pendingRename: { type: "boolean" },
                     updatedAt: { type: "string" },
                     isArchived: { type: "boolean" },
-                    icon: { type: "string" }
+                    icon: { type: "string" },
+                    status: { type: "string", enum: ["open", "closed"] },
+                    statusUpdatedAt: { type: "string" },
+                    pendingStatusSync: { type: "boolean" }
                 },
                 required: ["id", "name", "role"]
             }
@@ -188,6 +194,25 @@ export const userSettingsMigrationStrategies = {
                 ...oldDoc.preferences,
                 enableLocalAi: oldDoc.preferences?.enableLocalAi ?? false
             },
+            updatedAt: oldDoc.updatedAt || new Date().toISOString()
+        };
+    },
+    5: (oldDoc: any) => {
+        return {
+            ...oldDoc,
+            version: 5,
+            groupCache: Array.isArray(oldDoc.groupCache)
+                ? oldDoc.groupCache.map((g: any) => ({
+                    ...g,
+                    status: g.status === "closed" ? "closed" : "open"
+                }))
+                : [],
+            archivedGroupCache: Array.isArray(oldDoc.archivedGroupCache)
+                ? oldDoc.archivedGroupCache.map((g: any) => ({
+                    ...g,
+                    status: g.status === "closed" ? "closed" : "open"
+                }))
+                : [],
             updatedAt: oldDoc.updatedAt || new Date().toISOString()
         };
     }
@@ -479,7 +504,7 @@ export function userSettingsToDoc(settings: UserSettings, id = "global_settings"
     const nowIso = settings.lastUpdated || new Date().toISOString();
     return {
         id,
-        version: settings.version || 4,
+        version: settings.version || 5,
         activeGroupId: settings.activeGroupId ?? null,
         groupCache: (settings.groupCache || []).map(g => ({ ...g })),
         archivedGroupCache: (settings.archivedGroupCache || []).map(g => ({ ...g })),

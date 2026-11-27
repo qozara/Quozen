@@ -17,6 +17,8 @@ export const UpdateGroupDTOSchema = z.object({
     icon: z.string().optional().describe('Preset key or base64 data URL icon').openapi({ example: 'preset:utensils' }),
 }).openapi('UpdateGroupRequest');
 
+export const GroupStatusSchema = z.enum(['open', 'closed']).openapi('GroupStatus');
+
 export const GroupSchema = z.object({
     id: z.string().openapi({ example: '123e4567-e89b-12d3-a456-426614174000' }),
     name: z.string().openapi({ example: 'Trip to Paris' }),
@@ -26,7 +28,23 @@ export const GroupSchema = z.object({
     createdAt: z.union([z.string(), z.date()]).openapi({ example: '2023-10-15T18:00:00Z' }),
     isOwner: z.boolean().openapi({ example: true }),
     icon: z.string().optional().openapi({ example: 'preset:utensils' }),
+    status: GroupStatusSchema.optional().describe('Lifecycle status of the group. AGENT INSTRUCTION: Closed groups are read-only and reject expense, settlement, and group edits with 409 Conflict until reopened via POST /api/v1/groups/{id}/reopen.').openapi({ example: 'open' }),
 }).openapi('Group');
+
+export const CloseGroupRequestSchema = z.object({
+    force: z.boolean().optional().default(false).describe('Force close the group even if member balances are not all zero. AGENT INSTRUCTION: Ask the user to confirm before setting force=true when a 409 GroupNotSettledError is returned.').openapi({ example: false }),
+}).openapi('CloseGroupRequest');
+
+export const GroupStatusResponseSchema = z.object({
+    id: z.string(),
+    status: GroupStatusSchema,
+}).openapi('GroupStatusResponse');
+
+export const GroupNotSettledErrorSchema = z.object({
+    error: z.string(),
+    message: z.string(),
+    nonZeroBalances: z.record(z.string(), z.number()),
+}).openapi('GroupNotSettledErrorResponse');
 
 export const ExpenseSplitSchema = z.object({
     userId: z.string().openapi({ example: 'user-id-1' }),
@@ -103,6 +121,7 @@ export const LedgerAnalyticsSchema = z.object({
     settlementCount: z.number().describe('The number of settlement records'),
     memberCount: z.number().describe('The number of members in the group'),
     isBalanced: z.boolean().describe('Whether the sum of all balances is zero (should always be true)'),
+    status: GroupStatusSchema.optional().describe('Whether the group is open or closed (read-only).'),
 }).openapi('LedgerAnalytics');
 
 export const SchemaStatusDTOSchema = z.object({

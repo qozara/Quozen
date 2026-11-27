@@ -1,5 +1,6 @@
 import { IStorageLayer } from "./IStorageLayer";
-import { Expense, Settlement, Member, ExpenseCategory } from "../domain/models";
+import { Expense, Settlement, Member, ExpenseCategory, GroupStatus } from "../domain/models";
+import { normalizeGroupStatus } from "../domain/GroupState";
 import { DEFAULT_CATEGORIES } from "../domain/categories";
 import { ConflictError } from "../errors";
 import { SheetDataMapper, HeaderMap, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP } from "./SheetDataMapper";
@@ -30,6 +31,21 @@ export class LedgerRepository {
 
     private static hydrationPromises = new WeakMap<object, Map<string, Promise<void>>>();
     private static iconMemoryCache = new Map<string, string>();
+    private static statusMemoryCache = new Map<string, GroupStatus>();
+
+    public static setCachedGroupStatus(groupId: string, status: GroupStatus): void {
+        if (groupId) {
+            LedgerRepository.statusMemoryCache.set(groupId, status);
+        }
+    }
+
+    public static clearCachedGroupStatus(groupId?: string): void {
+        if (groupId) {
+            LedgerRepository.statusMemoryCache.delete(groupId);
+        } else {
+            LedgerRepository.statusMemoryCache.clear();
+        }
+    }
 
     constructor(
         private storage?: IStorageLayer,
@@ -95,6 +111,46 @@ export class LedgerRepository {
             }
         }
         return undefined;
+    }
+
+    public async getGroupStatus(): Promise<GroupStatus> {
+        if (this.db && this.groupId) {
+            try {
+                const doc = await this.db.user_settings.findOne("global_settings").exec();
+                if (doc && !doc.deletedAt) {
+                    const cached =
+                        doc.groupCache?.find((g: any) => g.id === this.groupId) ||
+                        doc.archivedGroupCache?.find((g: any) => g.id === this.groupId);
+                    if (cached && cached.status) {
+                        const normalized = normalizeGroupStatus(cached.status);
+                        LedgerRepository.statusMemoryCache.set(this.groupId, normalized);
+                        return normalized;
+                    }
+                }
+            } catch {}
+            return LedgerRepository.statusMemoryCache.get(this.groupId) ?? "open";
+        }
+
+        if (this.storage && this.groupId) {
+            const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+            if (!isOffline) {
+                try {
+                    const metaRes = await this.storage.batchGetValues(this.groupId, ["_meta!A1:C50"]);
+                    const metaRows = metaRes[0]?.values || [];
+                    const statusRow = metaRows.find((r: any[]) => r[0] === "status");
+                    const resolved = normalizeGroupStatus(statusRow?.[1]);
+                    LedgerRepository.statusMemoryCache.set(this.groupId, resolved);
+                    return resolved;
+                } catch {
+                    // Fallback to memory cache or open
+                }
+            }
+        }
+
+        if (this.groupId && LedgerRepository.statusMemoryCache.has(this.groupId)) {
+            return LedgerRepository.statusMemoryCache.get(this.groupId)!;
+        }
+        return "open";
     }
 
     private notifyMutation(): void {

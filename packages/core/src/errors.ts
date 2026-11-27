@@ -22,3 +22,23 @@ export class CategoryInUseError extends Error {
         this.name = "CategoryInUseError";
     }
 }
+
+export class GroupClosedError extends Error {
+    constructor(message = "Group is closed and read-only. Re-open the group to make changes.") {
+        super(message);
+        this.name = "GroupClosedError";
+    }
+}
+
+export class GroupNotSettledError extends Error {
+    public readonly nonZeroBalances: Record<string, number>;
+
+    constructor(
+        nonZeroBalances: Record<string, number>,
+        message = "Group has non-zero account balances. Pass force=true to close anyway."
+    ) {
+        super(message);
+        this.name = "GroupNotSettledError";
+        this.nonZeroBalances = nonZeroBalances;
+    }
+}

@@ -2,6 +2,7 @@ import { LedgerRepository } from "../infrastructure/LedgerRepository";
 import { User, Expense, Settlement, Member, ExpenseCategory } from "../domain/models";
 import { CreateExpenseDTO, UpdateExpenseDTO, CreateSettlementDTO, UpdateSettlementDTO } from "../domain/dtos";
 import { Ledger } from "../domain/Ledger";
+import { IGroupLifecycleState, resolveGroupState } from "../domain/GroupState";
 import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError, SchemaIncompatibleError, InvalidCategoryError, TableNotFoundError } from "../errors";
 import { resolveCategory, DEFAULT_CATEGORY_ID, DEFAULT_CATEGORIES } from "../domain/categories";
 import { distributeAmount } from "./index";
@@ -15,7 +16,8 @@ export class LedgerService {
         private groupId?: string,
         private activeAccountId?: string,
         private getActiveAccountId?: () => Promise<string | undefined>,
-        private checkIsArchived?: () => Promise<boolean>
+        private checkIsArchived?: () => Promise<boolean>,
+        private getGroupState?: () => Promise<IGroupLifecycleState>
     ) { }
 
     private async assertNotArchived(): Promise<void> {
@@ -25,6 +27,29 @@ export class LedgerService {
                 throw new Error("Cannot modify an archived group. Please unarchive it first.");
             }
         }
+    }
+
+    private async resolveGroupLifecycleState(): Promise<IGroupLifecycleState> {
+        if (this.getGroupState) {
+            return this.getGroupState();
+        }
+        if (typeof (this.repo as any).getGroupStatus === "function") {
+            const status = await (this.repo as any).getGroupStatus();
+            return resolveGroupState(status);
+        }
+        return resolveGroupState("open");
+    }
+
+    private async assertCanMutateTransactions(): Promise<void> {
+        await this.assertNotArchived();
+        const state = await this.resolveGroupLifecycleState();
+        state.assertCanMutateTransactions();
+    }
+
+    private async assertCanMutateRoster(): Promise<void> {
+        await this.assertNotArchived();
+        const state = await this.resolveGroupLifecycleState();
+        state.assertCanMutateRoster();
     }
 
     private async resolveEffectiveAccountId(): Promise<string | undefined> {
@@ -130,7 +155,7 @@ export class LedgerService {
     }
 
     async addExpense(payload: CreateExpenseDTO): Promise<Expense> {
-        await this.assertNotArchived();
+        await this.assertCanMutateTransactions();
         const members = await this.assertMembership();
         this.assertValidAmount(payload.amount, "Expense amount");
 
@@ -189,7 +214,7 @@ export class LedgerService {
     }
 
     async updateExpense(expenseId: string, payload: UpdateExpenseDTO, expectedLastModified?: Date): Promise<void> {
-        await this.assertNotArchived();
+        await this.assertCanMutateTransactions();
         const members = await this.assertMembership();
         if (payload.amount !== undefined) {
             this.assertValidAmount(payload.amount, "Expense amount");
@@ -252,7 +277,7 @@ export class LedgerService {
     }
 
     async deleteExpense(expenseId: string): Promise<void> {
-        await this.assertNotArchived();
+        await this.assertCanMutateTransactions();
         await this.assertMembership();
         await this.repo.deleteExpense(expenseId);
     }
@@ -262,7 +287,7 @@ export class LedgerService {
     }
 
     async addSettlement(payload: CreateSettlementDTO): Promise<Settlement> {
-        await this.assertNotArchived();
+        await this.assertCanMutateTransactions();
         const members = await this.assertMembership();
         this.assertValidAmount(payload.amount, "Settlement amount");
         const resolvedFrom = this.resolveCanonicalMemberId(payload.fromUserId, members) || payload.fromUserId;
@@ -287,7 +312,7 @@ export class LedgerService {
     }
 
     async updateSettlement(settlementId: string, payload: UpdateSettlementDTO): Promise<void> {
-        await this.assertNotArchived();
+        await this.assertCanMutateTransactions();
         const members = await this.assertMembership();
         if (payload.amount !== undefined) {
             this.assertValidAmount(payload.amount, "Settlement amount");
@@ -321,7 +346,7 @@ export class LedgerService {
     }
 
     async deleteSettlement(settlementId: string): Promise<void> {
-        await this.assertNotArchived();
+        await this.assertCanMutateTransactions();
         await this.assertMembership();
         await this.repo.deleteSettlement(settlementId);
     }
@@ -331,7 +356,7 @@ export class LedgerService {
     }
 
     async renameMember(userId: string, newName: string): Promise<void> {
-        await this.assertNotArchived();
+        await this.assertCanMutateRoster();
         const trimmed = newName.trim();
         if (!trimmed) throw new Error("Account name cannot be empty");
         const members = await this.repo.getMembers();
@@ -345,7 +370,7 @@ export class LedgerService {
     }
 
     async removeUnusedMember(userId: string): Promise<boolean> {
-        await this.assertNotArchived();
+        await this.assertCanMutateRoster();
         const [members, expenses, settlements] = await Promise.all([
             this.repo.getMembers(),
             this.repo.getExpenses(),
@@ -387,13 +412,14 @@ export class LedgerService {
     async getLedger(): Promise<Ledger> {
         await this.ensureSchemaHealth();
 
-        const [expenses, settlements, members, categories, isHydrated, icon] = await Promise.all([
+        const [expenses, settlements, members, categories, isHydrated, icon, groupState] = await Promise.all([
             this.repo.getExpenses(),
             this.repo.getSettlements(),
             this.repo.getMembers(),
             typeof this.repo.getCategories === "function" ? this.repo.getCategories() : Promise.resolve(DEFAULT_CATEGORIES),
             this.isGroupHydrated(),
-            typeof (this.repo as any).getGroupIcon === "function" ? (this.repo as any).getGroupIcon() : Promise.resolve(undefined)
+            typeof (this.repo as any).getGroupIcon === "function" ? (this.repo as any).getGroupIcon() : Promise.resolve(undefined),
+            this.resolveGroupLifecycleState()
         ]);
 
         const rawEffectiveAccountId = await this.resolveEffectiveAccountId();
@@ -437,6 +463,6 @@ export class LedgerService {
             }
         }
 
-        return new Ledger({ expenses, settlements, members, categories, isHydrated, icon });
+        return new Ledger({ expenses, settlements, members, categories, isHydrated, icon, status: groupState.status });
     }
 }
