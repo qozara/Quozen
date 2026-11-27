@@ -1,8 +1,8 @@
-import { Migration, GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
+import { GoogleSheetsFetchClient, type SchemaMigration } from "@qozara/cloud-sync-google";
 
 export const META_TAB_HEADERS = ["key", "value", "updatedAt"];
 
-export const migration_3: Migration = {
+export const migration_3: SchemaMigration = {
     version: 3,
     up: async (client: GoogleSheetsFetchClient, spreadsheetId: string) => {
         const meta = await client.getSpreadsheet(spreadsheetId);

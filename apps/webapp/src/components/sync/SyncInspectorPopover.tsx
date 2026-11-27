@@ -50,6 +50,10 @@ export const SyncInspectorPopover: React.FC<SyncInspectorPopoverProps> = ({ onCl
             setSchemaErrorStatus("CORRUPTED");
         } else if (syncStatus === "upgrade_required") {
             setSchemaErrorStatus("UPGRADE_REQUIRED");
+        } else if (syncStatus === "unmanaged") {
+            setSchemaErrorStatus("UNMANAGED");
+        } else if (syncStatus === "foreign_app") {
+            setSchemaErrorStatus("FOREIGN_APP");
         }
         onClose?.();
     };

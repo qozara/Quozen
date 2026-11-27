@@ -1,1 +1,1 @@
-export { GoogleDriveStorageLayer } from "@qozara/gdocs-schema";
+export { GoogleDriveStorageLayer } from "@qozara/cloud-sync-google";

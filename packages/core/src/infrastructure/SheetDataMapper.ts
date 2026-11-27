@@ -176,7 +176,7 @@ export class SheetDataMapper {
         for (const idx of Object.values(headerMap)) {
             if (idx > maxIdx) maxIdx = idx;
         }
-        const row = new Array(maxIdx + 1).fill("");
+        const row = new Array(maxIdx + 1).fill(undefined);
 
         const setCol = (key: string, val: any) => {
             const idx = getHeaderIndex(headerMap, key);
@@ -202,7 +202,7 @@ export class SheetDataMapper {
             ...(deletedIso ? { deletedAt: deletedIso } : {})
         }));
         setCol('updatedAt', updatedIso);
-        if (deletedIso) setCol('deletedAt', deletedIso);
+        setCol('deletedAt', deletedIso || "");
 
         return row;
     }
@@ -252,7 +252,7 @@ export class SheetDataMapper {
         for (const idx of Object.values(headerMap)) {
             if (idx > maxIdx) maxIdx = idx;
         }
-        const row = new Array(maxIdx + 1).fill("");
+        const row = new Array(maxIdx + 1).fill(undefined);
 
         const setCol = (key: string, val: any) => {
             const idx = getHeaderIndex(headerMap, key);
@@ -272,9 +272,7 @@ export class SheetDataMapper {
         setCol('method', sanitizeSheetValue(settlement.method));
         setCol('notes', sanitizeSheetValue(settlement.notes || ""));
         setCol('updatedAt', updatedIso);
-        if (settlement.deletedAt) {
-            setCol('deletedAt', safeIso(settlement.deletedAt, updatedIso));
-        }
+        setCol('deletedAt', settlement.deletedAt ? safeIso(settlement.deletedAt, updatedIso) : "");
 
         return row;
     }
@@ -320,7 +318,7 @@ export class SheetDataMapper {
         for (const idx of Object.values(headerMap)) {
             if (idx > maxIdx) maxIdx = idx;
         }
-        const row = new Array(maxIdx + 1).fill("");
+        const row = new Array(maxIdx + 1).fill(undefined);
 
         const setCol = (key: string, val: any) => {
             const idx = getHeaderIndex(headerMap, key);
@@ -342,9 +340,7 @@ export class SheetDataMapper {
         setCol('role', sanitizeSheetValue(member.role || "member"));
         setCol('joinedAt', joinedIso);
         setCol('updatedAt', updatedIso);
-        if (member.deletedAt) {
-            setCol('deletedAt', safeIso(member.deletedAt, updatedIso));
-        }
+        setCol('deletedAt', member.deletedAt ? safeIso(member.deletedAt, updatedIso) : "");
 
         return row;
     }
@@ -434,7 +430,7 @@ export class SheetDataMapper {
         for (const idx of Object.values(headerMap)) {
             if (idx > maxIdx) maxIdx = idx;
         }
-        const row = new Array(maxIdx + 1).fill("");
+        const row = new Array(maxIdx + 1).fill(undefined);
 
         const setCol = (key: string, val: any) => {
             const idx = getHeaderIndex(headerMap, key);
@@ -474,9 +470,7 @@ export class SheetDataMapper {
             }
         }
         setCol('updatedAt', updatedIso);
-        if (category.deletedAt) {
-            setCol('deletedAt', safeIso(category.deletedAt, updatedIso));
-        }
+        setCol('deletedAt', category.deletedAt ? safeIso(category.deletedAt, updatedIso) : "");
 
         return row;
     }

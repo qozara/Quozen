@@ -1,8 +1,8 @@
-import { Migration, GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
+import { GoogleSheetsFetchClient, type SchemaMigration } from "@qozara/cloud-sync-google";
 import { ensureCategoriesTab } from "./categoriesTab";
 import { normalizeLegacyCategory } from "../../domain/categories";
 
-export const migration_2: Migration = {
+export const migration_2: SchemaMigration = {
     version: 2,
     up: async (client: GoogleSheetsFetchClient, spreadsheetId: string) => {
         // 1. Ensure Categories tab exists with default categories

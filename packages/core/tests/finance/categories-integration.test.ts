@@ -95,10 +95,23 @@ describe("WP4: Category Persistence, Validation, Group Creation & Cloud Sync", (
                 "Members",
                 "Categories",
                 "_meta"
-            ]);
+            ], {
+                quozen_type: "group",
+                qozara_app: "quozen",
+                qozara_doc_type: "group",
+            });
             const nowIso = new Date().toISOString();
 
             await importedStorage.batchUpdateValues(sheetId, [
+                {
+                    range: "_meta!A1",
+                    values: [
+                        ["key", "value", "updatedAt"],
+                        ["app_id", "quozen", nowIso],
+                        ["doc_type", "group", nowIso],
+                        ["origin_container_id", sheetId, nowIso],
+                    ],
+                },
                 { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
                 { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
                 {

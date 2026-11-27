@@ -4,7 +4,9 @@ import { InMemoryAdapter } from '../../src/storage/memory-adapter';
 import { User } from '../../src/domain/models';
 import { QUOZEN_PREFIX } from '../../src/types';
 import { QuozenSchema } from '../../src/schema/SchemaDefinition';
-import { SchemaEngine, ValidationStatus } from '@qozara/gdocs-schema';
+import { SchemaEngine, ValidationStatus } from '@qozara/cloud-sync';
+import { GoogleSheetsContainerDriver } from '@qozara/cloud-sync-google';
+import { UnmanagedDocumentError, ForeignDocumentError } from '../../src/errors';
 
 describe('GroupRepository (Metadata & Sharing Rules)', () => {
     let adapter: InMemoryAdapter;
@@ -53,16 +55,11 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
 
         // 4. Verify checkHealth with SchemaEngine confirms READY (NOT CORRUPTED)
         const bridgeClient = {
-            getSpreadsheetMetadata: async (id: string) => {
-                const s = await adapter.getSpreadsheet(id);
-                return s;
-            },
-            batchGet: async (id: string, ranges: string[]) => {
-                const res = await adapter.batchGetValues(id, ranges);
-                return { valueRanges: res };
-            }
+            getFileMetadata: async (id: string) => adapter.getFile(id),
+            getSpreadsheetMetadata: async (id: string) => adapter.getSpreadsheet(id),
+            batchGet: async (id: string, ranges: string[]) => ({ valueRanges: await adapter.batchGetValues(id, ranges) })
         };
-        const engine = new SchemaEngine(bridgeClient as any);
+        const engine = new SchemaEngine(new GoogleSheetsContainerDriver(bridgeClient as any));
         const health = await engine.checkHealth(group.id, QuozenSchema);
         expect(health.status).toBe(ValidationStatus.READY);
         expect(health.missingColumns).toEqual({});
@@ -82,10 +79,11 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
         ]);
 
         const bridgeClient = {
+            getFileMetadata: async (id: string) => adapter.getFile(id),
             getSpreadsheetMetadata: async (id: string) => adapter.getSpreadsheet(id),
             batchGet: async (id: string, ranges: string[]) => ({ valueRanges: await adapter.batchGetValues(id, ranges) })
         };
-        const engine = new SchemaEngine(bridgeClient as any);
+        const engine = new SchemaEngine(new GoogleSheetsContainerDriver(bridgeClient as any));
         const health = await engine.checkHealth(fileId, QuozenSchema);
         expect(health.status).toBe(ValidationStatus.CORRUPTED);
         expect(health.missingColumns).toEqual({ Categories: ["deletedAt"] });
@@ -116,22 +114,33 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
         expect(settings.groupCache[0].name).toBe("Valid Group");
     });
 
-    it('US-203: Import blesses legacy files (Stamps Metadata) and assigns correct role', async () => {
-        // 1. Create a legacy file (correct structure, missing metadata)
-        const fileId = await adapter.createSpreadsheet(QUOZEN_PREFIX + "Legacy Group", ["Expenses", "Settlements", "Members"], {});
+    it('US-203: Import heals Drive-copied Quozen files (stripped properties, valid _meta) and assigns correct role', async () => {
+        // 1. Create a Drive-copied Quozen file (valid _meta manifest, stripped Drive properties, different origin_container_id)
+        const fileId = await adapter.createSpreadsheet(QUOZEN_PREFIX + "Copied Legacy Group", ["Expenses", "Settlements", "Members", "_meta"], {});
 
-        // Add user to members manually to simulate pre-existing access
         await adapter.batchUpdateValues(fileId, [
+            {
+                range: "_meta!A1",
+                values: [
+                    ["key", "value", "updatedAt"],
+                    ["app_id", "quozen", new Date().toISOString()],
+                    ["doc_type", "group", new Date().toISOString()],
+                    ["origin_container_id", "original-group-id", new Date().toISOString()],
+                ],
+            },
             { range: "Members!A2", values: [[user.id, user.email, user.name, "owner", new Date().toISOString()]] }
         ]);
 
         // 2. Import it
         const importedGroup = await repo.importGroup(fileId);
 
-        // 3. Verify it's stamped
+        // 3. Verify Drive properties are backfilled and origin_container_id is healed to fileId
         const meta = await adapter.getFile(fileId);
         expect(meta.properties?.['quozen_type']).toBe('group');
-        expect(importedGroup.name).toBe("Legacy Group");
+        expect(meta.properties?.['qozara_app']).toBe('quozen');
+        const healedMeta = await repo.readGroupMetadata(fileId);
+        expect(healedMeta.origin_container_id).toBe(fileId);
+        expect(importedGroup.name).toBe("Copied Legacy Group");
 
         // 4. Verify correct role assignment
         expect(importedGroup.isOwner).toBe(true);
@@ -139,15 +148,34 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
         expect(settings.groupCache.find(g => g.id === fileId)?.role).toBe("owner");
     });
 
-    it('US-203: Import fails for invalid files (Wrong Structure)', async () => {
-        // 1. Create random spreadsheet (Missing sheets)
-        const fileId = await adapter.createSpreadsheet("Random Sheet", ["Sheet1"], {});
+    it('US-203: Import hard-rejects unmanaged spreadsheets (even with matching tab names) and leaves zero writes', async () => {
+        // Unrelated spreadsheet lacking _meta manifest AND lacking legacy quozen_type property
+        const fileId = await adapter.createSpreadsheet("Personal Budget", ["Expenses", "Settlements", "Members"], {});
 
-        // 2. Attempt Import
         await expect(repo.importGroup(fileId))
-            .rejects.toThrow(/Missing required sheets/i);
+            .rejects.toThrow(UnmanagedDocumentError);
 
-        // 3. Verify NOT stamped
+        const meta = await adapter.getFile(fileId);
+        expect(meta.properties?.['quozen_type']).toBeUndefined();
+        expect(meta.properties?.['qozara_app']).toBeUndefined();
+    });
+
+    it('US-203: Import hard-rejects spreadsheets belonging to another Qozara app (foreign _meta app_id)', async () => {
+        const fileId = await adapter.createSpreadsheet("Quomida Daily Logs", ["Daily Logs", "_meta"], {});
+        await adapter.batchUpdateValues(fileId, [
+            {
+                range: "_meta!A1",
+                values: [
+                    ["key", "value", "updatedAt"],
+                    ["app_id", "quomida", new Date().toISOString()],
+                    ["doc_type", "daily_logs", new Date().toISOString()],
+                ],
+            },
+        ]);
+
+        await expect(repo.importGroup(fileId))
+            .rejects.toThrow(ForeignDocumentError);
+
         const meta = await adapter.getFile(fileId);
         expect(meta.properties?.['quozen_type']).toBeUndefined();
     });
@@ -158,7 +186,7 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
 
         // 2. Attempt Join
         await expect(repo.joinGroup(fileId))
-            .rejects.toThrow("This file is not a valid Quozen Group.");
+            .rejects.toThrow(UnmanagedDocumentError);
     });
 
     it('US-204: Join succeeds for valid stamped files', async () => {

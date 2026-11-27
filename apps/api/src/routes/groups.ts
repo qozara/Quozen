@@ -306,8 +306,20 @@ groupsRouter.openapi(getLedgerRoute, async (c) => {
             status: ledger.status,
         }, 200);
     } catch (e: any) {
-        if (e.name === 'SchemaCorruptedError' || e.name === 'SchemaUpgradeRequiredError') {
-            const status = e.name === 'SchemaCorruptedError' ? 'CORRUPTED' : 'UPGRADE_REQUIRED';
+        if (
+            e.name === 'SchemaCorruptedError' ||
+            e.name === 'SchemaUpgradeRequiredError' ||
+            e.name === 'UnmanagedDocumentError' ||
+            e.name === 'ForeignDocumentError'
+        ) {
+            const status =
+                e.name === 'SchemaCorruptedError'
+                    ? 'CORRUPTED'
+                    : e.name === 'UnmanagedDocumentError'
+                        ? 'UNMANAGED'
+                        : e.name === 'ForeignDocumentError'
+                            ? 'FOREIGN_APP'
+                            : 'UPGRADE_REQUIRED';
             return c.json({ error: 'Unprocessable Entity', message: e.message, schemaStatus: status }, 422 as any);
         }
         throw e;

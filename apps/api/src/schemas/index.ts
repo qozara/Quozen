@@ -128,11 +128,14 @@ export const SchemaStatusDTOSchema = z.object({
     spreadsheetId: z.string(),
     currentVersion: z.number(),
     latestVersion: z.number(),
-    status: z.enum(['READY', 'UPGRADE_REQUIRED', 'CORRUPTED', 'INCOMPATIBLE']),
+    status: z.enum(['READY', 'UPGRADE_REQUIRED', 'CORRUPTED', 'INCOMPATIBLE', 'UNMANAGED', 'FOREIGN_APP']),
     missingTabs: z.array(z.string()),
     missingColumns: z.record(z.string(), z.array(z.string())),
     canAutoMigrate: z.boolean(),
     lastModifiedTime: z.string().optional(),
+    isForkedCopy: z.boolean().optional(),
+    detectedAppId: z.string().optional(),
+    detectedDocType: z.string().optional(),
 }).openapi('SchemaStatusDTO');
 
 export const MigrateRequestSchema = z.object({

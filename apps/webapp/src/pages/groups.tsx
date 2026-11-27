@@ -8,7 +8,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
 import { Plus, Pencil, Shield, User, Trash2, LogOut, Share2, MoreVertical, FolderSearch, Download, AlertCircle, Loader2, Archive, ArchiveRestore, Lock, LockOpen } from "lucide-react";
-import { MemberInput, Group, Member, GroupFileUnavailableError } from "@quozen/core";
+import { MemberInput, Group, Member, GroupFileUnavailableError, UnmanagedDocumentError, ForeignDocumentError } from "@quozen/core";
 import { GroupIcon } from "@/components/group-icon";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -92,7 +92,13 @@ export default function Groups() {
 
         setActiveGroupId(group.id);
       } catch (e: any) {
-        toast({ title: t("common.error"), description: e.message, variant: "destructive" });
+        if (e instanceof ForeignDocumentError || e?.name === "ForeignDocumentError") {
+          toast({ title: t("groups.invalidGroup"), description: t("groups.foreignAppError"), variant: "destructive" });
+        } else if (e instanceof UnmanagedDocumentError || e?.name === "UnmanagedDocumentError") {
+          toast({ title: t("groups.invalidGroup"), description: t("groups.unmanagedFileError"), variant: "destructive" });
+        } else {
+          toast({ title: t("common.error"), description: e.message, variant: "destructive" });
+        }
       } finally {
         setIsImporting(false);
       }

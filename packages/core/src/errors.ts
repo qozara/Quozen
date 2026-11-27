@@ -4,6 +4,8 @@ export {
     SchemaCorruptedError,
     SchemaUpgradeRequiredError,
     SchemaIncompatibleError,
+    UnmanagedDocumentError,
+    ForeignDocumentError,
     TableNotFoundError,
     OfflineOperationError,
     GroupFileUnavailableError,

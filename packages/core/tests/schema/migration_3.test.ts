@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { migration_3 } from "../../src/schema/migrations/3_add_meta_tab";
 import { QuozenSchema } from "../../src/schema/SchemaDefinition";
-import { SchemaEngine } from "@qozara/gdocs-schema";
+import { SchemaEngine } from "@qozara/cloud-sync";
+import { GoogleSheetsContainerDriver } from "@qozara/cloud-sync-google";
 import { migrations } from "../../src/schema/migrations";
 
 class FakeGoogleSheetsClient {
@@ -32,6 +33,26 @@ class FakeGoogleSheetsClient {
         return `backup-${id}`;
     }
 
+    async deleteBackup(_id: string) {
+        return {};
+    }
+
+    async batchUpdateValues(_id: string, data: Array<{ range: string; values: any[][] }>) {
+        for (const item of data) {
+            const sheetName = item.range.split("!")[0].replace(/^'|'$/g, "");
+            this.cellData.set(sheetName, JSON.parse(JSON.stringify(item.values)));
+        }
+        return {};
+    }
+
+    async setSheetHidden() {
+        return {};
+    }
+
+    async protectSheet() {
+        return {};
+    }
+
     async acquireLock(_id: string, _holder?: string, _ttl?: number) {
         return true;
     }
@@ -46,6 +67,17 @@ class FakeGoogleSheetsClient {
 
     async getFileAppProperties(_id: string) {
         return { appProperties: { quozen_schema_version: "2" } };
+    }
+
+    async getFileMetadata(_id: string) {
+        return {
+            properties: { quozen_type: "group" },
+            appProperties: { quozen_schema_version: "2" },
+        };
+    }
+
+    async updateFileProperties(_id: string, _props: any) {
+        return {};
     }
 
     async batchGet(_id: string, ranges: string[]) {
@@ -203,7 +235,7 @@ describe("Google Spreadsheet Migration 3 (add _meta tab)", () => {
             }
         );
 
-        const engine = new SchemaEngine(client as any);
+        const engine = new SchemaEngine(new GoogleSheetsContainerDriver(client as any));
         await engine.migrate("sheet-123", QuozenSchema, migrations);
 
         const metaSheet = client.sheets.find(s => s.properties.title === "_meta");

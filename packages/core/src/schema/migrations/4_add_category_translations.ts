@@ -1,7 +1,7 @@
-import { Migration, GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
+import { GoogleSheetsFetchClient, type SchemaMigration } from "@qozara/cloud-sync-google";
 import { DEFAULT_CATEGORIES } from "../../domain/categories";
 
-export const migration_4: Migration = {
+export const migration_4: SchemaMigration = {
     version: 4,
     up: async (client: GoogleSheetsFetchClient, spreadsheetId: string) => {
         const meta = await client.getSpreadsheet(spreadsheetId);

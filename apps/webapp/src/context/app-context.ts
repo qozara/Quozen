@@ -40,8 +40,8 @@ export interface AppState {
     draft: SettlementDraft,
     meta?: { rawInput?: string; isAiEscalated?: boolean; ambiguities?: string[] }
   ) => void;
-  schemaErrorStatus: 'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | null;
-  setSchemaErrorStatus: (status: 'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | null) => void;
+  schemaErrorStatus: 'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | 'UNMANAGED' | 'FOREIGN_APP' | null;
+  setSchemaErrorStatus: (status: 'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | 'UNMANAGED' | 'FOREIGN_APP' | null) => void;
 }
 
 export const AppContext = createContext<AppState | undefined>(undefined);

@@ -2,8 +2,14 @@ import {
     ValidationService as BaseValidationService,
     ValidationStatus,
     type SchemaStatusDTO as BaseSchemaStatusDTO,
-} from "@qozara/gdocs-schema";
-import { ConflictError, SchemaIncompatibleError } from "../errors";
+    type SchemaDefinition,
+} from "@qozara/cloud-sync-google";
+import {
+    ConflictError,
+    ForeignDocumentError,
+    SchemaIncompatibleError,
+    UnmanagedDocumentError,
+} from "../errors";
 import { QuozenSchema } from "./SchemaDefinition";
 import { migrations } from "./migrations/index";
 
@@ -17,7 +23,6 @@ export class ValidationService extends BaseValidationService {
     constructor(getToken: () => string | null) {
         super(getToken, {
             requireTokenOnConstruct: true,
-            useSchemaEngine: true,
             defaultSchema: QuozenSchema,
             migrations,
             appPropertyPrefix: "quozen",
@@ -33,6 +38,14 @@ export class ValidationService extends BaseValidationService {
         await super.initializeFile(spreadsheetId, version);
     }
 
+    public override async healForkedCopy(
+        spreadsheetId: string,
+        schema: SchemaDefinition = QuozenSchema,
+        extraMeta?: Record<string, string>
+    ): Promise<BaseSchemaStatusDTO> {
+        return super.healForkedCopy(spreadsheetId, schema, extraMeta);
+    }
+
     public async repairFile(spreadsheetId: string, expectedLastModified?: string): Promise<any> {
         try {
             await super.repairFile(spreadsheetId, QuozenSchema, expectedLastModified);
@@ -42,6 +55,12 @@ export class ValidationService extends BaseValidationService {
             }
             if (e instanceof SchemaIncompatibleError || e?.name === "SchemaIncompatibleError") {
                 throw new SchemaIncompatibleError("Cannot repair spreadsheet: the schema is from a newer version of Quozen.");
+            }
+            if (e instanceof UnmanagedDocumentError || e?.name === "UnmanagedDocumentError") {
+                throw new UnmanagedDocumentError(spreadsheetId, e?.message);
+            }
+            if (e instanceof ForeignDocumentError || e?.name === "ForeignDocumentError") {
+                throw new ForeignDocumentError(e?.message, e?.detectedAppId, e?.detectedDocType);
             }
             throw e;
         }
@@ -56,6 +75,12 @@ export class ValidationService extends BaseValidationService {
             }
             if (e instanceof SchemaIncompatibleError || e?.name === "SchemaIncompatibleError") {
                 throw new SchemaIncompatibleError("Cannot migrate spreadsheet: the schema is from a newer version of Quozen.");
+            }
+            if (e instanceof UnmanagedDocumentError || e?.name === "UnmanagedDocumentError") {
+                throw new UnmanagedDocumentError(spreadsheetId, e?.message);
+            }
+            if (e instanceof ForeignDocumentError || e?.name === "ForeignDocumentError") {
+                throw new ForeignDocumentError(e?.message, e?.detectedAppId, e?.detectedDocType);
             }
             throw e;
         }

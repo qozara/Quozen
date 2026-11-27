@@ -7,7 +7,8 @@ import { getRxStorageMemory } from "rxdb/plugins/storage-memory";
 import { SchemaIncompatibleError } from "../../src/errors";
 import { LedgerService } from "../../src/finance/LedgerService";
 import { resolveUXStatus, resolveProviderDiagnostic } from "../../src/sync/evaluator";
-import { SchemaEngine, GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
+import { SchemaEngine } from "@qozara/cloud-sync";
+import { GoogleSheetsContainerDriver, GoogleSheetsFetchClient } from "@qozara/cloud-sync-google";
 
 describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", () => {
     let mockClient: any;
@@ -18,8 +19,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("identifies legacy spreadsheet lacking _migrations tab as UPGRADE_REQUIRED, NEVER as CORRUPTED", async () => {
         mockClient = {
+            getFileMetadata: vi.fn().mockResolvedValue({ properties: { quozen_type: "group" }, appProperties: {} }),
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
             getSpreadsheetMetadata: vi.fn().mockResolvedValue({
                 properties: { title: "Legacy Group" },
                 sheets: [
@@ -28,13 +31,15 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
                     { properties: { title: "Members" } }
                 ]
             }),
-            batchGet: vi.fn().mockRejectedValue(new Error("Google API 400: Unable to parse range: _migrations!A2:B")),
+            batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) =>
+                Promise.resolve({ valueRanges: ranges.map(() => ({ values: [] })) })
+            ),
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).engine = new SchemaEngine(mockClient as any);
+        (service as any).engine = new SchemaEngine(new GoogleSheetsContainerDriver(mockClient as any));
 
         const health = await service.checkHealth("legacy-group-123");
 
@@ -47,8 +52,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("identifies legacy spreadsheet lacking _migrations tab as UPGRADE_REQUIRED even if Drive appProperties has stale quozen_schema_version=2", async () => {
         mockClient = {
+            getFileMetadata: vi.fn().mockResolvedValue({ properties: { quozen_type: "group" }, appProperties: { quozen_schema_version: "2" } }),
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "2" } }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
             getSpreadsheetMetadata: vi.fn().mockResolvedValue({
                 properties: { title: "Legacy Group" },
                 sheets: [
@@ -57,13 +64,15 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
                     { properties: { title: "Members" } }
                 ]
             }),
-            batchGet: vi.fn().mockRejectedValue(new Error("Google API 400: Unable to parse range: _migrations!A2:B")),
+            batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) =>
+                Promise.resolve({ valueRanges: ranges.map(() => ({ values: [] })) })
+            ),
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).engine = new SchemaEngine(mockClient as any);
+        (service as any).engine = new SchemaEngine(new GoogleSheetsContainerDriver(mockClient as any));
 
         const health = await service.checkHealth("stale-appprops-group");
 
@@ -76,8 +85,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("identifies spreadsheet with case-insensitive sheet titles (e.g. expenses, members, settlements) lacking _migrations as UPGRADE_REQUIRED", async () => {
         mockClient = {
+            getFileMetadata: vi.fn().mockResolvedValue({ properties: { quozen_type: "group" }, appProperties: {} }),
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
             getSpreadsheetMetadata: vi.fn().mockResolvedValue({
                 properties: { title: "Case Sheet" },
                 sheets: [
@@ -86,13 +97,15 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
                     { properties: { title: "MEMBERS" } }
                 ]
             }),
-            batchGet: vi.fn().mockRejectedValue(new Error("Google API 400: Unable to parse range: _migrations!A2:B")),
+            batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) =>
+                Promise.resolve({ valueRanges: ranges.map(() => ({ values: [] })) })
+            ),
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).engine = new SchemaEngine(mockClient as any);
+        (service as any).engine = new SchemaEngine(new GoogleSheetsContainerDriver(mockClient as any));
 
         const health = await service.checkHealth("case-insensitive-group");
 
@@ -103,8 +116,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("identifies spreadsheet with _migrations at version 1 as UPGRADE_REQUIRED, NEVER as CORRUPTED", async () => {
         mockClient = {
+            getFileMetadata: vi.fn().mockResolvedValue({ properties: { quozen_type: "group" }, appProperties: { quozen_schema_version: "1" } }),
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: { quozen_schema_version: "1" } }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
             getSpreadsheetMetadata: vi.fn().mockResolvedValue({
                 properties: { title: "V1 Sheet" },
                 sheets: [
@@ -122,7 +137,7 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).engine = new SchemaEngine(mockClient as any);
+        (service as any).engine = new SchemaEngine(new GoogleSheetsContainerDriver(mockClient as any));
 
         const health = await service.checkHealth("v1-group-456");
 
@@ -133,8 +148,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
     it("only reports CORRUPTED when _migrations matches expected version but structure is corrupted by manual edits", async () => {
         mockClient = {
+            getFileMetadata: vi.fn().mockResolvedValue({ properties: { quozen_type: "group" }, appProperties: {} }),
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
             getSpreadsheetMetadata: vi.fn().mockResolvedValue({
                 properties: { title: "V2 Group" },
                 sheets: [
@@ -147,20 +164,28 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
                 ]
             }),
             batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) => {
-                if (ranges && ranges[0] && ranges[0].includes("_migrations")) {
-                    return Promise.resolve({
-                        valueRanges: [{ values: [["version", "migrated_at"], ["1", "2024-01-01"], ["2", "2026-01-01"], [String(QuozenSchema.version), "2026-03-01"]] }]
-                    });
-                }
-                // Return header without 'amount' column in Expenses
                 return Promise.resolve({
-                    valueRanges: [
-                        { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] },
-                        { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
-                        { values: [["userId", "email", "name", "role", "joinedAt"]] },
-                        { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] },
-                        { values: [["key", "value", "updatedAt"]] }
-                    ]
+                    valueRanges: ranges.map((range) => {
+                        if (range.includes("_migrations")) {
+                            return { values: [["version", "migrated_at"], ["1", "2024-01-01"], ["2", "2026-01-01"], [String(QuozenSchema.version), "2026-03-01"]] };
+                        }
+                        if (range.includes("_meta")) {
+                            return { values: [["key", "value", "updatedAt"], ["app_id", "quozen", "2026-03-01"], ["doc_type", "group", "2026-03-01"]] };
+                        }
+                        if (range.includes("Expenses")) {
+                            return { values: [["id", "date", "description", "paidBy", "category", "splits", "meta"]] };
+                        }
+                        if (range.includes("Settlements")) {
+                            return { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] };
+                        }
+                        if (range.includes("Members")) {
+                            return { values: [["userId", "email", "name", "role", "joinedAt"]] };
+                        }
+                        if (range.includes("Categories")) {
+                            return { values: [["id", "name", "icon", "description", "updatedAt", "deletedAt"]] };
+                        }
+                        return { values: [] };
+                    })
                 });
             }),
             batchUpdate: vi.fn().mockResolvedValue({})
@@ -168,7 +193,7 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
 
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).engine = new SchemaEngine(mockClient as any);
+        (service as any).engine = new SchemaEngine(new GoogleSheetsContainerDriver(mockClient as any));
 
         const health = await service.checkHealth("v2-tampered-group");
 
@@ -268,8 +293,10 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
     it("identifies spreadsheet with version higher than app version as INCOMPATIBLE, skipping validateStructure", async () => {
         const higherVersion = QuozenSchema.version + 1; // e.g. 3 when app is 2
         mockClient = {
+            getFileMetadata: vi.fn().mockResolvedValue({ properties: { quozen_type: "group" }, appProperties: {} }),
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {} }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
             getSpreadsheetMetadata: vi.fn().mockResolvedValue({
                 properties: { title: "Future Group" },
                 sheets: [
@@ -281,15 +308,19 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
                     { properties: { title: "_migrations" } }
                 ]
             }),
-            batchGet: vi.fn().mockResolvedValue({
-                valueRanges: [{ values: [["version", "migrated_at"], [String(higherVersion), "2027-01-01"]] }]
-            }),
+            batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) => ({
+                valueRanges: ranges.map((range) =>
+                    range.includes("_migrations")
+                        ? { values: [["version", "migrated_at"], [String(higherVersion), "2027-01-01"]] }
+                        : { values: [] }
+                )
+            })),
             batchUpdate: vi.fn().mockResolvedValue({})
         };
 
         const service = new ValidationService(() => "test-token");
         (service as any).client = mockClient;
-        (service as any).engine = new SchemaEngine(mockClient as any);
+        (service as any).engine = new SchemaEngine(new GoogleSheetsContainerDriver(mockClient as any));
 
         const health = await service.checkHealth("future-group-999");
 
@@ -346,6 +377,7 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         (service as any).client = {
             createBackup: createBackupSpy,
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
         };
 
         await service.repairFile("ski-trip-sheet");
@@ -358,12 +390,14 @@ describe("Spreadsheet Migration vs Repair Protection & Pre-Sync Verification", (
         const createBackupSpy = vi.fn().mockResolvedValue("backup-copy-id-789");
         (service as any).engine = {
             migrate: vi.fn().mockImplementation(async () => {
-                await (service as any).client.createBackup("test-sheet");
+                const backupFileId = await (service as any).client.createBackup("test-sheet");
+                return { backupFileId };
             }),
         };
         (service as any).client = {
             createBackup: createBackupSpy,
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
         };
 
         await expect(service.migrateFile("test-sheet")).resolves.not.toThrow();

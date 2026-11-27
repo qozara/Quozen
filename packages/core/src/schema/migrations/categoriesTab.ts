@@ -1,4 +1,4 @@
-import { GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
+import { GoogleSheetsFetchClient } from "@qozara/cloud-sync-google";
 import { DEFAULT_CATEGORIES, resolveCategory } from "../../domain/categories";
 
 export const CATEGORIES_TAB_HEADERS = ["id", "name", "icon", "description", "updatedAt", "deletedAt"];

@@ -26,7 +26,7 @@ The Quozen schema validation and migration system allows us to safely update the
 
    **Example:**
    ```typescript
-   import { Migration } from "@qozara/gdocs-schema";
+   import { type SchemaMigration } from "@qozara/cloud-sync";
 
    export const migrations: Migration[] = [
        {
