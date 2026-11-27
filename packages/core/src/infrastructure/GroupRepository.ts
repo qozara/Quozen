@@ -1,3 +1,4 @@
+import { MANIFEST_KEYS, QOZARA_MANIFEST_VERSION } from "@qozara/cloud-sync";
 import { IStorageLayer } from "./IStorageLayer";
 import { Group, User, Member, GroupStatus } from "../domain/models";
 import { IGroupLifecycleState, normalizeGroupStatus, resolveGroupState } from "../domain/GroupState";
@@ -7,13 +8,18 @@ import { DEFAULT_CATEGORIES } from "../domain/categories";
 import { SheetDataMapper } from "./SheetDataMapper";
 import { LedgerRepository } from "./LedgerRepository";
 import { ValidationService, ValidationStatus } from "../schema/ValidationService";
-import { QuozenSchema } from "../schema/SchemaDefinition";
+import { QuozenSchema, getQuozenSchemaHash } from "../schema/SchemaDefinition";
 import type { QuozenDatabase } from "../db";
 import { userSettingsToDoc, docToUserSettings, memberToDoc, categoryToDoc } from "../db/schemas";
 import type { BlobStorageDriver } from "../sync/types";
 import { isNetworkError } from "../sync/CompositeCloudSyncProvider";
 import { ReplicationCoordinator } from "../sync/ReplicationCoordinator";
-import { OfflineOperationError, GroupFileUnavailableError } from "../errors";
+import {
+    OfflineOperationError,
+    GroupFileUnavailableError,
+    UnmanagedDocumentError,
+    ForeignDocumentError,
+} from "../errors";
 import {
     GroupCollaborator,
     GroupParticipantsOverview,
@@ -827,7 +833,12 @@ export class GroupRepository {
         }
 
         if (this.db) {
-            if (cached?.validationStatus === ValidationStatus.CORRUPTED || cached?.validationStatus === ValidationStatus.INCOMPATIBLE) {
+            if (
+                cached?.validationStatus === ValidationStatus.CORRUPTED ||
+                cached?.validationStatus === ValidationStatus.INCOMPATIBLE ||
+                cached?.validationStatus === ValidationStatus.UNMANAGED ||
+                cached?.validationStatus === ValidationStatus.FOREIGN_APP
+            ) {
                 throw new Error("Cannot activate a corrupted group. Please repair it first.");
             }
             settings.activeGroupId = groupId;
@@ -850,7 +861,12 @@ export class GroupRepository {
 
         if (!isOffline) {
             const validation = await this.validateQuozenSpreadsheet(groupId);
-            if (validation.status === ValidationStatus.CORRUPTED || validation.status === ValidationStatus.INCOMPATIBLE) {
+            if (
+                validation.status === ValidationStatus.CORRUPTED ||
+                validation.status === ValidationStatus.INCOMPATIBLE ||
+                validation.status === ValidationStatus.UNMANAGED ||
+                validation.status === ValidationStatus.FOREIGN_APP
+            ) {
                 throw new Error("Cannot activate a corrupted group. Please repair it first.");
             }
             if (cached && validation.status) {
@@ -963,6 +979,8 @@ export class GroupRepository {
         const title = `${QUOZEN_PREFIX}${name}`;
         const fileId = await this.storage.createSpreadsheet(title, [...GROUP_SHEETS], {
             quozen_type: 'group',
+            qozara_app: 'quozen',
+            qozara_doc_type: 'group',
             version: '1.0',
             quozen_schema_version: String(QuozenSchema.version)
         });
@@ -1001,8 +1019,15 @@ export class GroupRepository {
             SheetDataMapper.mapFromCategory({ ...c, updatedAt: new Date(nowIso) }, defaultCatHeaderMap)
         );
 
+        const schemaHash = await getQuozenSchemaHash();
         const metaRows: string[][] = [
-            ["key", "value", "updatedAt"]
+            ["key", "value", "updatedAt"],
+            [MANIFEST_KEYS.MANIFEST_VERSION, QOZARA_MANIFEST_VERSION, nowIso],
+            [MANIFEST_KEYS.APP_ID, "quozen", nowIso],
+            [MANIFEST_KEYS.DOC_TYPE, "group", nowIso],
+            [MANIFEST_KEYS.SCHEMA_VERSION, String(QuozenSchema.version), nowIso],
+            [MANIFEST_KEYS.SCHEMA_HASH, schemaHash, nowIso],
+            [MANIFEST_KEYS.ORIGIN_CONTAINER_ID, fileId, nowIso]
         ];
         if (this.user.email) {
             metaRows.push(["owner_email", this.user.email, nowIso]);
@@ -1322,23 +1347,80 @@ export class GroupRepository {
         await this.aclDriver.revokeAccess(groupId, permissionId);
     }
 
-    async validateQuozenSpreadsheet(spreadsheetId: string): Promise<{ valid: boolean; status?: ValidationStatus; error?: string; name?: string; members?: Member[] }> {
+    async validateQuozenSpreadsheet(spreadsheetId: string): Promise<{
+        valid: boolean;
+        status?: ValidationStatus;
+        isForkedCopy?: boolean;
+        detectedAppId?: string;
+        detectedDocType?: string;
+        error?: string;
+        name?: string;
+        members?: Member[];
+    }> {
         try {
-            const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
+            const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties,appProperties" });
             const sheetMeta = await this.storage.getSpreadsheet(spreadsheetId, "properties.title,sheets.properties.title");
+            const fileName = meta.name || sheetMeta.properties?.title;
 
             const titles = sheetMeta.sheets?.map((s: any) => s.properties.title) || [];
-            if (!REQUIRED_SHEETS.every((t: string) => titles.includes(t))) {
-                return { valid: false, status: ValidationStatus.CORRUPTED, error: "Missing tabs" };
-            }
+            const titlesLower = titles.map((t: string) => String(t).trim().toLowerCase());
+            const hasMetaTab = titlesLower.includes("_meta");
+            const hasMigrationsTab = titlesLower.includes("_migrations");
+            const hasRequiredTabs = REQUIRED_SHEETS.every((t: string) => titlesLower.includes(t.toLowerCase()));
 
             let status = ValidationStatus.READY;
+            let isForkedCopy = false;
+            let detectedAppId: string | undefined;
+            let detectedDocType: string | undefined;
+            let usedValidationSvc = false;
+
             if (this.getToken && this.getToken()) {
                 try {
                     const validationSvc = new ValidationService(this.getToken);
                     const health = await validationSvc.checkHealth(spreadsheetId);
+                    usedValidationSvc = true;
                     status = health.status;
+                    isForkedCopy = Boolean(health.isForkedCopy);
+                    detectedAppId = health.detectedAppId;
+                    detectedDocType = health.detectedDocType;
+
+                    if (status === ValidationStatus.FOREIGN_APP) {
+                        return {
+                            valid: false,
+                            status,
+                            detectedAppId,
+                            detectedDocType,
+                            error: health.errors?.[0] || "This spreadsheet belongs to another Qozara application.",
+                            name: fileName,
+                        };
+                    }
+                    if (status === ValidationStatus.UNMANAGED) {
+                        return {
+                            valid: false,
+                            status,
+                            error: health.errors?.[0] || "Spreadsheet is not managed by Quozen (missing _meta manifest).",
+                            name: fileName,
+                        };
+                    }
                 } catch (e: any) {
+                    if (e instanceof ForeignDocumentError || e?.name === "ForeignDocumentError") {
+                        return {
+                            valid: false,
+                            status: ValidationStatus.FOREIGN_APP,
+                            detectedAppId: e?.detectedAppId,
+                            detectedDocType: e?.detectedDocType,
+                            error: e.message,
+                            name: fileName,
+                        };
+                    }
+                    if (e instanceof UnmanagedDocumentError || e?.name === "UnmanagedDocumentError") {
+                        return {
+                            valid: false,
+                            status: ValidationStatus.UNMANAGED,
+                            error: e.message,
+                            name: fileName,
+                        };
+                    }
                     console.warn("ValidationService check failed", e);
                     if (!isNetworkError(e)) {
                         status = ValidationStatus.CORRUPTED;
@@ -1346,11 +1428,94 @@ export class GroupRepository {
                 }
             }
 
+            if (!usedValidationSvc) {
+                const metaEntries: Record<string, string> = {};
+                if (hasMetaTab) {
+                    try {
+                        const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C100"]);
+                        const metaRows = metaRes[0]?.values || [];
+                        for (let i = 1; i < metaRows.length; i++) {
+                            const key = String(metaRows[i]?.[0] || "").trim();
+                            if (key) metaEntries[key] = String(metaRows[i]?.[1] ?? "").trim();
+                        }
+                    } catch {
+                        // Treat unreadable _meta as empty
+                    }
+                }
+
+                detectedAppId = metaEntries[MANIFEST_KEYS.APP_ID]?.trim() || undefined;
+                detectedDocType = metaEntries[MANIFEST_KEYS.DOC_TYPE]?.trim() || undefined;
+
+                const driveApp = (meta.properties?.qozara_app || (meta as any).appProperties?.qozara_app)?.trim();
+                const driveDocType = (meta.properties?.qozara_doc_type || (meta as any).appProperties?.qozara_doc_type)?.trim();
+
+                if (detectedAppId) {
+                    if (
+                        detectedAppId.toLowerCase() !== "quozen" ||
+                        (detectedDocType && detectedDocType.toLowerCase() !== "group")
+                    ) {
+                        return {
+                            valid: false,
+                            status: ValidationStatus.FOREIGN_APP,
+                            detectedAppId,
+                            detectedDocType,
+                            error: `This spreadsheet belongs to "${detectedAppId}${detectedDocType ? `:${detectedDocType}` : ""}" instead of Quozen.`,
+                            name: fileName,
+                        };
+                    }
+                    const originId = metaEntries[MANIFEST_KEYS.ORIGIN_CONTAINER_ID]?.trim();
+                    if (originId && originId !== spreadsheetId) {
+                        isForkedCopy = true;
+                    }
+                } else if (
+                    driveApp &&
+                    (driveApp.toLowerCase() !== "quozen" ||
+                        (driveDocType && driveDocType.toLowerCase() !== "group"))
+                ) {
+                    return {
+                        valid: false,
+                        status: ValidationStatus.FOREIGN_APP,
+                        detectedAppId: driveApp,
+                        detectedDocType: driveDocType,
+                        error: `This spreadsheet belongs to "${driveApp}${driveDocType ? `:${driveDocType}` : ""}" instead of Quozen.`,
+                        name: fileName,
+                    };
+                } else {
+                    const isLegacyQuozen =
+                        (hasRequiredTabs && meta.properties?.quozen_type === "group") ||
+                        (hasRequiredTabs && hasMetaTab && hasMigrationsTab);
+                    if (!isLegacyQuozen) {
+                        return {
+                            valid: false,
+                            status: ValidationStatus.UNMANAGED,
+                            error: "Spreadsheet is not managed by Quozen (missing _meta manifest).",
+                            name: fileName,
+                        };
+                    }
+                }
+            }
+
+            if (!hasRequiredTabs) {
+                return { valid: false, status: ValidationStatus.CORRUPTED, error: "Missing tabs", name: fileName };
+            }
+
             const res = await this.storage.batchGetValues(spreadsheetId, ["Members!A2:Z"]);
             const memberRows = res[0]?.values || [];
             const members = memberRows.map((r: any[], i: number) => SheetDataMapper.mapToMember(r, i + 2).entity);
 
-            return { valid: status !== ValidationStatus.CORRUPTED && status !== ValidationStatus.INCOMPATIBLE, status, name: meta.name || sheetMeta.properties?.title, members };
+            return {
+                valid:
+                    status !== ValidationStatus.CORRUPTED &&
+                    status !== ValidationStatus.INCOMPATIBLE &&
+                    status !== ValidationStatus.UNMANAGED &&
+                    status !== ValidationStatus.FOREIGN_APP,
+                status,
+                isForkedCopy,
+                detectedAppId,
+                detectedDocType,
+                name: fileName,
+                members,
+            };
         } catch (e: any) {
             if (this.db && isNetworkError(e)) {
                 return { valid: true, status: ValidationStatus.READY };
@@ -1365,13 +1530,48 @@ export class GroupRepository {
         }
 
         const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties,owners,capabilities" });
-        if (meta.properties?.quozen_type !== 'group') {
-            const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
-            if (!validation.valid) throw new Error("Invalid Quozen Group. Missing required sheets.");
-            await this.storage.updateFile(spreadsheetId, { properties: { quozen_type: 'group', version: '1.0' } });
+        const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
+
+        if (validation.status === ValidationStatus.FOREIGN_APP) {
+            throw new ForeignDocumentError(
+                validation.error,
+                validation.detectedAppId,
+                validation.detectedDocType
+            );
+        }
+        if (validation.status === ValidationStatus.UNMANAGED) {
+            throw new UnmanagedDocumentError(spreadsheetId, validation.error);
         }
 
-        const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
+        // Heal Drive copies ("File -> Make a copy") or backfill stripped Drive properties on verified Quozen groups
+        if (validation.isForkedCopy) {
+            let healed = false;
+            if (this.getToken && this.getToken()) {
+                try {
+                    const validationSvc = new ValidationService(this.getToken);
+                    await validationSvc.healForkedCopy(spreadsheetId);
+                    healed = true;
+                } catch {
+                    // Fall back to direct metadata sync below
+                }
+            }
+            if (!healed) {
+                await this.writeGroupMetadata(spreadsheetId, {
+                    [MANIFEST_KEYS.ORIGIN_CONTAINER_ID]: spreadsheetId,
+                });
+            }
+        }
+
+        if (validation.isForkedCopy || meta.properties?.quozen_type !== "group") {
+            await this.storage.updateFile(spreadsheetId, {
+                properties: {
+                    quozen_type: "group",
+                    qozara_app: "quozen",
+                    qozara_doc_type: "group",
+                    version: "1.0",
+                },
+            }).catch(() => {});
+        }
 
         const settings = await this.getSettings();
         const existingCachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
@@ -1524,12 +1724,17 @@ export class GroupRepository {
             throw new OfflineOperationError("This operation requires an internet connection.", "joinGroup");
         }
 
-        const meta = await this.storage.getFile(spreadsheetId, { fields: "name,properties" });
-        if (meta.properties?.quozen_type !== 'group') {
-            throw new Error("This file is not a valid Quozen Group.");
-        }
-
         const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
+        if (validation.status === ValidationStatus.FOREIGN_APP) {
+            throw new ForeignDocumentError(
+                validation.error,
+                validation.detectedAppId,
+                validation.detectedDocType
+            );
+        }
+        if (validation.status === ValidationStatus.UNMANAGED) {
+            throw new UnmanagedDocumentError(spreadsheetId, "This file is not a valid Quozen Group.");
+        }
         if (!validation.valid) throw new Error("Could not read group data");
 
         const existingMemberForJoin = validation.members?.find(m => m.userId === this.user.id || m.email === this.user.email);

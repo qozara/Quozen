@@ -106,29 +106,54 @@ export default function SchemaRemediationModal() {
 
   if (!schemaErrorStatus) return null;
 
+  const isForeignOrUnmanaged =
+    schemaErrorStatus === 'UNMANAGED' || schemaErrorStatus === 'FOREIGN_APP';
+
+  const getTitle = () => {
+    switch (schemaErrorStatus) {
+      case 'UPGRADE_REQUIRED':
+        return t("schemaRemediation.upgradeRequiredTitle");
+      case 'INCOMPATIBLE':
+        return t("schemaRemediation.incompatibleTitle");
+      case 'UNMANAGED':
+        return t("schemaRemediation.unmanagedTitle");
+      case 'FOREIGN_APP':
+        return t("schemaRemediation.foreignAppTitle");
+      default:
+        return t("schemaRemediation.corruptedTitle");
+    }
+  };
+
+  const getDescription = () => {
+    switch (schemaErrorStatus) {
+      case 'UPGRADE_REQUIRED':
+        return t("schemaRemediation.upgradeRequiredDesc");
+      case 'INCOMPATIBLE':
+        return t("schemaRemediation.incompatibleDesc");
+      case 'UNMANAGED':
+        return t("schemaRemediation.unmanagedDesc");
+      case 'FOREIGN_APP':
+        return t("schemaRemediation.foreignAppDesc");
+      default:
+        return t("schemaRemediation.corruptedDesc");
+    }
+  };
+
   return (
     <Drawer open={isOpen} onOpenChange={(o) => {
         if (!o && !isRepairing) setSchemaErrorStatus(null);
     }}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>
-            {schemaErrorStatus === 'UPGRADE_REQUIRED' 
-              ? t("schemaRemediation.upgradeRequiredTitle") 
-              : schemaErrorStatus === 'INCOMPATIBLE'
-                ? t("schemaRemediation.incompatibleTitle")
-                : t("schemaRemediation.corruptedTitle")}
-          </DrawerTitle>
-          <DrawerDescription>
-            {schemaErrorStatus === 'UPGRADE_REQUIRED' 
-              ? t("schemaRemediation.upgradeRequiredDesc")
-              : schemaErrorStatus === 'INCOMPATIBLE'
-                ? t("schemaRemediation.incompatibleDesc")
-                : t("schemaRemediation.corruptedDesc")}
-          </DrawerDescription>
+          <DrawerTitle>{getTitle()}</DrawerTitle>
+          <DrawerDescription>{getDescription()}</DrawerDescription>
         </DrawerHeader>
         <DrawerFooter>
-          {schemaErrorStatus === 'INCOMPATIBLE' ? (
+          {isForeignOrUnmanaged ? (
+            <Button variant="outline" onClick={() => setSchemaErrorStatus(null)}>
+              {t("schemaRemediation.dismiss")}
+            </Button>
+          ) : schemaErrorStatus === 'INCOMPATIBLE' ? (
             <>
               <Button onClick={handleRefresh}>
                 {t("schemaRemediation.refreshApp")}

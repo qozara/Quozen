@@ -71,6 +71,10 @@ export const queryClient = new QueryClient({
         window.dispatchEvent(new CustomEvent('schema-error', { detail: 'UPGRADE_REQUIRED' }));
       } else if (error.name === 'SchemaIncompatibleError') {
         window.dispatchEvent(new CustomEvent('schema-error', { detail: 'INCOMPATIBLE' }));
+      } else if (error.name === 'UnmanagedDocumentError') {
+        window.dispatchEvent(new CustomEvent('schema-error', { detail: 'UNMANAGED' }));
+      } else if (error.name === 'ForeignDocumentError') {
+        window.dispatchEvent(new CustomEvent('schema-error', { detail: 'FOREIGN_APP' }));
       }
     }
   }),

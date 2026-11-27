@@ -118,7 +118,7 @@ export function AuthenticatedApp() {
 
   const [settlementDraftState, setSettlementDraftState] = useState<SettlementDraftState>({ isOpen: false });
 
-  const [schemaErrorStatus, setSchemaErrorStatus] = useState<'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | null>(null);
+  const [schemaErrorStatus, setSchemaErrorStatus] = useState<'CORRUPTED' | 'UPGRADE_REQUIRED' | 'INCOMPATIBLE' | 'UNMANAGED' | 'FOREIGN_APP' | null>(null);
 
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
   const navigate = useNavigate();

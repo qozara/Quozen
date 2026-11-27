@@ -52,14 +52,14 @@ test.describe('Schema Remediation', () => {
                 body = { id: 'mock-backup-copy-id' };
             } else if (url.includes('/batchUpdate')) {
                 body = { replies: [{ addSheet: { properties: { sheetId: 100 } } }] };
-            } else if (url.includes('fields=appProperties')) {
-                body = { appProperties: { quozen_validation_status: 'READY' } };
+            } else if (url.includes('appProperties')) {
+                body = { properties: { quozen_type: 'group' }, appProperties: { quozen_validation_status: 'READY' }, modifiedTime: '2026-11-27T00:00:00Z' };
             } else if (url.includes('values:batchGet')) {
                 const urlObj = new URL(url);
                 const requestedRanges = urlObj.searchParams.getAll('ranges');
                 const valueRanges = requestedRanges.map(range => {
                     if (range.includes('_migrations')) {
-                        return { range, values: [['version', 'migrated_at'], ['1', '2024-01-01'], ['2', '2026-01-01'], ['3', '2026-02-01'], ['4', new Date().toISOString()]] };
+                        return { range, values: [['version', 'migrated_at'], ['1', '2024-01-01'], ['2', '2026-01-01'], ['3', '2026-02-01'], ['4', '2026-11-26'], ['5', new Date().toISOString()]] };
                     } else if (range.includes('Expenses')) {
                         return { range, values: [['id', 'date', 'description', 'amount', 'paidBy', 'category', 'splits', 'meta']] };
                     } else if (range.includes('Settlements')) {
@@ -69,7 +69,7 @@ test.describe('Schema Remediation', () => {
                     } else if (range.includes('Categories')) {
                         return { range, values: [['id', 'name', 'name_es', 'icon', 'description', 'description_es', 'updatedAt', 'deletedAt']] };
                     } else if (range.includes('_meta')) {
-                        return { range, values: [['key', 'value', 'updatedAt']] };
+                        return { range, values: [['key', 'value', 'updatedAt'], ['app_id', 'quozen', new Date().toISOString()], ['doc_type', 'group', new Date().toISOString()]] };
                     }
                     return { range, values: [] };
                 });

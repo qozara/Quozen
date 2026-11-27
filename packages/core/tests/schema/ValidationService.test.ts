@@ -22,8 +22,10 @@ describe("ValidationService", () => {
 
         mockClient = {
             createBackup: vi.fn().mockResolvedValue("backup-123"),
+            getFileMetadata: vi.fn().mockResolvedValue({ properties: { quozen_type: "group" }, appProperties: {}, modifiedTime: "2026-01-01T00:00:00.000Z" }),
             getFileAppProperties: vi.fn().mockResolvedValue({ modifiedTime: "2026-01-01T00:00:00.000Z" }),
             updateFileAppProperties: vi.fn().mockResolvedValue({}),
+            updateFileProperties: vi.fn().mockResolvedValue({}),
         };
 
         (service as any).engine = mockEngine;
@@ -84,31 +86,36 @@ describe("ValidationService", () => {
     });
 
     it("delegates repairFile to engine.repair and updates metadata", async () => {
-        mockEngine.repair.mockResolvedValue(undefined);
+        mockEngine.repair.mockResolvedValue({ backupFileId: "" });
 
         await service.repairFile("file123");
 
         expect(mockEngine.repair).toHaveBeenCalledWith(
             "file123",
             QuozenSchema,
-            undefined,
+            expect.objectContaining({ migrations: expect.any(Array) }),
             expect.any(Array)
         );
-        expect(mockClient.updateFileAppProperties).toHaveBeenCalledWith("file123", expect.objectContaining({
-            quozen_validation_status: ValidationStatus.READY,
+        expect(mockClient.updateFileProperties).toHaveBeenCalledWith("file123", expect.objectContaining({
+            appProperties: expect.objectContaining({
+                quozen_validation_status: ValidationStatus.READY,
+            }),
         }));
     });
 
     it("throws ConflictError on repairFile if sheet was modified after expected timestamp", async () => {
-        mockClient.getFileAppProperties.mockResolvedValue({
-            modifiedTime: "2026-01-02T12:00:00.000Z",
-        });
+        mockEngine.repair.mockRejectedValue(new ConflictError("Modified remotely"));
 
         await expect(
             service.repairFile("file123", "2026-01-01T00:00:00.000Z")
         ).rejects.toThrow(ConflictError);
 
-        expect(mockEngine.repair).not.toHaveBeenCalled();
+        expect(mockEngine.repair).toHaveBeenCalledWith(
+            "file123",
+            QuozenSchema,
+            expect.objectContaining({ expectedLastModified: "2026-01-01T00:00:00.000Z" }),
+            expect.any(Array)
+        );
     });
 
     it("converts engine incompatible error to SchemaIncompatibleError on repairFile", async () => {
@@ -118,24 +125,27 @@ describe("ValidationService", () => {
     });
 
     it("delegates migrateFile to engine.migrate and updates metadata", async () => {
-        mockEngine.migrate.mockResolvedValue({ success: true, applied: [2] });
+        mockEngine.migrate.mockResolvedValue({ success: true, applied: [2], backupFileId: "" });
 
         await service.migrateFile("file123");
 
         expect(mockEngine.migrate).toHaveBeenCalledWith(
             "file123",
             QuozenSchema,
-            expect.any(Array)
+            expect.any(Array),
+            expect.any(Object)
         );
-        expect(mockClient.updateFileAppProperties).toHaveBeenCalledWith("file123", expect.objectContaining({
-            quozen_validation_status: ValidationStatus.READY,
+        expect(mockClient.updateFileProperties).toHaveBeenCalledWith("file123", expect.objectContaining({
+            appProperties: expect.objectContaining({
+                quozen_validation_status: ValidationStatus.READY,
+            }),
         }));
     });
 
     it("deduplicates concurrent in-flight migrateFile calls for the same spreadsheet ID", async () => {
         let resolveMigration: () => void;
-        const migrationPromise = new Promise<{ success: boolean; applied: number[] }>((resolve) => {
-            resolveMigration = () => resolve({ success: true, applied: [2] });
+        const migrationPromise = new Promise<{ success: boolean; applied: number[]; backupFileId: string }>((resolve) => {
+            resolveMigration = () => resolve({ success: true, applied: [2], backupFileId: "" });
         });
         mockEngine.migrate.mockReturnValue(migrationPromise);
 
@@ -153,9 +163,15 @@ describe("ValidationService", () => {
 
         await service.initializeFile("file123");
 
-        expect(mockEngine.initializeFile).toHaveBeenCalledWith("file123", QuozenSchema.version);
-        expect(mockClient.updateFileAppProperties).toHaveBeenCalledWith("file123", expect.objectContaining({
-            quozen_validation_status: ValidationStatus.READY,
+        expect(mockEngine.initializeFile).toHaveBeenCalledWith(
+            "file123",
+            expect.objectContaining({ version: QuozenSchema.version }),
+            undefined
+        );
+        expect(mockClient.updateFileProperties).toHaveBeenCalledWith("file123", expect.objectContaining({
+            appProperties: expect.objectContaining({
+                quozen_validation_status: ValidationStatus.READY,
+            }),
         }));
     });
 

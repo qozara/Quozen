@@ -1,1 +1,1 @@
-export type { IStorageLayer } from "@qozara/gdocs-schema";
+export type { IStorageLayer } from "@qozara/cloud-sync-google";

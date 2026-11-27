@@ -15,7 +15,7 @@ import { SheetDataMapper } from "../../src/infrastructure/SheetDataMapper";
 import { ValidationService } from "../../src/schema/ValidationService";
 import { QuozenSchema } from "../../src/schema/SchemaDefinition";
 import { migrations } from "../../src/schema/migrations";
-import { GoogleSheetsFetchClient } from "@qozara/gdocs-schema";
+import { GoogleSheetsFetchClient } from "@qozara/cloud-sync-google";
 
 addRxPlugin(RxDBMigrationSchemaPlugin);
 
@@ -197,8 +197,10 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
     it("creates a safety backup before repairing a spreadsheet when createBackup is available", async () => {
         let repaired = false;
         const mockClient = {
+            getFileMetadata: vi.fn().mockResolvedValue({ properties: { quozen_type: "group" }, appProperties: {}, modifiedTime: "2026-01-01T00:00:00Z" }),
             getFileAppProperties: vi.fn().mockResolvedValue({ appProperties: {}, modifiedTime: "2026-01-01T00:00:00Z" }),
             updateFileAppProperties: vi.fn().mockResolvedValue(undefined),
+            updateFileProperties: vi.fn().mockResolvedValue(undefined),
             createBackup: vi.fn().mockResolvedValue("backup-file-id-123"),
             getSpreadsheet: vi.fn().mockResolvedValue({
                 sheets: [
@@ -211,23 +213,32 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
                 ]
             }),
             batchGet: vi.fn().mockImplementation((_id: string, ranges: string[]) => {
-                if (ranges && ranges[0] && ranges[0].includes("_migrations")) {
-                    return Promise.resolve({
-                        valueRanges: [{ values: [["version", "migrated_at"], [String(QuozenSchema.version), "2026-01-01T00:00:00Z"]] }]
-                    });
-                }
-                const expenseHeaders = repaired
-                    ? ["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]
-                    : ["id", "date", "description", "paidBy", "category", "splits", "meta"];
-                return Promise.resolve({
-                    valueRanges: [
-                        { values: [expenseHeaders] },
-                        { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
-                        { values: [["userId", "email", "name", "role", "joinedAt"]] },
-                        { values: [["id", "name", "name_es", "icon", "description", "description_es", "updatedAt", "deletedAt"]] },
-                        { values: [["key", "value", "updatedAt"]] }
-                    ]
-                });
+                const mapRange = (range: string) => {
+                    if (range.includes("_migrations")) {
+                        return { values: [["version", "migrated_at"], [String(QuozenSchema.version), "2026-01-01T00:00:00Z"]] };
+                    }
+                    if (range.includes("_meta")) {
+                        return { values: [["key", "value", "updatedAt"], ["app_id", "quozen", "2026-01-01T00:00:00Z"], ["doc_type", "group", "2026-01-01T00:00:00Z"]] };
+                    }
+                    if (range.includes("Expenses")) {
+                        return {
+                            values: [repaired
+                                ? ["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]
+                                : ["id", "date", "description", "paidBy", "category", "splits", "meta"]]
+                        };
+                    }
+                    if (range.includes("Settlements")) {
+                        return { values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] };
+                    }
+                    if (range.includes("Members")) {
+                        return { values: [["userId", "email", "name", "role", "joinedAt"]] };
+                    }
+                    if (range.includes("Categories")) {
+                        return { values: [["id", "name", "name_es", "icon", "description", "description_es", "updatedAt", "deletedAt"]] };
+                    }
+                    return { values: [] };
+                };
+                return Promise.resolve({ valueRanges: ranges.map(mapRange) });
             }),
             batchUpdate: vi.fn().mockImplementation(() => {
                 repaired = true;
@@ -235,6 +246,7 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
             })
         };
 
+        vi.spyOn(GoogleSheetsFetchClient.prototype, "getFileMetadata").mockImplementation(mockClient.getFileMetadata);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "getFileAppProperties").mockImplementation(mockClient.getFileAppProperties);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "createBackup").mockImplementation(mockClient.createBackup);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "acquireLock").mockResolvedValue(true as any);
@@ -243,7 +255,9 @@ describe("Phase 1: RxDB Local Persistence, Schemas & Dual-Layer Migrations", () 
         vi.spyOn(GoogleSheetsFetchClient.prototype, "getSpreadsheetMetadata").mockImplementation(mockClient.getSpreadsheet);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "batchGet").mockImplementation(mockClient.batchGet);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "batchUpdate").mockImplementation(mockClient.batchUpdate);
+        vi.spyOn(GoogleSheetsFetchClient.prototype, "batchUpdateValues").mockResolvedValue({} as any);
         vi.spyOn(GoogleSheetsFetchClient.prototype, "updateFileAppProperties").mockImplementation(mockClient.updateFileAppProperties);
+        vi.spyOn(GoogleSheetsFetchClient.prototype, "updateFileProperties").mockImplementation(mockClient.updateFileProperties);
 
         const service = new ValidationService(() => "valid-token");
         await service.repairFile("sheet-123");

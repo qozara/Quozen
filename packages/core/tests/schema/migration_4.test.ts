@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { migration_4 } from "../../src/schema/migrations/4_add_category_translations";
 import { QuozenSchema } from "../../src/schema/SchemaDefinition";
-import { SchemaEngine } from "@qozara/gdocs-schema";
+import { SchemaEngine } from "@qozara/cloud-sync";
+import { GoogleSheetsContainerDriver } from "@qozara/cloud-sync-google";
 import { migrations } from "../../src/schema/migrations";
 
 class FakeGoogleSheetsClient {
@@ -36,6 +37,26 @@ class FakeGoogleSheetsClient {
         return `backup-${id}`;
     }
 
+    async deleteBackup() {
+        return {};
+    }
+
+    async batchUpdateValues(_id: string, data: Array<{ range: string; values: any[][] }>) {
+        for (const item of data) {
+            const sheetName = item.range.split("!")[0].replace(/^'|'$/g, "");
+            this.cellData.set(sheetName, JSON.parse(JSON.stringify(item.values)));
+        }
+        return {};
+    }
+
+    async setSheetHidden() {
+        return {};
+    }
+
+    async protectSheet() {
+        return {};
+    }
+
     async acquireLock() {
         return true;
     }
@@ -50,6 +71,17 @@ class FakeGoogleSheetsClient {
 
     async getFileAppProperties() {
         return { appProperties: { quozen_schema_version: "3" } };
+    }
+
+    async getFileMetadata() {
+        return {
+            properties: { quozen_type: "group" },
+            appProperties: { quozen_schema_version: "3" },
+        };
+    }
+
+    async updateFileProperties() {
+        return {};
     }
 
     async batchGet(_id: string, ranges: string[]) {
@@ -123,7 +155,7 @@ describe("Google Spreadsheet Migration 4 (add category name_es & description_es)
             }
         );
 
-        const engine = new SchemaEngine(client as any);
+        const engine = new SchemaEngine(new GoogleSheetsContainerDriver(client as any));
         await engine.migrate("sheet-v3", QuozenSchema, migrations);
 
         const rows = client.cellData.get("Categories")!;

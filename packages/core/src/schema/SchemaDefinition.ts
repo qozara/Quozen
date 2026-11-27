@@ -1,7 +1,13 @@
-import { SchemaDefinition, computeSchemaHash } from "@qozara/gdocs-schema";
+import { SchemaDefinition, computeSchemaHash } from "@qozara/cloud-sync";
 
 export const QuozenSchema: SchemaDefinition = {
-    version: 4,
+    version: 5,
+    identity: {
+        appId: "quozen",
+        docType: "group",
+        legacyPropertyMatchers: [{ key: "quozen_type", value: "group" }],
+        legacyRequiredTabs: ["Expenses", "Settlements", "Members"],
+    },
     tabs: [
         {
             name: "Expenses",

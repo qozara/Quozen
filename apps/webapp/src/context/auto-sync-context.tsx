@@ -221,6 +221,10 @@ export function AutoSyncProvider({
                     window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "UPGRADE_REQUIRED", groupId: targetGroupId } }));
                 } else if (newStatus === "incompatible" && isForActiveGroup) {
                     window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "INCOMPATIBLE", groupId: targetGroupId } }));
+                } else if (newStatus === "unmanaged" && isForActiveGroup) {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "UNMANAGED", groupId: targetGroupId } }));
+                } else if (newStatus === "foreign_app" && isForActiveGroup) {
+                    window.dispatchEvent(new CustomEvent("schema-error", { detail: { status: "FOREIGN_APP", groupId: targetGroupId } }));
                 } else if (newStatus === "auth_failed") {
                     const err = (statusError !== undefined ? statusError : null)
                         || replication?.getLastError?.()

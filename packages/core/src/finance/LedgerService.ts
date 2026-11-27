@@ -3,7 +3,7 @@ import { User, Expense, Settlement, Member, ExpenseCategory } from "../domain/mo
 import { CreateExpenseDTO, UpdateExpenseDTO, CreateSettlementDTO, UpdateSettlementDTO } from "../domain/dtos";
 import { Ledger } from "../domain/Ledger";
 import { IGroupLifecycleState, resolveGroupState } from "../domain/GroupState";
-import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError, SchemaIncompatibleError, InvalidCategoryError, TableNotFoundError } from "../errors";
+import { ConflictError, SchemaCorruptedError, SchemaUpgradeRequiredError, SchemaIncompatibleError, UnmanagedDocumentError, ForeignDocumentError, InvalidCategoryError, TableNotFoundError } from "../errors";
 import { resolveCategory, DEFAULT_CATEGORY_ID, DEFAULT_CATEGORIES } from "../domain/categories";
 import { distributeAmount } from "./index";
 import { ValidationService, ValidationStatus } from "../schema/ValidationService";
@@ -79,6 +79,12 @@ export class LedgerService {
         try {
             health = await this.validationSvc.checkHealth(this.groupId);
         } catch (e: any) {
+            if (e instanceof ForeignDocumentError || e?.name === "ForeignDocumentError") {
+                throw e;
+            }
+            if (e instanceof UnmanagedDocumentError || e?.name === "UnmanagedDocumentError") {
+                throw e;
+            }
             if (e instanceof SchemaIncompatibleError || e?.name === "SchemaIncompatibleError") {
                 throw e;
             }
@@ -93,6 +99,12 @@ export class LedgerService {
             throw new SchemaCorruptedError();
         }
 
+        if (health.status === ValidationStatus.FOREIGN_APP) {
+            throw new ForeignDocumentError(undefined, health.detectedAppId, health.detectedDocType);
+        }
+        if (health.status === ValidationStatus.UNMANAGED) {
+            throw new UnmanagedDocumentError(this.groupId);
+        }
         if (health.status === ValidationStatus.INCOMPATIBLE) {
             throw new SchemaIncompatibleError();
         }
