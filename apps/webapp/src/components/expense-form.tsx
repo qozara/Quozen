@@ -89,7 +89,7 @@ export default function ExpenseForm({
   const targetCategory = draft?.category || initialData?.category;
   const initialCatId = targetCategory
     ? resolveCategory(targetCategory, availableCategories)?.id || targetCategory
-    : (categories && categories.length > 0 ? categories[0].id : "");
+    : "";
 
   const displayCategories = useMemo(() => {
     if (!initialCatId || availableCategories.some(c => c.id === initialCatId)) {
@@ -162,14 +162,17 @@ export default function ExpenseForm({
   }, [draft, users, displayCategories]);
 
   useEffect(() => {
-    if (!initialData && !draft && categories && categories.length > 0 && (!category || !categories.some(c => c.id === category))) {
-      setCategory(categories[0].id);
+    if (targetCategory && !hasManualCategory && !isAutoDetected) {
+      const resolved = resolveCategory(targetCategory, availableCategories);
+      setCategory(resolved ? resolved.id : targetCategory);
     }
-  }, [category, categories, initialData, draft]);
+  }, [targetCategory, availableCategories, hasManualCategory, isAutoDetected]);
 
   useEffect(() => {
-    if (category) {
+    if (!isInitialMountRef.current || category) {
       onCategoryChange?.(category);
+    }
+    if (category) {
       const rail = pillRailRef.current;
       const pill = pillRefs.current[category];
       if (rail && pill && rail.scrollWidth > rail.clientWidth) {
@@ -183,8 +186,8 @@ export default function ExpenseForm({
           block: "nearest",
         });
       }
-      isInitialMountRef.current = false;
     }
+    isInitialMountRef.current = false;
   }, [category, onCategoryChange]);
 
   const handleCategoryChange = (val: string) => {
@@ -226,7 +229,8 @@ export default function ExpenseForm({
       if (inferred) {
         setCategory(inferred.id);
         setIsAutoDetected(true);
-      } else if (!value.trim()) {
+      } else if (isAutoDetected) {
+        setCategory("");
         setIsAutoDetected(false);
       }
     }
@@ -342,6 +346,9 @@ export default function ExpenseForm({
     e.preventDefault();
 
     if (!description || !paidBy || !category || !date) {
+      if (!category && displayCategories.length > 0) {
+        pillRefs.current[displayCategories[0].id]?.focus();
+      }
       toast({
         title: t("expenseForm.missingInfo"),
         description: t("expenseForm.missingInfoDesc"),

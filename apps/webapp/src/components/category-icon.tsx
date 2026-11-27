@@ -509,13 +509,15 @@ export function useActiveCategoryState(
     categories && categories.length > 0 ? categories : DEFAULT_CATEGORIES;
   const defaultCategoryId = targetCategory
     ? resolveCategoryMeta(targetCategory, availableCategories, undefined, locale).canonicalId
-    : availableCategories[0]?.id || "";
+    : "";
 
   const [activeCategoryId, setActiveCategoryId] = useState(defaultCategoryId);
 
   useEffect(() => {
-    if (isOpen && defaultCategoryId) {
+    if (isOpen) {
       setActiveCategoryId(defaultCategoryId);
+    } else {
+      setActiveCategoryId("");
     }
   }, [isOpen, defaultCategoryId]);
 

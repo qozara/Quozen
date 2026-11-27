@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { Pizza, Waves, Coffee, Utensils } from "lucide-react";
 import {
@@ -202,13 +202,16 @@ describe("Unified Category UI Across Dashboard, Activity, and Drawers", () => {
     expect(screen.getByText("Gastronomía")).toBeInTheDocument();
     unmountExpenses();
 
-    // 3. AddExpenseDrawer header hero icon (defaults to importedCategories[0] = surf_lessons)
+    // 3. AddExpenseDrawer header hero icon starts neutral/unselected on open and updates to surf_lessons on selection
     render(
       <MemoryRouter>
         <AddExpenseDrawer />
       </MemoryRouter>
     );
     const drawerHeroIcon = screen.getByTestId("drawer-category-hero-icon");
+    expect(drawerHeroIcon.querySelector("svg.lucide-tag")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("category-pill-surf_lessons"));
     expect(drawerHeroIcon.className).toContain(expectedSurfIconContainer);
     expect(drawerHeroIcon.querySelector("svg.lucide-waves")).toBeInTheDocument();
   });

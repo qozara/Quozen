@@ -13,8 +13,12 @@ vi.mock("@/context/app-context", () => ({
   useAppContext: vi.fn(),
 }));
 
+const { mockToast } = vi.hoisted(() => ({
+  mockToast: vi.fn(),
+}));
+
 vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: mockToast }),
 }));
 
 vi.mock("@/hooks/use-auto-sync", () => ({
@@ -129,14 +133,15 @@ describe("Expense Category Awareness UX", () => {
       ).toBeTruthy();
     });
 
-    it("switches category in 1 tap, supports keyboard arrow navigation, and shows category in sticky footer", () => {
+    it("starts with all pills unselected, blocks save without category, switches in 1 tap, supports arrow keys, and shows category in sticky footer", () => {
       const onCategoryChange = vi.fn();
+      const onSubmit = vi.fn();
       render(
         <ExpenseForm
           users={mockUsers}
           categories={DEFAULT_CATEGORIES}
           currentUserId="u1"
-          onSubmit={vi.fn()}
+          onSubmit={onSubmit}
           onCategoryChange={onCategoryChange}
           isPending={false}
           isDrawer
@@ -146,10 +151,26 @@ describe("Expense Category Awareness UX", () => {
       const foodPill = screen.getByTestId("category-pill-food_dining");
       const transportPill = screen.getByTestId("category-pill-transportation");
 
-      expect(foodPill).toHaveAttribute("aria-checked", "true");
-      expect(screen.getByTestId("submit-category-badge")).toHaveTextContent("Food & Dining");
+      // All pills start unselected on new expense dialog open
+      for (const cat of DEFAULT_CATEGORIES) {
+        expect(screen.getByTestId(`category-pill-${cat.id}`)).toHaveAttribute("aria-checked", "false");
+      }
+      expect(screen.queryByTestId("submit-category-badge")).toBeNull();
 
-      // 1-tap switch
+      // Submitting with non-matching description and amount but NO category selected is blocked
+      fireEvent.change(screen.getByTestId("input-expense-description"), {
+        target: { value: "Misc group item" },
+      });
+      fireEvent.change(screen.getByTestId("input-expense-amount"), {
+        target: { value: "40" },
+      });
+      fireEvent.submit(screen.getByTestId("form-expense"));
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: "destructive" })
+      );
+
+      // 1-tap selection enables save and shows category in sticky footer
       fireEvent.click(transportPill);
       expect(transportPill).toHaveAttribute("aria-checked", "true");
       expect(foodPill).toHaveAttribute("aria-checked", "false");
@@ -161,6 +182,15 @@ describe("Expense Category Awareness UX", () => {
       const accommodationPill = screen.getByTestId("category-pill-accommodation");
       expect(accommodationPill).toHaveAttribute("aria-checked", "true");
       expect(onCategoryChange).toHaveBeenLastCalledWith("accommodation");
+
+      fireEvent.submit(screen.getByTestId("form-expense"));
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: "Misc group item",
+          amount: 40,
+          category: "accommodation",
+        })
+      );
     });
 
     it("auto-selects category when typing keywords in description on a new expense until manually selected", () => {
@@ -183,6 +213,11 @@ describe("Expense Category Awareness UX", () => {
       fireEvent.change(descInput, { target: { value: "Uber to airport" } });
       expect(screen.getByTestId("category-pill-transportation")).toHaveAttribute("aria-checked", "true");
       expect(onCategoryChange).toHaveBeenLastCalledWith("transportation");
+
+      // Changing to non-matching text before manual selection clears auto-selected pill back to unselected
+      fireEvent.change(descInput, { target: { value: "Unclassified thing" } });
+      expect(screen.getByTestId("category-pill-transportation")).toHaveAttribute("aria-checked", "false");
+      expect(onCategoryChange).toHaveBeenLastCalledWith("");
 
       // Changing to "Hotel check-in" while still untouched manually switches to accommodation
       fireEvent.change(descInput, { target: { value: "Hotel check-in" } });
@@ -253,10 +288,16 @@ describe("Expense Category Awareness UX", () => {
       render(<AddExpenseDrawer />);
 
       const aura = screen.getByTestId("drawer-category-aura");
-      expect(aura).toHaveAttribute("data-category-id", "food_dining");
+      expect(aura).toHaveAttribute("data-category-id", "");
       expect(screen.getByTestId("drawer-category-hero-icon")).toBeInTheDocument();
 
-      // Switch pill -> aura updates immediately
+      // Auto-detection updates aura immediately
+      fireEvent.change(screen.getByTestId("input-expense-description"), {
+        target: { value: "Dinner with friends" },
+      });
+      expect(screen.getByTestId("drawer-category-aura")).toHaveAttribute("data-category-id", "food_dining");
+
+      // Manual pill tap -> aura updates immediately
       fireEvent.click(screen.getByTestId("category-pill-entertainment"));
       expect(screen.getByTestId("drawer-category-aura")).toHaveAttribute("data-category-id", "entertainment");
     });
