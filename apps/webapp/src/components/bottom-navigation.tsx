@@ -12,6 +12,7 @@ export default function BottomNavigation() {
   const { settings } = useSettings();
 
   const isArchived = Boolean(activeGroupId && settings?.archivedGroupCache?.some(g => g.id === activeGroupId));
+  const isClosed = Boolean(activeGroupId && settings?.groupCache?.some(g => g.id === activeGroupId && g.status === "closed"));
 
   const hiddenRoutes = ["/add-expense", "/edit-expense"];
   const shouldHide = hiddenRoutes.some(route => location.pathname.startsWith(route));
@@ -23,7 +24,7 @@ export default function BottomNavigation() {
   const tabs = [
     { id: "home", path: "/dashboard", icon: Home, label: t("nav.home") },
     { id: "expenses", path: "/expenses", icon: Activity, label: t("nav.activity") },
-    { id: "add", path: "/add-expense", icon: Plus, label: "" },
+    ...(!isClosed ? [{ id: "add", path: "/add-expense", icon: Plus, label: "" }] : []),
     { id: "groups", path: "/groups", icon: Users, label: t("nav.groups") },
     { id: "profile", path: "/profile", icon: User, label: t("nav.profile") },
   ];

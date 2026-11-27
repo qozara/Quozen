@@ -1,5 +1,7 @@
 import { IStorageLayer } from "./IStorageLayer";
-import { Group, User, Member } from "../domain/models";
+import { Group, User, Member, GroupStatus } from "../domain/models";
+import { IGroupLifecycleState, normalizeGroupStatus, resolveGroupState } from "../domain/GroupState";
+import { calculateBalances } from "../finance";
 import { UserSettings, CachedGroup, QUOZEN_PREFIX, SETTINGS_FILE_NAME, REQUIRED_SHEETS, GROUP_SHEETS, MemberInput, SCHEMAS } from "../types";
 import { DEFAULT_CATEGORIES } from "../domain/categories";
 import { SheetDataMapper } from "./SheetDataMapper";
@@ -287,6 +289,26 @@ export class GroupRepository {
             this.accountIdCache.set(targetGroupId, currentAccountId);
         }
 
+        // Sync remote _meta!status into local cache when online and no pending local status transition
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        if (!isOffline && cachedGroup && !cachedGroup.pendingStatusSync) {
+            try {
+                const remoteMeta = await this.readGroupMetadata(targetGroupId);
+                if (remoteMeta.status) {
+                    const remoteStatus = normalizeGroupStatus(remoteMeta.status);
+                    if (cachedGroup.status !== remoteStatus) {
+                        cachedGroup.status = remoteStatus;
+                        cachedGroup.statusUpdatedAt = new Date().toISOString();
+                        cachedGroup.updatedAt = cachedGroup.statusUpdatedAt;
+                        LedgerRepository.setCachedGroupStatus(targetGroupId, remoteStatus);
+                        await this.saveSettings(settings, options);
+                    }
+                }
+            } catch {
+                // Non-fatal
+            }
+        }
+
         return currentAccountId;
     }
 
@@ -301,7 +323,158 @@ export class GroupRepository {
             cached.updatedAt = nowIso;
             await this.saveSettings(settings);
         }
-        await this.updateAccountManagerBinding(groupId, this.user.email, accountId);
+        const state = await this.getGroupLifecycleState(groupId);
+        if (!state.isClosed) {
+            await this.updateAccountManagerBinding(groupId, this.user.email, accountId);
+        }
+    }
+
+    private async assertUserIsGroupMember(groupId: string, members: Member[]): Promise<void> {
+        const userEmail = (this.user.email || "").trim().toLowerCase();
+        const linkedAccountId = this.accountIdCache.get(groupId);
+        const isMember = members.some(
+            m =>
+                (linkedAccountId && m.userId === linkedAccountId) ||
+                m.userId === this.user.id ||
+                (userEmail && (m.email || "").trim().toLowerCase() === userEmail) ||
+                (userEmail && (m.userId || "").trim().toLowerCase() === userEmail) ||
+                (userEmail && m.managedBy?.some(e => e.trim().toLowerCase() === userEmail))
+        );
+        if (!isMember) {
+            throw new Error("Forbidden: User is not a member of this group");
+        }
+    }
+
+    async getGroupStatus(groupId: string): Promise<GroupStatus> {
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        let cached: CachedGroup | undefined;
+        try {
+            const settings = await this.getSettings();
+            cached =
+                settings.groupCache.find(g => g.id === groupId) ||
+                settings.archivedGroupCache?.find(g => g.id === groupId);
+        } catch {
+            cached = undefined;
+        }
+
+        if (isOffline || cached?.pendingStatusSync || this.db) {
+            return normalizeGroupStatus(cached?.status);
+        }
+
+        try {
+            const meta = await this.readGroupMetadata(groupId);
+            if (meta.status) {
+                const resolved = normalizeGroupStatus(meta.status);
+                LedgerRepository.setCachedGroupStatus(groupId, resolved);
+                return resolved;
+            }
+        } catch {
+            // Fallback to cached status
+        }
+
+        return normalizeGroupStatus(cached?.status);
+    }
+
+    async getGroupLifecycleState(groupId: string): Promise<IGroupLifecycleState> {
+        const status = await this.getGroupStatus(groupId);
+        return resolveGroupState(status);
+    }
+
+    async closeGroup(groupId: string, options?: { force?: boolean }): Promise<void> {
+        const settings = await this.getSettings();
+        if (settings.archivedGroupCache?.some(g => g.id === groupId)) {
+            throw new Error("Cannot modify an archived group. Please unarchive it first.");
+        }
+
+        const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db, () => this.onMutation?.(groupId));
+        const [members, expenses, settlements] = await Promise.all([
+            ledgerRepo.getMembers(),
+            ledgerRepo.getExpenses(),
+            ledgerRepo.getSettlements()
+        ]);
+
+        await this.assertUserIsGroupMember(groupId, members);
+
+        const currentState = await this.getGroupLifecycleState(groupId);
+        const balances = calculateBalances(members, expenses, settlements);
+        currentState.assertCanTransitionToClosed(balances, options?.force ?? false);
+
+        const nowIso = new Date().toISOString();
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        let pendingStatusSync = false;
+
+        if (!isOffline) {
+            try {
+                await this.writeGroupMetadata(groupId, {
+                    status: "closed",
+                    closed_at: nowIso,
+                    closed_by: this.user.email || this.user.id
+                });
+            } catch (err) {
+                if (this.db && isNetworkError(err)) {
+                    pendingStatusSync = true;
+                } else if (!this.db) {
+                    throw err;
+                }
+            }
+        } else {
+            pendingStatusSync = true;
+        }
+
+        LedgerRepository.setCachedGroupStatus(groupId, "closed");
+
+        const cachedGroup = settings.groupCache.find(g => g.id === groupId);
+        if (cachedGroup) {
+            cachedGroup.status = "closed";
+            cachedGroup.statusUpdatedAt = nowIso;
+            cachedGroup.pendingStatusSync = pendingStatusSync;
+            cachedGroup.updatedAt = nowIso;
+            await this.saveSettings(settings);
+        }
+    }
+
+    async reopenGroup(groupId: string): Promise<void> {
+        const settings = await this.getSettings();
+        if (settings.archivedGroupCache?.some(g => g.id === groupId)) {
+            throw new Error("Cannot modify an archived group. Please unarchive it first.");
+        }
+
+        const ledgerRepo = new LedgerRepository(this.storage, groupId, this.db, () => this.onMutation?.(groupId));
+        const members = await ledgerRepo.getMembers();
+        await this.assertUserIsGroupMember(groupId, members);
+
+        const nowIso = new Date().toISOString();
+        const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;
+        let pendingStatusSync = false;
+
+        if (!isOffline) {
+            try {
+                await this.writeGroupMetadata(groupId, {
+                    status: "open",
+                    closed_at: "",
+                    closed_by: ""
+                });
+            } catch (err) {
+                if (this.db && isNetworkError(err)) {
+                    pendingStatusSync = true;
+                } else if (!this.db) {
+                    throw err;
+                }
+            }
+        } else {
+            pendingStatusSync = true;
+        }
+
+        LedgerRepository.setCachedGroupStatus(groupId, "open");
+
+        const cachedGroup = settings.groupCache.find(g => g.id === groupId);
+        if (cachedGroup) {
+            cachedGroup.status = "open";
+            cachedGroup.statusUpdatedAt = nowIso;
+            cachedGroup.pendingStatusSync = pendingStatusSync;
+            cachedGroup.updatedAt = nowIso;
+            await this.saveSettings(settings);
+        }
     }
 
     async getSettings(): Promise<UserSettings> {
@@ -543,7 +716,10 @@ export class GroupRepository {
                 ...(existing?.pendingRename !== undefined ? { pendingRename: existing.pendingRename } : {}),
                 ...(existing?.validationStatus !== undefined ? { validationStatus: existing.validationStatus } : {}),
                 ...(existing?.updatedAt ? { updatedAt: existing.updatedAt } : {}),
-                ...(existing?.icon !== undefined ? { icon: existing.icon } : {})
+                ...(existing?.icon !== undefined ? { icon: existing.icon } : {}),
+                ...(existing?.status !== undefined ? { status: existing.status } : {}),
+                ...(existing?.statusUpdatedAt ? { statusUpdatedAt: existing.statusUpdatedAt } : {}),
+                ...(existing?.pendingStatusSync !== undefined ? { pendingStatusSync: existing.pendingStatusSync } : {})
             };
         }).sort((a, b) => new Date(b.lastAccessed || 0).getTime() - new Date(a.lastAccessed || 0).getTime());
 
@@ -895,6 +1071,7 @@ export class GroupRepository {
             existingCached.validationStatus = ValidationStatus.READY;
             existingCached.isHydrated = true;
             existingCached.icon = options?.icon || "";
+            existingCached.status = "open";
         } else {
             settings.groupCache.unshift({
                 id: fileId,
@@ -904,7 +1081,8 @@ export class GroupRepository {
                 updatedAt: nowIso,
                 validationStatus: ValidationStatus.READY,
                 isHydrated: true,
-                icon: options?.icon || ""
+                icon: options?.icon || "",
+                status: "open"
             });
         }
         settings.activeGroupId = fileId;
@@ -916,6 +1094,7 @@ export class GroupRepository {
             participants: initialMembers.map(m => m[0]),
             createdAt: new Date(),
             isOwner: true,
+            status: "open",
             ...(options?.icon ? { icon: options.icon } : {})
         };
     }
@@ -1205,8 +1384,9 @@ export class GroupRepository {
         const cachedGroup = settings.groupCache.find(g => g.id === spreadsheetId);
         let groupIcon = cachedGroup?.icon || existingCachedGroup?.icon;
         let groupOwnerEmail: string | undefined;
+        let groupStatus: GroupStatus = normalizeGroupStatus(cachedGroup?.status || existingCachedGroup?.status);
         try {
-            const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C10"]);
+            const metaRes = await this.storage.batchGetValues(spreadsheetId, ["_meta!A1:C50"]);
             const metaRows = metaRes[0]?.values || [];
             const iconRow = metaRows.find((r: string[]) => r[0] === "icon");
             if (iconRow && iconRow[1]) {
@@ -1216,9 +1396,14 @@ export class GroupRepository {
             if (ownerRow && ownerRow[1]) {
                 groupOwnerEmail = ownerRow[1];
             }
+            const statusRow = metaRows.find((r: string[]) => r[0] === "status");
+            if (statusRow && statusRow[1]) {
+                groupStatus = normalizeGroupStatus(statusRow[1]);
+            }
         } catch {
             // Older sheets might not have _meta tab
         }
+        LedgerRepository.setCachedGroupStatus(spreadsheetId, groupStatus);
 
         let role: "owner" | "member" = "member";
         if (validation.members) {
@@ -1298,6 +1483,7 @@ export class GroupRepository {
                 updatedAt: nowIso,
                 validationStatus: validation.status,
                 isArchived: false,
+                status: groupStatus,
                 ...(groupIcon ? { icon: groupIcon } : {})
             });
         } else {
@@ -1309,6 +1495,7 @@ export class GroupRepository {
                 cachedGroup.icon = groupIcon;
             }
             cachedGroup.isArchived = false;
+            cachedGroup.status = groupStatus;
             cachedGroup.lastAccessed = nowIso;
             cachedGroup.updatedAt = nowIso;
             cachedGroup.validationStatus = validation.status;
@@ -1327,6 +1514,7 @@ export class GroupRepository {
             participants: [],
             createdAt: new Date(),
             isOwner: role === "owner",
+            status: groupStatus,
             ...(groupIcon ? { icon: groupIcon } : {})
         };
     }
@@ -1343,6 +1531,12 @@ export class GroupRepository {
 
         const validation = await this.validateQuozenSpreadsheet(spreadsheetId);
         if (!validation.valid) throw new Error("Could not read group data");
+
+        const existingMemberForJoin = validation.members?.find(m => m.userId === this.user.id || m.email === this.user.email);
+        if (!existingMemberForJoin || options?.accountId) {
+            const groupState = await this.getGroupLifecycleState(spreadsheetId);
+            groupState.assertCanMutateRoster();
+        }
 
         // Ensure joining user receives explicit Google Drive permission so they don't lose access when link becomes restricted
         if (this.user.email) {
@@ -1416,6 +1610,9 @@ export class GroupRepository {
             await this.purgeUnavailableGroup(groupId, cached?.name || name, health.reason);
             throw new GroupFileUnavailableError(groupId, cached?.name || name, health.reason);
         }
+
+        const groupState = await this.getGroupLifecycleState(groupId);
+        groupState.assertCanMutateGroupMetadata();
 
         const newTitle = `${QUOZEN_PREFIX}${name}`;
         const isOffline = typeof globalThis !== "undefined" && (globalThis as any).navigator?.onLine === false;

@@ -201,6 +201,48 @@ export class CompositeCloudSyncProvider extends BaseCompositeCloudSyncProvider {
                                             console.warn(`[Sync] Failed to sync pending group rename for ${cg.id}:`, renameErr);
                                         }
                                     }
+                                    if (
+                                        cg &&
+                                        cg.pendingStatusSync === true &&
+                                        cg.status &&
+                                        typeof storageLayer.batchGetValues === "function" &&
+                                        typeof storageLayer.batchUpdateValues === "function"
+                                    ) {
+                                        try {
+                                            let metaRows: any[][] = [];
+                                            try {
+                                                const metaRes = await storageLayer.batchGetValues(cg.id, ["_meta!A1:C50"]);
+                                                metaRows = metaRes[0]?.values || [];
+                                            } catch {
+                                                // _meta tab may not exist yet
+                                            }
+                                            if (metaRows.length === 0 || metaRows[0]?.[0] !== "key") {
+                                                metaRows = [["key", "value", "updatedAt"]];
+                                            }
+                                            const existingIdx = metaRows.findIndex((r: any[]) => r[0] === "status");
+                                            const remoteUpdatedAt = existingIdx >= 0 ? parseTimestampMs(metaRows[existingIdx]?.[2]) : 0;
+                                            const localUpdatedAt = parseTimestampMs(cg.statusUpdatedAt || cg.updatedAt);
+
+                                            if (remoteUpdatedAt > localUpdatedAt && metaRows[existingIdx]?.[1]) {
+                                                cg.status = metaRows[existingIdx][1] === "closed" ? "closed" : "open";
+                                                cg.statusUpdatedAt = metaRows[existingIdx][2];
+                                                cg.pendingStatusSync = false;
+                                            } else {
+                                                const stamp = cg.statusUpdatedAt || new Date().toISOString();
+                                                if (existingIdx >= 0) {
+                                                    metaRows[existingIdx] = ["status", cg.status, stamp];
+                                                } else {
+                                                    metaRows.push(["status", cg.status, stamp]);
+                                                }
+                                                await storageLayer.batchUpdateValues(cg.id, [
+                                                    { range: "_meta!A1", values: metaRows }
+                                                ]);
+                                                cg.pendingStatusSync = false;
+                                            }
+                                        } catch (statusErr) {
+                                            console.warn(`[Sync] Failed to sync pending group status for ${cg.id}:`, statusErr);
+                                        }
+                                    }
                                 }
                             }
                         }

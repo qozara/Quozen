@@ -47,9 +47,18 @@ interface ExpensesListProps {
   members: Member[];
   categories?: ExpenseCategory[];
   isLoading?: boolean;
+  isClosed?: boolean;
+  onSelectExpenseReadOnly?: (expense: Expense) => void;
 }
 
-export default function ExpensesList({ expenses = [], members = [], categories = [], isLoading = false }: ExpensesListProps) {
+export default function ExpensesList({
+  expenses = [],
+  members = [],
+  categories = [],
+  isLoading = false,
+  isClosed = false,
+  onSelectExpenseReadOnly,
+}: ExpensesListProps) {
   const { activeGroupId, currentUserId, setIsAddExpenseOpen } = useAppContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -114,13 +123,17 @@ export default function ExpensesList({ expenses = [], members = [], categories =
           <Receipt className="w-10 h-10 text-muted-foreground/20" />
         </div>
         <h3 className="text-xl font-bold mb-2">{t("activity.noExpenses")}</h3>
-        <p className="text-muted-foreground mb-8 max-w-[280px]">
-          {t("activity.startAdding")}
-        </p>
-        <Button onClick={() => setIsAddExpenseOpen(true)} className="h-12 px-8">
-          <Plus className="w-4 h-4 mr-2" />
-          {t("expenseForm.addTitle")}
-        </Button>
+        {!isClosed && (
+          <>
+            <p className="text-muted-foreground mb-8 max-w-[280px]">
+              {t("activity.startAdding")}
+            </p>
+            <Button onClick={() => setIsAddExpenseOpen(true)} className="h-12 px-8">
+              <Plus className="w-4 h-4 mr-2" />
+              {t("expenseForm.addTitle")}
+            </Button>
+          </>
+        )}
       </div>
     );
   }
@@ -133,7 +146,14 @@ export default function ExpensesList({ expenses = [], members = [], categories =
 
         return (
           <Card key={expense.id} data-testid={`card-expense-${expense.id}`} className="hover:shadow-md transition-all">
-            <CardContent className="p-4 cursor-pointer" onClick={() => navigate(`/edit-expense/${expense.id}`)}>
+            <CardContent
+              className="p-4 cursor-pointer"
+              onClick={() =>
+                isClosed
+                  ? onSelectExpenseReadOnly?.(expense)
+                  : navigate(`/edit-expense/${expense.id}`)
+              }
+            >
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-3">
                   <CategoryIconBadge
@@ -175,35 +195,37 @@ export default function ExpensesList({ expenses = [], members = [], categories =
                       )}
                     </div>
 
-                    <div onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 -mr-2 text-muted-foreground hover:text-foreground"
-                            aria-label={`Options for ${expense.description}`}
-                            data-testid={`button-options-expense-${expense.id}`}
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/edit-expense/${expense.id}`); }}>
-                            <Edit className="w-4 h-4 mr-2" />
-                            {t("common.edit")}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={(e) => { e.stopPropagation(); setExpenseToDelete(expense); }}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            {t("common.delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
+                    {!isClosed && (
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 -mr-2 text-muted-foreground hover:text-foreground"
+                              aria-label={`Options for ${expense.description}`}
+                              data-testid={`button-options-expense-${expense.id}`}
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/edit-expense/${expense.id}`); }}>
+                              <Edit className="w-4 h-4 mr-2" />
+                              {t("common.edit")}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={(e) => { e.stopPropagation(); setExpenseToDelete(expense); }}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              {t("common.delete")}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

@@ -22,7 +22,8 @@
         "error": "Error",
         "success": "Success",
         "genericError": "An unexpected error occurred.",
-        "share": "Share"
+        "share": "Share",
+        "close": "Close"
     },
     "roles": {
         "owner": "Owner",
@@ -117,6 +118,13 @@
         "unarchiveAction": "Unarchive",
         "archiving": "Archiving...",
         "unarchiving": "Unarchiving...",
+        "closedBadge": "Closed",
+        "closeAction": "Close Group",
+        "reopenAction": "Re-open Group",
+        "closing": "Closing...",
+        "forceCloseTitle": "Close Group with Unsettled Balances?",
+        "forceCloseDesc": "\"{{name}}\" still has non-zero account balances. Closing it will make the group read-only for all members until someone re-opens it. Are you sure you want to close it anyway?",
+        "forceCloseAction": "Close Anyway",
         "confirmArchive": "Are you sure you want to archive \"{{name}}\"? It will be removed from your active groups and become read-only. You can unarchive it anytime from the Archived tab.",
         "readOnlyBanner": "This group is archived and read-only. Unarchive it to add expenses or edit members.",
         "noArchived": "No archived groups.",
@@ -242,7 +250,13 @@
         "deleteDesc": "This will permanently remove this record. This action cannot be undone.",
         "sameUser": "Payer and receiver cannot be the same.",
         "saveError": "Failed to save settlement.",
-        "deleteError": "Failed to delete settlement."
+        "deleteError": "Failed to delete settlement.",
+        "autoCloseTitle": "All Balances Settled!",
+        "autoCloseDesc": "All account balances in \"{{name}}\" are now zero. Would you like to close this group to make it read-only? You can re-open it anytime.",
+        "keepOpen": "Keep Open"
+    },
+    "transactionDetail": {
+        "splitsTitle": "Split Breakdown"
     },
     "login": {
         "welcome": "Welcome to Quozen",

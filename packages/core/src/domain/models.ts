@@ -1,5 +1,6 @@
 import type { ExpenseCategory, ExpenseCategoryId } from "./categories";
-export type { ExpenseCategory, ExpenseCategoryId };
+import type { GroupStatus } from "./GroupState";
+export type { ExpenseCategory, ExpenseCategoryId, GroupStatus };
 
 export interface Group {
     id: string;
@@ -10,6 +11,7 @@ export interface Group {
     createdAt: Date;
     isOwner: boolean;
     icon?: string;
+    status?: GroupStatus;
 }
 
 export interface User {
@@ -86,6 +88,9 @@ export interface CachedGroup {
     updatedAt?: string;
     isArchived?: boolean;
     icon?: string;
+    status?: GroupStatus;
+    statusUpdatedAt?: string;
+    pendingStatusSync?: boolean;
 }
 
 export interface UserSettings {

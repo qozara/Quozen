@@ -175,6 +175,33 @@ export function mergeUserSettingsDocs(
             }
         }
 
+        // Status LWW merge (based on statusUpdatedAt, falling back to entry timestamp)
+        const localStatusTime = parseTimestamp(localEntry.statusUpdatedAt || localEntry.updatedAt);
+        const remoteStatusTime = parseTimestamp(remoteEntry.statusUpdatedAt || remoteEntry.updatedAt);
+        if (localEntry.status !== undefined || remoteEntry.status !== undefined) {
+            if (localStatusTime > remoteStatusTime) {
+                if (localEntry.status !== undefined) winner.status = localEntry.status;
+                if (localEntry.statusUpdatedAt) winner.statusUpdatedAt = localEntry.statusUpdatedAt;
+                if (localEntry.pendingStatusSync) winner.pendingStatusSync = true;
+                if (remoteEntry.status !== localEntry.status || localEntry.pendingStatusSync) {
+                    pushRemote = true;
+                }
+            } else if (remoteStatusTime > localStatusTime) {
+                if (remoteEntry.status !== undefined) winner.status = remoteEntry.status;
+                if (remoteEntry.statusUpdatedAt) winner.statusUpdatedAt = remoteEntry.statusUpdatedAt;
+                winner.pendingStatusSync = remoteEntry.pendingStatusSync;
+                if (localEntry.status !== remoteEntry.status) {
+                    updateLocal = true;
+                }
+            } else if (localEntry.pendingStatusSync) {
+                winner.pendingStatusSync = true;
+                if (localEntry.status !== undefined) winner.status = localEntry.status;
+                if (!remoteEntry.pendingStatusSync) {
+                    pushRemote = true;
+                }
+            }
+        }
+
         return { winner, updateLocal, pushRemote };
     };
 

@@ -38,10 +38,14 @@ export default function EditExpense() {
   } = useActiveCategoryState(expense?.category, ledger?.categories);
 
   useEffect(() => {
+    if (!isLoading && ledger?.isClosed) {
+      navigate("/expenses", { replace: true });
+      return;
+    }
     if (!isLoading && ledger && !expense) {
       setNotFoundError(true);
     }
-  }, [isLoading, ledger, expense]);
+  }, [isLoading, ledger, expense, navigate]);
 
   const editMutation = useMutation({
     mutationFn: (updatedData: any) => {

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import SettlementModal from "@/components/settlement-modal";
+import TransactionDetailDrawer, { type TransactionDetailItem } from "@/components/transaction-detail-drawer";
 import { useState, useMemo } from "react";
 import {
   Wallet, Handshake, ChevronDown, ArrowRight, Banknote, User, Check, Pencil, WifiOff
@@ -93,6 +94,8 @@ export default function Dashboard() {
   const [renameValue, setRenameValue] = useState("");
   const [isRenaming, setIsRenaming] = useState(false);
 
+  const [detailItem, setDetailItem] = useState<TransactionDetailItem | null>(null);
+
   const [pendingSwitch, setPendingSwitch] = useState<{
     targetUserId: string;
     targetName: string;
@@ -109,6 +112,7 @@ export default function Dashboard() {
   const expenses = ledger?.expenses || [];
   const settlements = ledger?.settlements || [];
   const users = ledger?.members || [];
+  const isClosed = Boolean(activeGroup?.status === "closed" || ledger?.isClosed);
 
   const currentUser = useMemo(() => {
     if (!users.length) return undefined;
@@ -147,6 +151,11 @@ export default function Dashboard() {
     if (targetUserId === effectiveUserId) return;
     const targetMember = users.find(u => u.userId === targetUserId);
     if (!targetMember) return;
+
+    if (isClosed) {
+      applyAccountSwitch(targetUserId);
+      return;
+    }
 
     // Check if the user is switching away from their own unused Personal Account
     const personalMember = users.find(
@@ -385,15 +394,19 @@ export default function Dashboard() {
                       </DropdownMenuItem>
                     );
                   })}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={handleOpenRename}
-                    data-testid="menu-item-rename-account"
-                    className="cursor-pointer"
-                  >
-                    <Pencil className="w-4 h-4 mr-2 text-muted-foreground" />
-                    <span>{t("dashboard.renameAccount")}</span>
-                  </DropdownMenuItem>
+                  {!isClosed && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={handleOpenRename}
+                        data-testid="menu-item-rename-account"
+                        className="cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4 mr-2 text-muted-foreground" />
+                        <span>{t("dashboard.renameAccount")}</span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -414,21 +427,23 @@ export default function Dashboard() {
               <span className="font-medium text-foreground">{formatCurrency(totalSpent, currencyCode, i18n.language)}</span>
             </div>
 
-            <div className="mt-6">
-              <Button
-                variant={userBalance < 0 ? "default" : "outline"}
-                size="lg"
-                className={cn(
-                  "w-full font-semibold",
-                  userBalance < 0 ? "bg-primary text-primary-foreground shadow-md hover:bg-primary/90" : "text-primary border-primary/20 hover:bg-primary/10"
-                )}
-                onClick={handleSettleUp}
-                disabled={!settlementSuggestion}
-                data-testid="button-settle-up"
-              >
-                {userBalance < 0 ? t("dashboard.payDebt") : t("dashboard.requestSettlement")}
-              </Button>
-            </div>
+            {!isClosed && (
+              <div className="mt-6">
+                <Button
+                  variant={userBalance < 0 ? "default" : "outline"}
+                  size="lg"
+                  className={cn(
+                    "w-full font-semibold",
+                    userBalance < 0 ? "bg-primary text-primary-foreground shadow-md hover:bg-primary/90" : "text-primary border-primary/20 hover:bg-primary/10"
+                  )}
+                  onClick={handleSettleUp}
+                  disabled={!settlementSuggestion}
+                  data-testid="button-settle-up"
+                >
+                  {userBalance < 0 ? t("dashboard.payDebt") : t("dashboard.requestSettlement")}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -472,16 +487,18 @@ export default function Dashboard() {
                               {balance > 0 ? '+' : balance < 0 ? '-' : ''}{formatCurrency(Math.abs(balance), currencyCode, i18n.language)}
                             </div>
                           </div>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-11 w-11 rounded-full text-primary border-primary/20 hover:bg-primary/10 transition-colors"
-                            onClick={() => handleSettleWith(u.userId)}
-                            data-testid={`button-settle-with-${u.userId}`}
-                            title={t("dashboard.settle")}
-                          >
-                            <Banknote className="w-5 h-5" />
-                          </Button>
+                          {!isClosed && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-11 w-11 rounded-full text-primary border-primary/20 hover:bg-primary/10 transition-colors"
+                              onClick={() => handleSettleWith(u.userId)}
+                              data-testid={`button-settle-with-${u.userId}`}
+                              title={t("dashboard.settle")}
+                            >
+                              <Banknote className="w-5 h-5" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     );
@@ -506,7 +523,9 @@ export default function Dashboard() {
                   {recentActivity.length === 0 ? (
                     <div className="p-8 text-center">
                       <p className="text-muted-foreground text-sm">{t("dashboard.noActivity")}</p>
-                      <Button variant="link" onClick={() => setIsAddExpenseOpen(true)} className="mt-2">{t("dashboard.addFirst")}</Button>
+                      {!isClosed && (
+                        <Button variant="link" onClick={() => setIsAddExpenseOpen(true)} className="mt-2">{t("dashboard.addFirst")}</Button>
+                      )}
                     </div>
                   ) : (
                     recentActivity.map((item) => {
@@ -525,7 +544,11 @@ export default function Dashboard() {
                           <div
                             key={s.id}
                             className="p-4 hover:bg-muted/50 transition-colors cursor-pointer"
-                            onClick={() => setSettlementModal({ isOpen: true, initialData: s })}
+                            onClick={() =>
+                              isClosed
+                                ? setDetailItem({ type: "settlement", data: s })
+                                : setSettlementModal({ isOpen: true, initialData: s })
+                            }
                           >
                             <div className="flex items-center justify-between mb-1">
                               <div className="flex items-center space-x-3">
@@ -558,7 +581,16 @@ export default function Dashboard() {
                       const status = ledger?.getExpenseStatus(e.id, effectiveUserId) || { status: 'none' };
 
                       return (
-                        <div key={e.id} className="p-4 hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => navigate(`/edit-expense/${e.id}`)} data-testid={`expense-item-${e.id}`}>
+                        <div
+                          key={e.id}
+                          className="p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                          onClick={() =>
+                            isClosed
+                              ? setDetailItem({ type: "expense", data: e })
+                              : navigate(`/edit-expense/${e.id}`)
+                          }
+                          data-testid={`expense-item-${e.id}`}
+                        >
                           <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center space-x-3">
                               <CategoryIconBadge
@@ -619,6 +651,13 @@ export default function Dashboard() {
         suggestedAmount={settlementModal.suggestedAmount}
         initialData={settlementModal.initialData}
         users={users}
+      />
+
+      <TransactionDetailDrawer
+        item={detailItem}
+        onClose={() => setDetailItem(null)}
+        members={users}
+        categories={ledger?.categories}
       />
 
       <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>

@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from 'react-i18next';
 import { useAgent } from './useAgent';
+import { useAppContext } from '@/context/app-context';
+import { useSettings } from '@/hooks/use-settings';
 
 export const AgentCommandDrawer: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -14,6 +16,19 @@ export const AgentCommandDrawer: React.FC = () => {
     const handedOffRef = useRef(false);
     const { t } = useTranslation();
     const { executeCommand } = useAgent();
+    const { activeGroupId } = useAppContext();
+    const { settings } = useSettings();
+
+    const isClosedOrArchived = Boolean(
+        activeGroupId && (
+            settings?.groupCache?.some(g => g.id === activeGroupId && g.status === 'closed') ||
+            settings?.archivedGroupCache?.some(g => g.id === activeGroupId)
+        )
+    );
+
+    if (isClosedOrArchived) {
+        return null;
+    }
 
     const handleSubmit = async () => {
         if (!prompt.trim() || isThinking) return;

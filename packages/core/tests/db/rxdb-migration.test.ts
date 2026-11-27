@@ -605,13 +605,15 @@ describe("WP3: RxDB Schema, Categories Collection, v0->v1 Migration & Self-Heali
     });
 
     describe("RxDB user_settings Schema Evolution (v2 -> v3)", () => {
-        it("userSettingsSchema is at version 4 with icon in groupCache and enableLocalAi in preferences", () => {
-            expect(userSettingsSchema.version).toBe(4);
+        it("userSettingsSchema is at version 5 with icon, status in groupCache and enableLocalAi in preferences", () => {
+            expect(userSettingsSchema.version).toBe(5);
             const groupProps = (userSettingsSchema.properties.groupCache as any).items.properties;
             const archivedProps = (userSettingsSchema.properties.archivedGroupCache as any).items.properties;
             const prefProps = (userSettingsSchema.properties.preferences as any).properties;
             expect(groupProps.icon).toBeDefined();
             expect(archivedProps.icon).toBeDefined();
+            expect(groupProps.status).toBeDefined();
+            expect(archivedProps.status).toBeDefined();
             expect(prefProps.enableLocalAi).toBeDefined();
         });
 
@@ -757,21 +759,22 @@ describe("WP3: RxDB Schema, Categories Collection, v0->v1 Migration & Self-Heali
 
             const doc = await db.user_settings.findOne("global_settings").exec();
             expect(doc).not.toBeNull();
-            expect(doc?.version).toBe(4);
+            expect(doc?.version).toBe(5);
             expect(doc?.groupCache[0].name).toBe("Trip Group");
             expect(doc?.groupCache[0].icon).toBe("plane");
+            expect(doc?.groupCache[0].status).toBe("open");
             expect(doc?.preferences.defaultCurrency).toBe("JPY");
             expect(doc?.preferences.enableLocalAi).toBe(false);
         });
 
-        it("userSettingsToDoc defaults version to 4", () => {
+        it("userSettingsToDoc defaults version to 5", () => {
             const doc = userSettingsToDoc({
                 activeGroupId: "g1",
                 groupCache: [],
                 preferences: { defaultCurrency: "USD" },
                 lastUpdated: new Date().toISOString()
             });
-            expect(doc.version).toBe(4);
+            expect(doc.version).toBe(5);
         });
 
         it("migrates v0 categories collection to v1 backfilling default translations while preserving custom/renamed categories", async () => {

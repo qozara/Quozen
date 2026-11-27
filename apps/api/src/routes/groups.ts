@@ -5,13 +5,43 @@ import {
     LedgerAnalyticsSchema, ExpenseSchema, CreateExpenseDTOSchema, UpdateExpenseDTOSchema,
     SettlementSchema, CreateSettlementDTOSchema, UpdateSettlementDTOSchema,
     SchemaStatusDTOSchema, MigrateRequestSchema, RepairRequestSchema,
-    ExpenseCategorySchema
+    ExpenseCategorySchema, CloseGroupRequestSchema, GroupStatusResponseSchema, GroupNotSettledErrorSchema
 } from '../schemas/index.js';
 
 export const groupsRouter = new OpenAPIHono<AppEnv>();
 
 // Apply authentication middleware to all routes in this router
 groupsRouter.use('*', authMiddleware);
+
+function mapDomainError(e: any): { status: 400 | 403 | 404 | 409; body: any } | null {
+    if (!e) return null;
+    if (e.name === 'GroupClosedError') {
+        return { status: 409, body: { error: 'GroupClosedError', message: e.message } };
+    }
+    if (e.name === 'GroupNotSettledError') {
+        return {
+            status: 409,
+            body: {
+                error: 'GroupNotSettledError',
+                message: e.message,
+                nonZeroBalances: e.nonZeroBalances || {},
+            },
+        };
+    }
+    if (e.name === 'InvalidCategoryError') {
+        return { status: 400, body: { error: 'InvalidCategoryError', message: e.message } };
+    }
+    if (e.name === 'ConflictError') {
+        return { status: 409, body: { error: 'Conflict', message: e.message } };
+    }
+    if (e.name === 'NotFoundError' || (typeof e.message === 'string' && e.message.toLowerCase().includes('not found'))) {
+        return { status: 404, body: { error: 'Not Found', message: e.message } };
+    }
+    if (typeof e.message === 'string' && e.message.toLowerCase().includes('forbidden')) {
+        return { status: 403, body: { error: 'Forbidden', message: e.message } };
+    }
+    return null;
+}
 
 const listGroupsRoute = createRoute({
     method: 'get',
@@ -45,6 +75,7 @@ groupsRouter.openapi(listGroupsRoute, async (c) => {
         participants: [],
         createdAt: g.lastAccessed || new Date().toISOString(),
         isOwner: g.role === 'owner',
+        status: g.status || 'open',
         ...(g.icon ? { icon: g.icon } : {})
     }));
     return c.json(mappedGroups, 200);
@@ -98,8 +129,79 @@ const joinGroupRoute = createRoute({
 groupsRouter.openapi(joinGroupRoute, async (c) => {
     const id = c.req.valid('param').id;
     const quozen = c.get('quozen');
-    const group = await quozen.groups.joinGroup(id);
-    return c.json(group, 200);
+    try {
+        const group = await quozen.groups.joinGroup(id);
+        return c.json(group, 200);
+    } catch (e: any) {
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
+        throw e;
+    }
+});
+
+// ==========================================
+// Group Lifecycle (Close / Re-open)
+// ==========================================
+
+const closeGroupRoute = createRoute({
+    method: 'post',
+    path: '/{id}/close',
+    operationId: 'closeUserGroup',
+    tags: ['Groups'],
+    summary: 'Close a group (mark as read-only)',
+    description: 'Marks an expense group as closed (read-only). Any member can close the group. If account balances are not all zero, returns 409 GroupNotSettledError unless force=true is passed. AGENT INSTRUCTION: Never pass force=true without first warning the user about non-zero balances and obtaining explicit confirmation.',
+    request: {
+        params: z.object({ id: z.string() }),
+        body: { content: { 'application/json': { schema: CloseGroupRequestSchema } }, required: false },
+    },
+    responses: {
+        200: { content: { 'application/json': { schema: GroupStatusResponseSchema } }, description: 'Group closed' },
+        403: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Forbidden' },
+        409: { content: { 'application/json': { schema: GroupNotSettledErrorSchema } }, description: 'Non-zero balances' },
+    },
+});
+
+groupsRouter.openapi(closeGroupRoute, async (c) => {
+    const id = c.req.valid('param').id;
+    const body = c.req.valid('json') as { force?: boolean } | undefined;
+    const quozen = c.get('quozen');
+    try {
+        await quozen.groups.closeGroup(id, { force: body?.force ?? false });
+        return c.json({ id, status: 'closed' as const }, 200);
+    } catch (e: any) {
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
+        throw e;
+    }
+});
+
+const reopenGroupRoute = createRoute({
+    method: 'post',
+    path: '/{id}/reopen',
+    operationId: 'reopenUserGroup',
+    tags: ['Groups'],
+    summary: 'Re-open a closed group',
+    description: 'Re-opens a closed expense group, restoring expense, settlement, and group editing. Any group member can re-open.',
+    request: {
+        params: z.object({ id: z.string() }),
+    },
+    responses: {
+        200: { content: { 'application/json': { schema: GroupStatusResponseSchema } }, description: 'Group reopened' },
+        403: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Forbidden' },
+    },
+});
+
+groupsRouter.openapi(reopenGroupRoute, async (c) => {
+    const id = c.req.valid('param').id;
+    const quozen = c.get('quozen');
+    try {
+        await quozen.groups.reopenGroup(id);
+        return c.json({ id, status: 'open' as const }, 200);
+    } catch (e: any) {
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
+        throw e;
+    }
 });
 
 const deleteGroupRoute = createRoute({
@@ -147,7 +249,8 @@ const updateGroupRoute = createRoute({
     },
     responses: {
         200: { content: { 'application/json': { schema: SuccessSchema } }, description: 'Group updated' },
-        404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' }
+        404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' },
+        409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Group Closed' }
     }
 });
 
@@ -164,8 +267,14 @@ groupsRouter.openapi(updateGroupRoute, async (c) => {
         nameToSet = group.name;
     }
 
-    await quozen.groups.updateGroup(id, nameToSet, body.members || [], { icon: body.icon });
-    return c.json({ success: true }, 200);
+    try {
+        await quozen.groups.updateGroup(id, nameToSet, body.members || [], { icon: body.icon });
+        return c.json({ success: true }, 200);
+    } catch (e: any) {
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
+        throw e;
+    }
 });
 
 // ==========================================
@@ -193,7 +302,8 @@ groupsRouter.openapi(getLedgerRoute, async (c) => {
         const ledger = await quozen.ledger(id).getLedger();
         return c.json({
             ...ledger.getSummary(),
-            balances: ledger.getBalances()
+            balances: ledger.getBalances(),
+            status: ledger.status,
         }, 200);
     } catch (e: any) {
         if (e.name === 'SchemaCorruptedError' || e.name === 'SchemaUpgradeRequiredError') {
@@ -239,7 +349,8 @@ const createExpenseRoute = createRoute({
     },
     responses: {
         201: { content: { 'application/json': { schema: ExpenseSchema } }, description: 'Created' },
-        400: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Bad Request' }
+        400: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Bad Request' },
+        409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Group Closed' }
     }
 });
 
@@ -254,9 +365,8 @@ groupsRouter.openapi(createExpenseRoute, async (c) => {
         });
         return c.json(expense, 201);
     } catch (err: any) {
-        if (err.name === 'InvalidCategoryError') {
-            return c.json({ error: 'InvalidCategoryError', message: err.message }, 400);
-        }
+        const mapped = mapDomainError(err);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
         throw err;
     }
 });
@@ -314,9 +424,8 @@ groupsRouter.openapi(updateExpenseRoute, async (c) => {
         );
         return c.json({ success: true }, 200);
     } catch (e: any) {
-        if (e.name === 'InvalidCategoryError') return c.json({ error: 'InvalidCategoryError', message: e.message }, 400);
-        if (e.name === 'ConflictError') return c.json({ error: 'Conflict', message: e.message }, 409);
-        if (e.message.includes('not found') || e.name === 'NotFoundError') return c.json({ error: 'Not Found', message: e.message }, 404);
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
         throw e;
     }
 });
@@ -331,7 +440,8 @@ const deleteExpenseRoute = createRoute({
     request: { params: z.object({ id: z.string(), expId: z.string() }) },
     responses: {
         204: { description: 'Deleted' },
-        404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' }
+        404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' },
+        409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Group Closed' }
     }
 });
 
@@ -342,7 +452,8 @@ groupsRouter.openapi(deleteExpenseRoute, async (c) => {
         await quozen.ledger(id).deleteExpense(expId);
         return c.body(null, 204);
     } catch (e: any) {
-        if (e.message.includes('not found') || e.name === 'NotFoundError') return c.json({ error: 'Not Found', message: e.message }, 404);
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
         throw e;
     }
 });
@@ -380,18 +491,27 @@ const createSettlementRoute = createRoute({
         params: z.object({ id: z.string() }),
         body: { content: { 'application/json': { schema: CreateSettlementDTOSchema } } }
     },
-    responses: { 201: { content: { 'application/json': { schema: SettlementSchema } }, description: 'Created' } }
+    responses: {
+        201: { content: { 'application/json': { schema: SettlementSchema } }, description: 'Created' },
+        409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Group Closed' }
+    }
 });
 
 groupsRouter.openapi(createSettlementRoute, async (c) => {
     const id = c.req.valid('param').id;
     const body = c.req.valid('json');
     const quozen = c.get('quozen');
-    const settlement = await quozen.ledger(id).addSettlement({
-        ...body,
-        date: body.date ? new Date(body.date) : undefined
-    });
-    return c.json(settlement, 201);
+    try {
+        const settlement = await quozen.ledger(id).addSettlement({
+            ...body,
+            date: body.date ? new Date(body.date) : undefined
+        });
+        return c.json(settlement, 201);
+    } catch (e: any) {
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
+        throw e;
+    }
 });
 
 const updateSettlementRoute = createRoute({
@@ -407,7 +527,8 @@ const updateSettlementRoute = createRoute({
     },
     responses: {
         200: { content: { 'application/json': { schema: SuccessSchema } }, description: 'Updated successfully' },
-        404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' }
+        404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' },
+        409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Group Closed' }
     }
 });
 
@@ -422,7 +543,8 @@ groupsRouter.openapi(updateSettlementRoute, async (c) => {
         );
         return c.json({ success: true }, 200);
     } catch (e: any) {
-        if (e.message.includes('not found') || e.name === 'NotFoundError') return c.json({ error: 'Not Found', message: e.message }, 404);
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
         throw e;
     }
 });
@@ -437,7 +559,8 @@ const deleteSettlementRoute = createRoute({
     request: { params: z.object({ id: z.string(), settleId: z.string() }) },
     responses: {
         204: { description: 'Deleted' },
-        404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' }
+        404: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Not Found' },
+        409: { content: { 'application/json': { schema: ErrorSchema } }, description: 'Group Closed' }
     }
 });
 
@@ -448,7 +571,8 @@ groupsRouter.openapi(deleteSettlementRoute, async (c) => {
         await quozen.ledger(id).deleteSettlement(settleId);
         return c.body(null, 204);
     } catch (e: any) {
-        if (e.message.includes('not found') || e.name === 'NotFoundError') return c.json({ error: 'Not Found', message: e.message }, 404);
+        const mapped = mapDomainError(e);
+        if (mapped) return c.json(mapped.body, mapped.status as any);
         throw e;
     }
 });

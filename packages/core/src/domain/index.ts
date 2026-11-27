@@ -3,3 +3,4 @@ export * from "./dtos";
 export * from "./categories";
 export * from "./collaborator";
 export * from "./GroupMembershipResolver";
+export * from "./GroupState";

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAppContext } from "@/context/app-context";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle, DrawerFooter } from "@/components/ui/drawer";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
-import { Member, Settlement, SettlementDraft } from "@quozen/core";
+import { Ledger, Member, Settlement, SettlementDraft } from "@quozen/core";
 import { ArrowRightLeft, Trash2, Zap, AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
@@ -76,6 +76,32 @@ export default function SettlementModal({
   const [selectedToId, setSelectedToId] = useState("");
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showAutoCloseDialog, setShowAutoCloseDialog] = useState(false);
+  const shouldPromptAutoCloseRef = useRef(false);
+  const settingsEntries = typeof queryClient?.getQueriesData === "function"
+    ? queryClient.getQueriesData<any>({ queryKey: ["drive", "settings"] })
+    : [];
+  const cachedSettings = settingsEntries[0]?.[1];
+  const activeGroupName = cachedSettings?.groupCache?.find((g: any) => g.id === activeGroupId)?.name || "";
+
+  const closeGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      return await quozen.groups.closeGroup(groupId);
+    },
+    onSuccess: (_, groupId) => {
+      queryClient.invalidateQueries({ queryKey: ["drive", "settings"] });
+      queryClient.invalidateQueries({ queryKey: ["drive", "group", groupId] });
+      setShowAutoCloseDialog(false);
+    },
+    onError: (error) => {
+      toast({
+        title: t("common.error"),
+        description: error instanceof Error ? error.message : t("common.genericError"),
+        variant: "destructive",
+      });
+      setShowAutoCloseDialog(false);
+    },
+  });
 
   useEffect(() => {
     if (isOpen) setPaused(true);
@@ -132,7 +158,12 @@ export default function SettlementModal({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive", "group", activeGroupId] });
       navigator.vibrate?.(50);
+      const shouldPrompt = shouldPromptAutoCloseRef.current;
+      shouldPromptAutoCloseRef.current = false;
       onClose();
+      if (shouldPrompt) {
+        setShowAutoCloseDialog(true);
+      }
     },
     onError: (error) => {
       console.error(error);
@@ -167,10 +198,23 @@ export default function SettlementModal({
       return;
     }
 
+    const parsedAmount = parseFloat(String(amount).replace(',', '.'));
+    const cachedLedger = typeof queryClient?.getQueryData === "function"
+      ? queryClient.getQueryData<Ledger>(["drive", "group", activeGroupId])
+      : undefined;
+    shouldPromptAutoCloseRef.current = Boolean(
+      cachedLedger &&
+      typeof cachedLedger.wouldSettlementZeroAllBalances === "function" &&
+      cachedLedger.wouldSettlementZeroAllBalances(
+        { fromUserId: selectedFromId, toUserId: selectedToId, amount: parsedAmount },
+        initialData?.id
+      )
+    );
+
     saveMutation.mutate({
       fromUserId: selectedFromId,
       toUserId: selectedToId,
-      amount: parseFloat(String(amount).replace(',', '.')),
+      amount: parsedAmount,
       method,
       notes: notes.trim() || undefined,
       date: initialData ? initialData.date : (draft?.date ? draft.date.toISOString() : new Date().toISOString()),
@@ -378,6 +422,38 @@ export default function SettlementModal({
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={() => deleteMutation.mutate()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showAutoCloseDialog} onOpenChange={setShowAutoCloseDialog}>
+        <AlertDialogContent data-testid="dialog-auto-close-group">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settlement.autoCloseTitle", "All Balances Settled!")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settlement.autoCloseDesc", {
+                name: activeGroupName,
+                defaultValue: `All account balances in "${activeGroupName}" are now zero. Would you like to close this group to make it read-only? You can re-open it anytime.`
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-auto-close-cancel">
+              {t("settlement.keepOpen", "Keep Open")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-auto-close-confirm"
+              disabled={closeGroupMutation.isPending}
+              onClick={() => {
+                if (activeGroupId) {
+                  closeGroupMutation.mutate(activeGroupId);
+                } else {
+                  setShowAutoCloseDialog(false);
+                }
+              }}
+            >
+              {t("groups.closeAction", "Close Group")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

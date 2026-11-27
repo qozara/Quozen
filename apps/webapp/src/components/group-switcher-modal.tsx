@@ -1,7 +1,7 @@
 import { useAppContext } from "@/context/app-context";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle, DrawerFooter } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
-import { Users, Check, Settings } from "lucide-react";
+import { Users, Check, Settings, Lock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useGroups } from "@/hooks/use-groups";
 import { useTranslation } from "react-i18next";
@@ -52,7 +52,15 @@ export default function GroupSwitcherModal({ isOpen, onClose }: { isOpen: boolea
                     <Users className="w-6 h-6 text-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-semibold text-foreground text-sm truncate">{group.name}</h4>
+                    <div className="flex items-center gap-1.5">
+                      <h4 className="font-semibold text-foreground text-sm truncate">{group.name}</h4>
+                      {group.status === "closed" && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground border border-border shrink-0">
+                          <Lock className="w-2.5 h-2.5" />
+                          {t("groups.closedBadge", "Closed")}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground truncate">
                       {group.isOwner ? t("roles.owner") : t("roles.member")}
                     </p>

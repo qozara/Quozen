@@ -1,5 +1,13 @@
 import { Expense, Settlement, Member, ExpenseCategory } from "./models";
 import { DEFAULT_CATEGORIES } from "./categories";
+import {
+    GroupStatus,
+    IGroupLifecycleState,
+    normalizeGroupStatus,
+    resolveGroupState,
+    areAllBalancesZero as checkAllBalancesZero,
+    getNonZeroBalances as extractNonZeroBalances,
+} from "./GroupState";
 import { calculateBalances, calculateTotalSpent, getExpenseUserStatus, suggestSettlementStrategy, ExpenseUserStatus } from "../finance";
 
 export interface LedgerData {
@@ -9,6 +17,7 @@ export interface LedgerData {
     categories?: ExpenseCategory[];
     isHydrated?: boolean;
     icon?: string;
+    status?: GroupStatus;
 }
 
 export type LedgerProps = LedgerData;
@@ -16,11 +25,16 @@ export type LedgerProps = LedgerData;
 export class Ledger {
     private _balances: Record<string, number> | null = null;
     public readonly isHydrated: boolean;
+    public readonly status: GroupStatus;
+    public readonly state: IGroupLifecycleState;
 
     constructor(private data: LedgerData) {
         this.isHydrated = data.isHydrated ?? true;
+        this.status = normalizeGroupStatus(data.status);
+        this.state = resolveGroupState(this.status);
     }
 
+    get isClosed(): boolean { return this.state.isClosed; }
     get icon(): string | undefined { return this.data.icon; }
     get members(): Member[] { return this.data.members; }
     get expenses(): Expense[] { return this.data.expenses; }
@@ -61,6 +75,42 @@ export class Ledger {
 
     getSettleUpSuggestion(userId: string) {
         return suggestSettlementStrategy(userId, this.getBalances(), this.data.members);
+    }
+
+    areAllBalancesZero(): boolean {
+        return checkAllBalancesZero(this.getBalances());
+    }
+
+    getNonZeroBalances(): Record<string, number> {
+        return extractNonZeroBalances(this.getBalances());
+    }
+
+    wouldSettlementZeroAllBalances(
+        candidate: { fromUserId: string; toUserId: string; amount: number },
+        editingSettlementId?: string
+    ): boolean {
+        if (this.isClosed) return false;
+        if (this.areAllBalancesZero()) return false;
+        if (!Number.isFinite(candidate.amount) || candidate.amount <= 0) return false;
+        if (!candidate.fromUserId || !candidate.toUserId || candidate.fromUserId === candidate.toUserId) {
+            return false;
+        }
+
+        const simulatedSettlement: Settlement = {
+            id: editingSettlementId || "__simulated__",
+            date: new Date(),
+            fromUserId: candidate.fromUserId,
+            toUserId: candidate.toUserId,
+            amount: candidate.amount,
+            method: "cash",
+        };
+
+        const nextSettlements = editingSettlementId
+            ? this.data.settlements.map((s) => (s.id === editingSettlementId ? { ...s, ...simulatedSettlement } : s))
+            : [...this.data.settlements, simulatedSettlement];
+
+        const nextBalances = calculateBalances(this.data.members, this.data.expenses, nextSettlements);
+        return checkAllBalancesZero(nextBalances);
     }
 
     getSummary() {
