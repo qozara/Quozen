@@ -45,8 +45,7 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
 
         await page.getByTestId('input-expense-description').fill('Dinner');
         await page.getByTestId('input-expense-amount').fill('90');
-        await page.getByTestId('select-category').click();
-        await page.getByRole('option').nth(0).click();
+        await page.getByTestId('select-category').getByRole('radio').first().click();
 
         // Verify UI calculates splits correctly (30 each)
         await expect(page.getByTestId('input-split-amount-test-user-id')).toHaveValue('30.00');
@@ -119,8 +118,7 @@ test.describe('Feature: Ledger Math & Complete CRUD Lifecycle', () => {
         await page.getByTestId('input-expense-amount').fill('100');
 
         // This click was missing!
-        await page.getByTestId('select-category').click();
-        await page.getByRole('option').nth(0).click();
+        await page.getByTestId('select-category').getByRole('radio').first().click();
 
         const splitInput = page.getByTestId('input-split-amount-test-user-id');
         await splitInput.fill('10');

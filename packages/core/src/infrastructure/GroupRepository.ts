@@ -820,14 +820,10 @@ export class GroupRepository {
             }
         }
 
-        const initialCategories = DEFAULT_CATEGORIES.map(c => [
-            c.id,
-            c.name,
-            c.icon || "",
-            c.description || "",
-            nowIso,
-            ""
-        ]);
+        const defaultCatHeaderMap = SheetDataMapper.buildHeaderMap([...SCHEMAS.Categories]);
+        const initialCategories = DEFAULT_CATEGORIES.map(c =>
+            SheetDataMapper.mapFromCategory({ ...c, updatedAt: new Date(nowIso) }, defaultCatHeaderMap)
+        );
 
         const metaRows: string[][] = [
             ["key", "value", "updatedAt"]
@@ -1233,6 +1229,30 @@ export class GroupRepository {
                 if (memberDocs.length > 0) {
                     await this.db.members.bulkUpsert(memberDocs);
                     ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, memberDocs);
+                }
+            }
+
+            if (this.db) {
+                try {
+                    const catRes = await this.storage.batchGetValues(spreadsheetId, ["Categories!A1:Z"]);
+                    const catRows = catRes[0]?.values || [];
+                    const mappedCategories = SheetDataMapper.mapCategoriesTable(catRows);
+                    if (mappedCategories.length > 0) {
+                        const importedCatIds = new Set(mappedCategories.map(({ entity }) => entity.id));
+                        const existingCatDocs = await this.db.collections.categories
+                            .find({ selector: { groupId: spreadsheetId } })
+                            .exec();
+                        for (const existingDoc of existingCatDocs) {
+                            if (!importedCatIds.has(existingDoc.categoryId) && !existingDoc.deletedAt) {
+                                await existingDoc.patch({ deletedAt: nowIso, updatedAt: nowIso });
+                            }
+                        }
+                        const catDocs = mappedCategories.map(({ entity }) => categoryToDoc(entity, spreadsheetId));
+                        await this.db.collections.categories.bulkUpsert(catDocs);
+                        ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, catDocs);
+                    }
+                } catch {
+                    // Legacy v1 spreadsheets may not have a Categories tab yet; migration/hydration handles fallback
                 }
             }
 

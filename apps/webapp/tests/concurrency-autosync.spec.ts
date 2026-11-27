@@ -75,8 +75,7 @@ test.describe('T4: Concurrency & Auto-Sync', () => {
 
         await page.getByTestId('input-expense-description').fill('Initial Dinner');
         await page.getByTestId('input-expense-amount').fill('30');
-        await page.getByTestId('select-category').click();
-        await page.getByRole('option').nth(0).click();
+        await page.getByTestId('select-category').getByRole('radio').first().click();
         await page.getByTestId('button-submit-expense').click();
         await expect(page.getByTestId('drawer-title-add-expense')).not.toBeVisible({ timeout: 5_000 });
 

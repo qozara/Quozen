@@ -1,6 +1,6 @@
 import type { RxJsonSchema, DeepReadonlyObject } from "rxdb";
 import type { Expense, Settlement, Member, UserSettings, ExpenseSplit, CachedGroup } from "../../domain/models";
-import { type ExpenseCategory, normalizeLegacyCategory } from "../../domain/categories";
+import { DEFAULT_CATEGORIES, type ExpenseCategory, normalizeLegacyCategory } from "../../domain/categories";
 
 export interface UserSettingsDocType {
     id: string;
@@ -60,8 +60,10 @@ export interface CategoryDocType {
     groupId: string;
     categoryId: string;
     name: string;
+    translations?: Record<string, string>;
     icon: string;
     description: string;
+    descriptionTranslations?: Record<string, string>;
     sortOrder: number;
     updatedAt: string;
     deletedAt?: string | null;
@@ -289,7 +291,7 @@ export const memberSchema: RxJsonSchema<MemberDocType> = {
 
 export const categorySchema: RxJsonSchema<CategoryDocType> = {
     title: "categories",
-    version: 0,
+    version: 1,
     description: "Group expense categories partitioned by groupId",
     primaryKey: "id",
     type: "object",
@@ -298,14 +300,49 @@ export const categorySchema: RxJsonSchema<CategoryDocType> = {
         groupId: { type: "string", maxLength: 100 },
         categoryId: { type: "string", maxLength: 100 },
         name: { type: "string" },
+        translations: {
+            type: "object",
+            additionalProperties: { type: "string" }
+        },
         icon: { type: "string" },
         description: { type: "string" },
+        descriptionTranslations: {
+            type: "object",
+            additionalProperties: { type: "string" }
+        },
         sortOrder: { type: "number" },
         updatedAt: { type: "string" },
         deletedAt: { type: ["string", "null"] }
     },
     required: ["id", "groupId", "categoryId", "name", "icon", "description", "updatedAt"],
     indexes: ["groupId", ["groupId", "categoryId"]]
+};
+
+export const categoryMigrationStrategies = {
+    1: (oldDoc: any) => {
+        const defaultCat = DEFAULT_CATEGORIES.find(d => d.id === oldDoc.categoryId);
+        const isUntouchedName = Boolean(
+            defaultCat && (!oldDoc.name || String(oldDoc.name).trim() === defaultCat.name)
+        );
+        const isUntouchedDesc = Boolean(
+            defaultCat && (!oldDoc.description || String(oldDoc.description).trim() === defaultCat.description)
+        );
+        return {
+            ...oldDoc,
+            translations:
+                oldDoc.translations && typeof oldDoc.translations === "object"
+                    ? { ...oldDoc.translations }
+                    : isUntouchedName && defaultCat?.translations
+                        ? { ...defaultCat.translations }
+                        : {},
+            descriptionTranslations:
+                oldDoc.descriptionTranslations && typeof oldDoc.descriptionTranslations === "object"
+                    ? { ...oldDoc.descriptionTranslations }
+                    : isUntouchedDesc && defaultCat?.descriptionTranslations
+                        ? { ...defaultCat.descriptionTranslations }
+                        : {}
+        };
+    }
 };
 
 // --- Domain <-> RxDB Document Mappers ---
@@ -476,25 +513,68 @@ export function docToUserSettings(doc: UserSettingsDocType | DeepReadonlyObject<
 export function categoryToDoc(category: ExpenseCategory, groupId: string): CategoryDocType {
     const nowIso = new Date().toISOString();
     const updatedIso = category.updatedAt ? safeIsoString(category.updatedAt, nowIso) : nowIso;
+    const defaultCat = DEFAULT_CATEGORIES.find(d => d.id === category.id);
+    const resolvedIcon = category.icon && category.icon.trim()
+        ? category.icon.trim()
+        : (defaultCat?.icon ?? "");
+    const resolvedSortOrder = typeof category.sortOrder === "number"
+        ? category.sortOrder
+        : (defaultCat?.sortOrder ?? DEFAULT_CATEGORIES.length);
+
+    const hasExplicitTranslations = Boolean(
+        category.translations && Object.keys(category.translations).length > 0
+    );
+    const isUntouchedDefaultName = Boolean(
+        defaultCat && (!category.name || category.name.trim() === defaultCat.name)
+    );
+    const resolvedTranslations = hasExplicitTranslations
+        ? { ...category.translations }
+        : isUntouchedDefaultName && defaultCat?.translations
+            ? { ...defaultCat.translations }
+            : {};
+
+    const hasExplicitDescTranslations = Boolean(
+        category.descriptionTranslations && Object.keys(category.descriptionTranslations).length > 0
+    );
+    const isUntouchedDefaultDesc = Boolean(
+        defaultCat && (!category.description || category.description.trim() === defaultCat.description)
+    );
+    const resolvedDescTranslations = hasExplicitDescTranslations
+        ? { ...category.descriptionTranslations }
+        : isUntouchedDefaultDesc && defaultCat?.descriptionTranslations
+            ? { ...defaultCat.descriptionTranslations }
+            : {};
+
     return {
         id: `${groupId}_${category.id}`,
         groupId,
         categoryId: category.id,
-        name: category.name || "",
-        icon: category.icon || "tag",
+        name: category.name || defaultCat?.name || "",
+        translations: resolvedTranslations,
+        icon: resolvedIcon,
         description: category.description || "",
-        sortOrder: typeof category.sortOrder === "number" ? category.sortOrder : 0,
+        descriptionTranslations: resolvedDescTranslations,
+        sortOrder: resolvedSortOrder,
         updatedAt: updatedIso,
         deletedAt: category.deletedAt ? safeIsoString(category.deletedAt, updatedIso) : null
     };
 }
 
 export function docToCategory(doc: CategoryDocType | DeepReadonlyObject<CategoryDocType>): ExpenseCategory {
+    const rawTranslations = doc.translations ? { ...(doc.translations as Record<string, string>) } : undefined;
+    const rawDescTranslations = doc.descriptionTranslations
+        ? { ...(doc.descriptionTranslations as Record<string, string>) }
+        : undefined;
+
     const cat: ExpenseCategory = {
         id: doc.categoryId || doc.id.split("_").slice(1).join("_"),
         name: doc.name,
+        ...(rawTranslations && Object.keys(rawTranslations).length > 0 ? { translations: rawTranslations } : {}),
         icon: doc.icon,
         description: doc.description,
+        ...(rawDescTranslations && Object.keys(rawDescTranslations).length > 0
+            ? { descriptionTranslations: rawDescTranslations }
+            : {}),
         sortOrder: doc.sortOrder
     };
     if (doc.updatedAt) {

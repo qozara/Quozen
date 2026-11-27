@@ -18,7 +18,16 @@ export type HeaderMap = Record<string, number>;
 export const DEFAULT_EXPENSE_MAP: HeaderMap = { id: 0, date: 1, description: 2, amount: 3, paidBy: 4, category: 5, splits: 6, meta: 7 };
 export const DEFAULT_SETTLEMENT_MAP: HeaderMap = { id: 0, date: 1, fromUserId: 2, toUserId: 3, amount: 4, method: 5, notes: 6, updatedAt: 7 };
 export const DEFAULT_MEMBER_MAP: HeaderMap = { userId: 0, email: 1, name: 2, role: 3, joinedAt: 4, updatedAt: 5 };
-export const DEFAULT_CATEGORY_MAP: HeaderMap = { id: 0, name: 1, icon: 2, description: 3, updatedAt: 4, deletedAt: 5 };
+export const DEFAULT_CATEGORY_MAP: HeaderMap = {
+    id: 0,
+    name: 1,
+    name_es: 2,
+    icon: 3,
+    description: 4,
+    description_es: 5,
+    updatedAt: 6,
+    deletedAt: 7
+};
 
 
 function getHeaderIndex(headerMap: HeaderMap, key: string, fallbackIndex?: number): number | undefined {
@@ -341,26 +350,83 @@ export class SheetDataMapper {
     }
 
     static mapToCategory(row: any[], rowIndex: number, headerMap: HeaderMap = DEFAULT_CATEGORY_MAP): SheetRow<ExpenseCategory> {
-        const id = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'id', 0)!]);
-        const name = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'name', 1)!]);
-        const icon = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'icon', 2)!]);
-        const description = desanitizeSheetValue(row[getHeaderIndex(headerMap, 'description', 3)!]);
-        const updatedAtCol = row[getHeaderIndex(headerMap, 'updatedAt', 4)!];
-        const deletedAtCol = row[getHeaderIndex(headerMap, 'deletedAt', 5)!];
+        const isDefaultMap = headerMap === DEFAULT_CATEGORY_MAP;
+        const idIdx = getHeaderIndex(headerMap, 'id', 0)!;
+        const nameIdx = getHeaderIndex(headerMap, 'name', 1)!;
+        const iconIdx = getHeaderIndex(headerMap, 'icon', isDefaultMap ? 3 : undefined);
+        const descIdx = getHeaderIndex(headerMap, 'description', isDefaultMap ? 4 : undefined);
+        const updatedAtIdx = getHeaderIndex(headerMap, 'updatedAt', isDefaultMap ? 6 : undefined);
+        const deletedAtIdx = getHeaderIndex(headerMap, 'deletedAt', isDefaultMap ? 7 : undefined);
+
+        const id = desanitizeSheetValue(row[idIdx]);
+        const name = desanitizeSheetValue(row[nameIdx]);
+        const icon = iconIdx !== undefined ? desanitizeSheetValue(row[iconIdx]) : "";
+        const description = descIdx !== undefined ? desanitizeSheetValue(row[descIdx]) : "";
+        const updatedAtCol = updatedAtIdx !== undefined ? row[updatedAtIdx] : undefined;
+        const deletedAtCol = deletedAtIdx !== undefined ? row[deletedAtIdx] : undefined;
 
         const updatedAt = updatedAtCol ? safeDate(updatedAtCol) : undefined;
         const deletedAt = deletedAtCol ? safeDate(deletedAtCol) : undefined;
 
+        const translations: Record<string, string> = {};
+        const descriptionTranslations: Record<string, string> = {};
+
+        for (const [headerName, colIdx] of Object.entries(headerMap)) {
+            const nameMatch = /^name[_-]([a-z]{2}(?:[_-][a-z0-9]+)?)$/i.exec(headerName.trim());
+            if (nameMatch) {
+                const localeKey = nameMatch[1].toLowerCase().replace(/_/g, "-");
+                const val = desanitizeSheetValue(row[colIdx]).trim();
+                if (val) {
+                    translations[localeKey] = val;
+                }
+                continue;
+            }
+            const descMatch = /^description[_-]([a-z]{2}(?:[_-][a-z0-9]+)?)$/i.exec(headerName.trim());
+            if (descMatch) {
+                const localeKey = descMatch[1].toLowerCase().replace(/_/g, "-");
+                const val = desanitizeSheetValue(row[colIdx]).trim();
+                if (val) {
+                    descriptionTranslations[localeKey] = val;
+                }
+            }
+        }
+
         const category: ExpenseCategory = {
             id: id ? String(id).trim() : "",
             name: name || "",
+            ...(Object.keys(translations).length > 0 ? { translations } : {}),
             icon: icon || "",
             description: description || "",
+            ...(Object.keys(descriptionTranslations).length > 0 ? { descriptionTranslations } : {}),
             updatedAt,
             deletedAt
         };
 
         return { entity: category, rowIndex };
+    }
+
+    static mapCategoriesTable(rows: any[][]): SheetRow<ExpenseCategory>[] {
+        if (!Array.isArray(rows) || rows.length <= 1) return [];
+        const headers = rows[0].map((h: any) => String(h ?? "").trim());
+        const headerMap = SheetDataMapper.buildHeaderMap(headers);
+        const nonEmptyRow = (r: any[]) =>
+            Array.isArray(r) && r.some(cell => String(cell ?? "").trim() !== "");
+
+        return rows
+            .slice(1)
+            .map((r: any[], idx: number) => ({ row: r, rowIndex: idx + 2 }))
+            .filter(({ row }) => nonEmptyRow(row))
+            .map(({ row, rowIndex }, orderIdx) => {
+                const mapped = SheetDataMapper.mapToCategory(row, rowIndex, headerMap);
+                return {
+                    rowIndex: mapped.rowIndex,
+                    entity: {
+                        ...mapped.entity,
+                        sortOrder: orderIdx
+                    }
+                };
+            })
+            .filter(item => Boolean(item.entity.id));
     }
 
     static mapFromCategory(category: ExpenseCategory, headerMap: HeaderMap = DEFAULT_CATEGORY_MAP): any[] {
@@ -379,8 +445,34 @@ export class SheetDataMapper {
 
         setCol('id', sanitizeSheetValue(category.id));
         setCol('name', sanitizeSheetValue(category.name));
+        if (category.translations) {
+            for (const [lang, val] of Object.entries(category.translations)) {
+                if (!val) continue;
+                const safeVal = sanitizeSheetValue(val);
+                const underscoreKey = `name_${lang}`;
+                const hyphenKey = `name-${lang}`;
+                if (getHeaderIndex(headerMap, underscoreKey) !== undefined) {
+                    setCol(underscoreKey, safeVal);
+                } else if (getHeaderIndex(headerMap, hyphenKey) !== undefined) {
+                    setCol(hyphenKey, safeVal);
+                }
+            }
+        }
         setCol('icon', sanitizeSheetValue(category.icon || ""));
         setCol('description', sanitizeSheetValue(category.description || ""));
+        if (category.descriptionTranslations) {
+            for (const [lang, val] of Object.entries(category.descriptionTranslations)) {
+                if (!val) continue;
+                const safeVal = sanitizeSheetValue(val);
+                const underscoreKey = `description_${lang}`;
+                const hyphenKey = `description-${lang}`;
+                if (getHeaderIndex(headerMap, underscoreKey) !== undefined) {
+                    setCol(underscoreKey, safeVal);
+                } else if (getHeaderIndex(headerMap, hyphenKey) !== undefined) {
+                    setCol(hyphenKey, safeVal);
+                }
+            }
+        }
         setCol('updatedAt', updatedIso);
         if (category.deletedAt) {
             setCol('deletedAt', safeIso(category.deletedAt, updatedIso));

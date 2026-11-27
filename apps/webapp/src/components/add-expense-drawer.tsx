@@ -3,8 +3,10 @@ import { useAppContext } from "@/context/app-context";
 import { useToast } from "@/hooks/use-toast";
 import { quozen } from "@/lib/storage";
 import ExpenseForm from "@/components/expense-form";
+import { CategoryDrawerHeader, useActiveCategoryState } from "@/components/category-icon";
+import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
-import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import { useGroups } from "@/hooks/use-groups";
 import { WifiOff } from "lucide-react";
@@ -47,6 +49,13 @@ export default function AddExpenseDrawer() {
         queryFn: () => quozen.ledger(activeGroupId, currentUserId).getLedger(),
         enabled: !!activeGroupId && isAddExpenseOpen,
     });
+
+    const {
+        activeCategoryId,
+        setActiveCategoryId,
+        availableCategories,
+        categoryTheme,
+    } = useActiveCategoryState(expenseDraft?.category, ledger?.categories, isAddExpenseOpen);
 
     const users = ledger?.members || [];
     const effectiveAccountId = (() => {
@@ -102,22 +111,27 @@ export default function AddExpenseDrawer() {
             else setIsAddExpenseOpen(true);
         }}>
             <DrawerContent
+                className={cn(
+                    "overflow-hidden transition-colors duration-300 motion-reduce:transition-none",
+                    categoryTheme.topBorder
+                )}
                 onCloseAutoFocus={(event) => {
                     if (event.defaultPrevented) return;
                 }}
             >
-                <DrawerHeader>
-                    <DrawerTitle data-testid="drawer-title-add-expense">
-                        {expenseDraft ? t("expenseForm.reviewDraftTitle", "Review Expense") : t("expenseForm.addTitle")}
-                    </DrawerTitle>
-                    <DrawerDescription>
-                        {expenseDraft
+                <CategoryDrawerHeader
+                    categoryId={activeCategoryId}
+                    categories={availableCategories}
+                    title={expenseDraft ? t("expenseForm.reviewDraftTitle", "Review Expense") : t("expenseForm.addTitle")}
+                    titleTestId="drawer-title-add-expense"
+                    description={
+                        expenseDraft
                             ? t("expenseForm.reviewDraftDesc", "Confirm or adjust details before saving.")
-                            : t("expenseForm.missingInfoDesc")}
-                    </DrawerDescription>
-                </DrawerHeader>
+                            : t("expenseForm.missingInfoDesc")
+                    }
+                />
 
-                <div className="flex-1 overflow-y-auto px-4 pb-0">
+                <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-0">
                     {isUnhydratedOffline ? (
                         <div className="py-8 px-4 my-4 rounded-xl border border-dashed border-muted-foreground/30 bg-muted/20 flex flex-col items-center text-center space-y-4" data-testid="unhydrated-group-offline">
                             <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400 flex items-center justify-center">
@@ -140,6 +154,7 @@ export default function AddExpenseDrawer() {
                             categories={ledger?.categories}
                             currentUserId={effectiveAccountId}
                             isPending={expenseMutation.isPending}
+                            onCategoryChange={setActiveCategoryId}
                             onSubmit={(data) => expenseMutation.mutate(data)}
                             onCancel={handleClose}
                             isDrawer

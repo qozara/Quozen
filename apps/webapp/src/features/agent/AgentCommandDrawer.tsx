@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Zap, Send, RefreshCw } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from '@/components/ui/drawer';
@@ -11,6 +11,7 @@ export const AgentCommandDrawer: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [prompt, setPrompt] = useState('');
     const [isThinking, setIsThinking] = useState(false);
+    const handedOffRef = useRef(false);
     const { t } = useTranslation();
     const { executeCommand } = useAgent();
 
@@ -22,6 +23,7 @@ export const AgentCommandDrawer: React.FC = () => {
         setIsThinking(false);
 
         if (result.success) {
+            handedOffRef.current = true;
             setIsOpen(false);
             setPrompt('');
         }
@@ -45,7 +47,14 @@ export const AgentCommandDrawer: React.FC = () => {
             {slot && createPortal(trigger, slot)}
 
             <Drawer open={isOpen} onOpenChange={setIsOpen}>
-                <DrawerContent>
+                <DrawerContent
+                    onCloseAutoFocus={(event) => {
+                        if (handedOffRef.current) {
+                            event.preventDefault();
+                            handedOffRef.current = false;
+                        }
+                    }}
+                >
                     <DrawerHeader>
                         <DrawerTitle className="flex items-center gap-2" data-testid="drawer-title-ai">
                             <Zap className="w-5 h-5 text-primary" />

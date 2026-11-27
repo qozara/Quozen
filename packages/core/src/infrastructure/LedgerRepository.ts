@@ -2,7 +2,7 @@ import { IStorageLayer } from "./IStorageLayer";
 import { Expense, Settlement, Member, ExpenseCategory } from "../domain/models";
 import { DEFAULT_CATEGORIES } from "../domain/categories";
 import { ConflictError } from "../errors";
-import { SheetDataMapper, HeaderMap, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP, DEFAULT_CATEGORY_MAP } from "./SheetDataMapper";
+import { SheetDataMapper, HeaderMap, DEFAULT_EXPENSE_MAP, DEFAULT_SETTLEMENT_MAP, DEFAULT_MEMBER_MAP } from "./SheetDataMapper";
 import type { QuozenDatabase } from "../db";
 import { CategoryIntegrityReconciler } from "../db/CategoryIntegrityReconciler";
 import {
@@ -27,7 +27,6 @@ export class LedgerRepository {
     private expenseHeaderMap: HeaderMap = DEFAULT_EXPENSE_MAP;
     private settlementHeaderMap: HeaderMap = DEFAULT_SETTLEMENT_MAP;
     private memberHeaderMap: HeaderMap = DEFAULT_MEMBER_MAP;
-    private categoryHeaderMap: HeaderMap = DEFAULT_CATEGORY_MAP;
 
     private static hydrationPromises = new WeakMap<object, Map<string, Promise<void>>>();
     private static iconMemoryCache = new Map<string, string>();
@@ -142,6 +141,38 @@ export class LedgerRepository {
         }
     }
 
+    private sortCategories(categories: ExpenseCategory[]): ExpenseCategory[] {
+        return [...categories].sort((a, b) => {
+            const orderA = typeof a.sortOrder === "number" ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+            const orderB = typeof b.sortOrder === "number" ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+            if (orderA !== orderB) return orderA - orderB;
+            return a.id.localeCompare(b.id);
+        });
+    }
+
+    private async hydrateCategoriesFromStorage(): Promise<void> {
+        if (!this.db || !this.storage || !this.groupId) return;
+
+        let categoryRows: any[][] = [];
+        try {
+            const catRes = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
+            categoryRows = catRes[0]?.values || [];
+        } catch {
+            categoryRows = [];
+        }
+
+        const mappedCategories = SheetDataMapper.mapCategoriesTable(categoryRows);
+        if (mappedCategories.length > 0) {
+            const cDocs = mappedCategories.map(({ entity }) => categoryToDoc(entity, this.groupId));
+            await this.db.collections.categories.bulkUpsert(cDocs);
+            ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
+        } else {
+            const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
+            await this.db.collections.categories.bulkUpsert(cDocs);
+            ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
+        }
+    }
+
     private async performHydration(): Promise<void> {
         if (!this.db || !this.storage || !this.groupId) return;
 
@@ -212,32 +243,7 @@ export class LedgerRepository {
                 }
             }
 
-            let categoryRows: any[][] = [];
-            try {
-                const catRes = await this.storage.batchGetValues(this.groupId, ["Categories!A1:Z"]);
-                categoryRows = catRes[0]?.values || [];
-            } catch {
-                categoryRows = [];
-            }
-
-            if (categoryRows.length > 1) {
-                const cHeaders = SheetDataMapper.buildHeaderMap(categoryRows[0]);
-                const cDocs = categoryRows
-                    .slice(1)
-                    .filter(nonEmptyRow)
-                    .map((r: any[], i: number) =>
-                        categoryToDoc(SheetDataMapper.mapToCategory(r, i + 2, cHeaders).entity, this.groupId)
-                    )
-                    .filter((d: any) => Boolean(d.categoryId));
-                if (cDocs.length > 0) {
-                    await this.db.collections.categories.bulkUpsert(cDocs);
-                    ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
-                }
-            } else {
-                const cDocs = DEFAULT_CATEGORIES.map(c => categoryToDoc(c, this.groupId));
-                await this.db.collections.categories.bulkUpsert(cDocs);
-                ReplicationCoordinator.recordHydratedCheckpoints(this.db.name, cDocs);
-            }
+            await this.hydrateCategoriesFromStorage();
 
             ReplicationCoordinator.markGroupHydrated(this.db.name, this.groupId);
             await CategoryIntegrityReconciler.reconcile(this.db, this.groupId);
@@ -319,10 +325,12 @@ export class LedgerRepository {
             .find({ selector: { groupId: this.groupId } })
             .$.pipe(
                 map(docs =>
-                    docs
-                        .map(d => d.toJSON())
-                        .filter(d => !d.deletedAt)
-                        .map(d => docToCategory(d))
+                    this.sortCategories(
+                        docs
+                            .map(d => d.toJSON())
+                            .filter(d => !d.deletedAt)
+                            .map(d => docToCategory(d))
+                    )
                 )
             );
     }
@@ -356,10 +364,12 @@ export class LedgerRepository {
         if (this.db) {
             await this.hydrateFromStorageIfNeeded();
             const docs = await this.db.collections.categories.find({ selector: { groupId: this.groupId } }).exec();
-            const categories = docs
-                .map(d => d.toJSON())
-                .filter(d => !d.deletedAt)
-                .map(d => docToCategory(d));
+            const categories = this.sortCategories(
+                docs
+                    .map(d => d.toJSON())
+                    .filter(d => !d.deletedAt)
+                    .map(d => docToCategory(d))
+            );
             if (categories.length > 0) {
                 return categories;
             }
@@ -372,13 +382,12 @@ export class LedgerRepository {
             const rows = res[0]?.values || [];
             if (rows.length <= 1) return [...DEFAULT_CATEGORIES];
 
-            const headers = rows[0].map((h: any) => String(h).trim());
-            this.categoryHeaderMap = SheetDataMapper.buildHeaderMap(headers);
+            const mapped = SheetDataMapper.mapCategoriesTable(rows);
+            if (mapped.length === 0) return [...DEFAULT_CATEGORIES];
 
-            return rows.slice(1).map((r: any[], i: number) => {
-                const mapped = SheetDataMapper.mapToCategory(r, i + 2, this.categoryHeaderMap);
-                this.categoryRowMap.set(mapped.entity.id, mapped.rowIndex);
-                return mapped.entity;
+            return mapped.map(({ entity, rowIndex }) => {
+                this.categoryRowMap.set(entity.id, rowIndex);
+                return entity;
             });
         } catch {
             return [...DEFAULT_CATEGORIES];

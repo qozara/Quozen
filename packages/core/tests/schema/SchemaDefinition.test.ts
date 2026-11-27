@@ -51,8 +51,16 @@ describe("QuozenSchema Validation Definitions", () => {
         expect(emailColumn!.required).toBeFalsy();
     });
 
-    it("should define QuozenSchema version as 3", () => {
-        expect(QuozenSchema.version).toBe(3);
+    it("should define QuozenSchema version as 4 with localized category columns", () => {
+        expect(QuozenSchema.version).toBe(4);
+        const categoriesTab = QuozenSchema.tabs.find(t => t.name === "Categories");
+        expect(categoriesTab).toBeDefined();
+        expect(categoriesTab!.columns.find(c => c.name === "id")?.required).toBe(true);
+        expect(categoriesTab!.columns.find(c => c.name === "name")?.required).toBe(true);
+        expect(categoriesTab!.columns.find(c => c.name === "name_es")).toBeDefined();
+        expect(categoriesTab!.columns.find(c => c.name === "name_es")?.required).toBeFalsy();
+        expect(categoriesTab!.columns.find(c => c.name === "description_es")).toBeDefined();
+        expect(categoriesTab!.columns.find(c => c.name === "description_es")?.required).toBeFalsy();
     });
 
     it("should define _meta tab with required columns", () => {

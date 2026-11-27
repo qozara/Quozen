@@ -37,10 +37,19 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
         expect(migRows[0]).toEqual(["version", "migrated_at"]);
         expect(Number(migRows[1]?.[0])).toBe(QuozenSchema.version);
 
-        // 3. Verify Categories header contains all QuozenSchema columns including deletedAt
+        // 3. Verify Categories header contains all QuozenSchema columns including localized fields and deletedAt
         const catRes = await adapter.batchGetValues(group.id, ["Categories!1:1"]);
         const catHeader = catRes[0]?.values?.[0] || [];
-        expect(catHeader).toEqual(["id", "name", "icon", "description", "updatedAt", "deletedAt"]);
+        expect(catHeader).toEqual([
+            "id",
+            "name",
+            "name_es",
+            "icon",
+            "description",
+            "description_es",
+            "updatedAt",
+            "deletedAt"
+        ]);
 
         // 4. Verify checkHealth with SchemaEngine confirms READY (NOT CORRUPTED)
         const bridgeClient = {
@@ -67,7 +76,7 @@ describe('GroupRepository (Metadata & Sharing Rules)', () => {
             { range: "Expenses!A1", values: [["id", "date", "description", "amount", "paidBy", "category", "splits", "meta"]] },
             { range: "Settlements!A1", values: [["id", "date", "fromUserId", "toUserId", "amount", "method", "notes"]] },
             { range: "Members!A1", values: [["userId", "email", "name", "role", "joinedAt"]] },
-            { range: "Categories!A1", values: [["id", "name", "icon", "description", "updatedAt"]] }, // missing deletedAt!
+            { range: "Categories!A1", values: [["id", "name", "name_es", "icon", "description", "description_es", "updatedAt"]] }, // missing deletedAt!
             { range: "_migrations!A1:B2", values: [["version", "migrated_at"], [QuozenSchema.version, new Date().toISOString()]] },
             { range: "_meta!A1", values: [["key", "value", "updatedAt"]] }
         ]);

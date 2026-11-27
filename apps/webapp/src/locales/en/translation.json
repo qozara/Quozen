@@ -175,6 +175,14 @@
             "recoverHint": "Or find an existing file in Drive"
         }
     },
+    "categories": {
+        "food_dining": "Food & Dining",
+        "transportation": "Transportation",
+        "accommodation": "Accommodation",
+        "entertainment": "Entertainment",
+        "shopping": "Shopping",
+        "other": "Other"
+    },
     "expenseForm": {
         "addTitle": "Add Expense",
         "editTitle": "Edit Expense",
@@ -185,6 +193,7 @@
         "date": "Date",
         "splitBetween": "Split Between",
         "selectCategory": "Select category",
+        "autoCategoryHint": "Auto-matched",
         "save": "Save Expense",
         "saving": "Saving...",
         "missingInfo": "Missing information",
@@ -195,6 +204,14 @@
         "splitMismatchDesc": "Split amounts don't match expense amount.",
         "invalidAmount": "Invalid amount",
         "invalidAmountDesc": "Please enter a valid numeric value for the amount.",
+        "errors": {
+            "categoryRequired": "Please select a category.",
+            "descriptionRequired": "Please enter a description.",
+            "amountRequired": "Please enter an amount.",
+            "amountInvalid": "Please enter a valid amount greater than 0.",
+            "paidByRequired": "Please select who paid.",
+            "dateRequired": "Please select a date."
+        },
         "you": "You",
         "youNamed": "You ({{name}})",
         "addError": "Failed to add expense. Please try again.",

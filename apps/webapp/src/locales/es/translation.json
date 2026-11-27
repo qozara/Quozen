@@ -175,6 +175,14 @@
             "recoverHint": "O busca un archivo existente en Drive"
         }
     },
+    "categories": {
+        "food_dining": "Comida y bebida",
+        "transportation": "Transporte",
+        "accommodation": "Alojamiento",
+        "entertainment": "Entretenimiento",
+        "shopping": "Compras",
+        "other": "Otros"
+    },
     "expenseForm": {
         "addTitle": "Añadir Gasto",
         "editTitle": "Editar Gasto",
@@ -185,6 +193,7 @@
         "date": "Fecha",
         "splitBetween": "Dividir Entre",
         "selectCategory": "Seleccionar categoría",
+        "autoCategoryHint": "Detectada",
         "save": "Guardar Gasto",
         "saving": "Guardando...",
         "missingInfo": "Información faltante",
@@ -195,6 +204,14 @@
         "splitMismatchDesc": "Los montos divididos no coinciden con el total.",
         "invalidAmount": "Monto inválido",
         "invalidAmountDesc": "Por favor ingresa un valor numérico válido para el monto.",
+        "errors": {
+            "categoryRequired": "Por favor selecciona una categoría.",
+            "descriptionRequired": "Por favor ingresa una descripción.",
+            "amountRequired": "Por favor ingresa un monto.",
+            "amountInvalid": "Por favor ingresa un monto válido mayor a 0.",
+            "paidByRequired": "Por favor selecciona quién pagó.",
+            "dateRequired": "Por favor selecciona una fecha."
+        },
         "you": "Tú",
         "youNamed": "Tú ({{name}})",
         "addError": "No se pudo añadir el gasto. Inténtalo de nuevo.",

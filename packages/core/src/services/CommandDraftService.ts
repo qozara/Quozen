@@ -1,6 +1,11 @@
 import { Ledger } from '../domain/Ledger';
 import { Member, ExpenseSplit } from '../domain/models';
-import { resolveCategory, DEFAULT_CATEGORY_ID } from '../domain/categories';
+import {
+  resolveCategory,
+  DEFAULT_CATEGORY_ID,
+  getLocalizedCategoryName,
+  getLocalizedCategoryDescription
+} from '../domain/categories';
 import { distributeAmount } from '../finance';
 import { StandardCommandParser } from '../parser/StandardCommandParser';
 import type {
@@ -157,7 +162,11 @@ export class CommandDraftService {
           locale,
           meName,
           memberNames: members.map(m => m.name),
-          categories: (ledger.categories || []).map(c => ({ id: c.id, name: c.name, description: c.description }))
+          categories: (ledger.categories || []).map(c => ({
+            id: c.id,
+            name: getLocalizedCategoryName(c, locale),
+            description: getLocalizedCategoryDescription(c, locale)
+          }))
         });
 
         if (escalated) {

@@ -4,11 +4,13 @@ import { useAppContext } from "@/context/app-context";
 import { quozen } from "@/lib/storage";
 import { useToast } from "@/hooks/use-toast";
 import ExpenseForm from "@/components/expense-form";
+import { CategoryDrawerHeader, useActiveCategoryState } from "@/components/category-icon";
+import { cn } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useState, useEffect } from "react";
 import { ConflictError, NotFoundError } from "@quozen/core";
 import { useTranslation } from "react-i18next";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription } from "@/components/ui/drawer";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
 
 export default function EditExpense() {
   const { id } = useParams();
@@ -28,6 +30,12 @@ export default function EditExpense() {
   });
 
   const expense = ledger?.expenses.find((e: any) => e.id === id);
+  const {
+    activeCategoryId,
+    setActiveCategoryId,
+    availableCategories,
+    categoryTheme,
+  } = useActiveCategoryState(expense?.category, ledger?.categories);
 
   useEffect(() => {
     if (!isLoading && ledger && !expense) {
@@ -115,18 +123,28 @@ export default function EditExpense() {
   return (
     <>
       <Drawer open={true} onOpenChange={(open) => !open && handleBack()}>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader>
-            <DrawerTitle data-testid="drawer-title-edit-expense">{t("expenseForm.editTitle")}</DrawerTitle>
-            <DrawerDescription className="sr-only">Edit expense form</DrawerDescription>
-          </DrawerHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-0">
+        <DrawerContent
+          className={cn(
+            "max-h-[85vh] overflow-hidden transition-colors duration-300 motion-reduce:transition-none",
+            categoryTheme.topBorder
+          )}
+        >
+          <CategoryDrawerHeader
+            categoryId={activeCategoryId}
+            categories={availableCategories}
+            title={t("expenseForm.editTitle")}
+            titleTestId="drawer-title-edit-expense"
+            description="Edit expense form"
+            descriptionClassName="sr-only"
+          />
+          <div className="relative z-10 flex-1 overflow-y-auto px-4 pb-0">
             <ExpenseForm
               initialData={expense}
               users={ledger.members}
               categories={ledger.categories}
               currentUserId={currentUserId}
               isPending={editMutation.isPending}
+              onCategoryChange={setActiveCategoryId}
               onSubmit={(data) => editMutation.mutate(data)}
               onCancel={handleBack}
               isDrawer

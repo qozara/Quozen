@@ -4,6 +4,9 @@ import {
     DEFAULT_CATEGORY_ID,
     normalizeLegacyCategory,
     resolveCategory,
+    inferCategoryFromText,
+    getLocalizedCategoryName,
+    getLocalizedCategoryDescription,
     isValidCategoryId,
     humanizeCategoryId,
     ExpenseCategory
@@ -118,6 +121,115 @@ describe("Domain: Categories", () => {
             expect(resolveCategory("", DEFAULT_CATEGORIES)).toBeUndefined();
             expect(resolveCategory(null, DEFAULT_CATEGORIES)).toBeUndefined();
             expect(resolveCategory("unknown_category", DEFAULT_CATEGORIES)).toBeUndefined();
+        });
+    });
+
+    describe("inferCategoryFromText", () => {
+        it("infers default categories from multi-word English and Spanish descriptions", () => {
+            expect(inferCategoryFromText("Uber to airport", DEFAULT_CATEGORIES)?.id).toBe("transportation");
+            expect(inferCategoryFromText("Cena en restaurante", DEFAULT_CATEGORIES)?.id).toBe("food_dining");
+            expect(inferCategoryFromText("Hotel check-in Madrid", DEFAULT_CATEGORIES)?.id).toBe("accommodation");
+            expect(inferCategoryFromText("Entradas cine viernes", DEFAULT_CATEGORIES)?.id).toBe("entertainment");
+            expect(inferCategoryFromText("Ropa en tienda", DEFAULT_CATEGORIES)?.id).toBe("shopping");
+        });
+
+        it("infers custom categories when an unambiguous keyword matches", () => {
+            const customCategories: ExpenseCategory[] = [
+                { id: "office_supplies", name: "Office Supplies", icon: "briefcase", description: "Paper, pens, toner" },
+                { id: "coffee_runs", name: "Coffee & Snacks", icon: "coffee", description: "Espresso, snacks, fruit" },
+                { id: "team_travel", name: "Team Travel", icon: "plane", description: "Flights, taxis, trains" }
+            ];
+
+            expect(inferCategoryFromText("Morning espresso", customCategories)?.id).toBe("coffee_runs");
+            expect(inferCategoryFromText("Printer toner refill", customCategories)?.id).toBe("office_supplies");
+        });
+
+        it("returns undefined when keywords ambiguously match multiple categories", () => {
+            const customCategories: ExpenseCategory[] = [
+                { id: "office_supplies", name: "Office Supplies", icon: "briefcase", description: "Paper, pens, toner" },
+                { id: "coffee_runs", name: "Coffee & Snacks", icon: "coffee", description: "Espresso, snacks, fruit" },
+                { id: "team_travel", name: "Team Travel", icon: "plane", description: "Flights, taxis, trains" }
+            ];
+
+            expect(inferCategoryFromText("Team Coffee", customCategories)).toBeUndefined();
+            expect(inferCategoryFromText("Uber and Hotel", DEFAULT_CATEGORIES)).toBeUndefined();
+        });
+
+        it("returns undefined for empty, non-string, or unrecognized descriptions", () => {
+            expect(inferCategoryFromText("", DEFAULT_CATEGORIES)).toBeUndefined();
+            expect(inferCategoryFromText("   ", DEFAULT_CATEGORIES)).toBeUndefined();
+            expect(inferCategoryFromText(null, DEFAULT_CATEGORIES)).toBeUndefined();
+            expect(inferCategoryFromText("Quarterly balance adjustment", DEFAULT_CATEGORIES)).toBeUndefined();
+        });
+    });
+
+    describe("Category Localization (name & description)", () => {
+        it("resolves English canonical and Spanish localized names and descriptions for DEFAULT_CATEGORIES", () => {
+            const food = DEFAULT_CATEGORIES.find(c => c.id === "food_dining")!;
+            expect(getLocalizedCategoryName(food, "en")).toBe("Food & Dining");
+            expect(getLocalizedCategoryName(food, "es")).toBe("Comida y bebida");
+            expect(getLocalizedCategoryName(food, "es-419")).toBe("Comida y bebida");
+
+            expect(getLocalizedCategoryDescription(food, "en")).toBe("Restaurants, groceries, drinks");
+            expect(getLocalizedCategoryDescription(food, "es-419")).toBe("Restaurantes, supermercado, bebidas");
+        });
+
+        it("supports custom categories with translations (including future locales) and falls back to canonical name when missing", () => {
+            const translatedCustom: ExpenseCategory = {
+                id: "pet_care",
+                name: "Pet Care",
+                translations: { es: "Mascotas", pt: "Animais" },
+                icon: "dog",
+                description: "Vet and pet food",
+                descriptionTranslations: { es: "Veterinario y alimento" }
+            };
+
+            expect(getLocalizedCategoryName(translatedCustom, "en-US")).toBe("Pet Care");
+            expect(getLocalizedCategoryName(translatedCustom, "es-419")).toBe("Mascotas");
+            expect(getLocalizedCategoryName(translatedCustom, "pt-BR")).toBe("Animais");
+            // Unprovided locale falls back to canonical name
+            expect(getLocalizedCategoryName(translatedCustom, "fr")).toBe("Pet Care");
+
+            expect(getLocalizedCategoryDescription(translatedCustom, "es")).toBe("Veterinario y alimento");
+            expect(getLocalizedCategoryDescription(translatedCustom, "fr")).toBe("Vet and pet food");
+
+            // Custom category with NO translations uses user-entered value in all languages
+            const untranslatedCustom: ExpenseCategory = {
+                id: "asado_club",
+                name: "Asado del finde",
+                icon: "flame",
+                description: "Carne y carbón"
+            };
+            expect(getLocalizedCategoryName(untranslatedCustom, "en")).toBe("Asado del finde");
+            expect(getLocalizedCategoryName(untranslatedCustom, "es")).toBe("Asado del finde");
+            expect(getLocalizedCategoryDescription(untranslatedCustom, "en")).toBe("Carne y carbón");
+
+            // User-renamed default category without explicit translation preserves the user's custom name
+            const renamedDefault: ExpenseCategory = {
+                id: "food_dining",
+                name: "Work Catering",
+                icon: "utensils",
+                description: "Client lunches"
+            };
+            expect(getLocalizedCategoryName(renamedDefault, "es")).toBe("Work Catering");
+            expect(getLocalizedCategoryDescription(renamedDefault, "es")).toBe("Client lunches");
+        });
+
+        it("resolves and infers custom categories via their translated names and descriptions", () => {
+            const cats: ExpenseCategory[] = [
+                ...DEFAULT_CATEGORIES,
+                {
+                    id: "pet_care",
+                    name: "Pet Care",
+                    translations: { es: "Mascotas" },
+                    icon: "dog",
+                    description: "Vet visits",
+                    descriptionTranslations: { es: "Veterinario y vacunas" }
+                }
+            ];
+
+            expect(resolveCategory("Mascotas", cats)?.id).toBe("pet_care");
+            expect(inferCategoryFromText("Consulta veterinario Firulais", cats)?.id).toBe("pet_care");
         });
     });
 
